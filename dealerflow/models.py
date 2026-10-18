@@ -79,7 +79,7 @@ class User(TimestampMixin, Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime)
     # Set only for role == "client": the dealership client this user belongs to.
-    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE", name="fk_users_client_id"), index=True)
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE", name="fk_users_client_id", use_alter=True), index=True)
 
     @property
     def is_client(self) -> bool:

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Invoices{% endblock %}
+{% block content %}
+<h1>Invoices</h1>
+<p class="note">An invoice is not cash. Only confirmed payments count as collected.</p>
+{% if invoices %}<table><thead><tr><th scope="col">Number</th><th scope="col">Client</th><th scope="col">Issued</th><th scope="col">Due</th><th scope="col">Status</th><th scope="col">Total</th><th scope="col">Balance</th><th scope="col">Source</th></tr></thead><tbody>
+{% for i in invoices %}<tr><td><a href="/finance/invoices/{{ i.id }}">{{ i.number }}</a></td><td>{{ names[i.client_id] }}</td><td>{{ i.issue_date }}</td><td>{{ i.due_date }}</td>
+<td><span class="pill {{ f.invoice_display_status(i) }}">{{ f.invoice_display_status(i)|label }}</span></td><td>{{ f.invoice_total(i)|money }}</td><td>{{ f.invoice_balance(i)|money }}</td><td>{{ i.source }}</td></tr>{% endfor %}
+</tbody></table>{% else %}<p class="empty">No invoices yet.</p>{% endif %}
+{% if role_at_least(user.role, 'admin') %}<section class="card">
+  <h2>New invoice (manual entry)</h2>
+  <form method="post" action="/finance/invoices" class="fgrid">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Client<select name="client_id" required>{% for cid, n in names.items() %}<option value="{{ cid }}">{{ n }}</option>{% endfor %}</select></label>
+    <label>Issue date<input type="date" name="issue_date" value="{{ today }}" required></label>
+    <label>Due date<input type="date" name="due_date" required></label>
+    <label>Line type<select name="kind"><option value="one_time">One-time service</option><option value="setup">Setup fee</option><option value="recurring">Recurring fee</option></select></label>
+    <label>Description<input name="description" required></label>
+    <label>Amount ($)<input name="amount" inputmode="decimal" required></label>
+    <label>Discount ($, optional)<input name="discount" inputmode="decimal"></label>
+    <label>Notes<input name="notes"></label>
+    <button type="submit">Create draft</button>
+  </form>
+  <p class="muted">For agreement billing use "Draft this month's invoice" on the client page.</p>
+</section>{% endif %}
+{% endblock %}

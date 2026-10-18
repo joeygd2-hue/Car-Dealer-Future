@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Usage & costs{% endblock %}
+{% block content %}
+<h1>AI and integration costs</h1>
+<form method="get" class="row"><label>From <input type="date" name="start" value="{{ start }}"></label><label>To <input type="date" name="end" value="{{ end }}"></label><button>Apply</button></form>
+<div class="grid">
+  <div class="stat"><span class="l">Verified (from provider billing)</span><div class="n">{{ use.totals.verified_billing|dollars }}</div></div>
+  <div class="stat"><span class="l">Estimated (measured usage × rate)</span><div class="n">{{ use.totals.estimated|dollars }}</div><span class="muted small">not an invoice</span></div>
+  <div class="stat"><span class="l">Recorded by a person</span><div class="n">{{ use.totals.recorded|dollars }}</div></div>
+  <div class="stat"><span class="l">Usage with no known rate</span><div class="n">{{ use.totals.unknown_records }}</div><span class="muted small">records; cost not claimed</span></div>
+</div>
+<p class="muted small">Agent budget checks (Agent page) count these entries, including estimates. Rates live in Settings → cost estimates; re-verify them against provider pricing pages.</p>
+{% if use.rows %}<div class="tablewrap"><table><tr><th>Provider</th><th>Category</th><th>Metric</th><th>Quantity (measured)</th><th>Amount</th><th>Basis</th><th>Records</th></tr>
+{% for r in use.rows %}<tr><td>{{ r.provider }}</td><td>{{ r.category }}</td><td>{{ r.metric|label or '—' }}</td><td>{{ '%g'|format(r.quantity) }}</td><td>{{ r.amount|dollars if r.basis != 'unknown' else 'unknown' }}</td>
+<td><span class="pill {{ 'ok' if r.basis == 'verified_billing' else 'est' }}">{{ r.basis|label }}</span></td><td>{{ r.records }}</td></tr>{% endfor %}
+</table></div>{% else %}<p class="empty">No usage recorded in this period.</p>{% endif %}
+
+<div class="two"><div class="card">
+  <h2>Budgets</h2>
+  {% if budgets %}<ul>{% for b in budgets %}<li>{{ b.name }} — {{ b.amount_cents|money }} per {{ b.period }}{% if b.category %} · {{ b.category }}{% endif %} · alert at {{ b.alert_threshold_percent }}% · spike ×{{ b.spike_multiplier }}{% if not b.active %} (inactive){% endif %}</li>{% endfor %}</ul>{% else %}<p class="empty">No budgets configured.</p>{% endif %}
+  {% if role_at_least(user.role, 'admin') %}<form method="post" action="/costs/budgets" class="fgrid"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Name<input name="name" required></label>
+    <label>Cost category<select name="category"><option value="">All</option>{% for c in categories %}<option>{{ c }}</option>{% endfor %}<option>google_places</option></select></label>
+    <label>Period<select name="budget_period"><option>monthly</option><option>daily</option></select></label>
+    <label>Amount ($)<input name="amount" inputmode="decimal" required></label>
+    <label>Alert at %<input name="threshold" type="number" value="80" min="1" max="100"></label>
+    <button>Add budget</button></form>{% endif %}
+</div><div class="card">
+  <h2>Import provider billing (verified costs)</h2>
+  {% if role_at_least(user.role, 'admin') %}<form method="post" action="/costs/import-billing" enctype="multipart/form-data" class="fgrid"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Provider (e.g. anthropic:claude-opus-5-5)<input name="provider" required></label>
+    <label>Category<select name="category">{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select></label>
+    <label class="wide">CSV with columns date, metric, quantity, cost<input type="file" name="file" accept=".csv" required></label>
+    <button>Import</button></form>{% else %}<p class="muted">Admins can import billing exports.</p>{% endif %}
+</div></div>
+
+<div class="card"><h2>Alerts</h2>
+{% if alerts %}<ul>{% for a in alerts %}<li>{{ a.created_at|local }} · <span class="pill {{ 'bad' if a.severity == 'error' else 'warn' }}">{{ a.kind|label }}</span> {{ a.message }}
+{% if not a.acknowledged_at %}<form method="post" action="/alerts/{{ a.id }}/ack" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Acknowledge</button></form>{% else %}<span class="muted small">acknowledged</span>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="empty">No alerts.</p>{% endif %}
+</div>
+{% endblock %}

@@ -100,8 +100,11 @@ def create_app() -> FastAPI:
         return JSONResponse({"detail": "Internal server error"}, status_code=500)
 
     app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parents[1] / "static")), name="static")
-    from . import routes_agent, routes_api, routes_auth, routes_crm, routes_outreach, routes_public, routes_settings
+    from . import forms  # noqa: F401  (registers template filters)
+    from . import (routes_agent, routes_api, routes_auth, routes_clients, routes_crm, routes_finance, routes_ops_api, routes_outreach,
+                   routes_portal, routes_public, routes_seo, routes_settings)
 
-    for mod in (routes_auth, routes_public, routes_crm, routes_outreach, routes_agent, routes_settings, routes_api):
+    for mod in (routes_auth, routes_public, routes_crm, routes_outreach, routes_agent, routes_settings, routes_api,
+                routes_clients, routes_finance, routes_seo, routes_portal, routes_ops_api):
         app.include_router(mod.router)
     return app

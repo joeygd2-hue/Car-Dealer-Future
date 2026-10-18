@@ -906,4 +906,4 @@ def confirm_match(db: Session, tx: BankTransaction, match_type: str, match_id: i
     else:
         raise FinanceError("Unknown match type")
     tx.status = "matched"
-    audit.record(db, "reconciliation.matched", actor=actor, entity_type="BankTransaction", entity_id=tx.id, details={"type": match_type, "id": match_id})
+    audit.record(db, "reconciliation.matched", actor=actor, entity=tx, details={"type": match_type, "id": match_id})

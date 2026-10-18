@@ -80,7 +80,7 @@ def run_audit(db: Session, audit: SeoAudit, http_client: httpx.Client | None = N
         kwargs["sleep"] = sleep
     crawler = Crawler(site.base_url, **kwargs)
     crawl = crawler.crawl()
-    business = {"name": client.name, "phone": client.phone, "address": client.address_line1, "city": client.city}
+    business = {"name": client.name, "phone": client.phone, "address": client.address_line, "city": client.city}
     findings, parsed = run_checks(crawl, crawler.base, business)
 
     perf = None

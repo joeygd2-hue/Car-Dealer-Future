@@ -23,3 +23,14 @@ form.inline{display:inline}.row{display:flex;flex-wrap:wrap;gap:8px;align-items:
 pre{white-space:pre-wrap;word-break:break-word;background:var(--bg);padding:8px;border-radius:6px;margin:4px 0}
 .timeline li{margin-bottom:6px}.kv td:first-child{color:var(--muted);width:160px}
 label{display:block;margin:6px 0 2px;color:var(--muted);font-size:12px}
+/* Phase 4 pages */
+form.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px 12px;align-items:end}
+form.fgrid .wide{grid-column:1/-1}form.fgrid label{margin:0}form.fgrid label input,form.fgrid label select,form.fgrid label textarea{display:block;width:100%;margin-top:2px}
+.note{padding:8px 12px;border-radius:6px;margin:8px 0;border:1px solid var(--warn);color:var(--warn)}
+.empty{color:var(--muted);font-style:italic}
+.pill.est{color:var(--warn);border-color:var(--warn)}
+ol.checklist{padding-left:20px}ol.checklist li{margin:8px 0;padding-bottom:8px;border-bottom:1px dashed var(--line)}
+dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:3px 12px;margin:6px 0}dl.kv dt{color:var(--muted)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+@media print{header,.no-print,form,.banner{display:none!important}body{background:#fff;color:#000}}

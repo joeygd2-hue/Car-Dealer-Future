@@ -3,9 +3,12 @@
 AI-assisted marketing and operations platform for independent used-car dealerships (initial market: Sugar Land / Houston, TX).
 **One application for all four phases.** Stack: Python 3.13 · FastAPI · SQLAlchemy 2 + Alembic · Jinja2 server-rendered UI · durable DB-backed job queue + worker · pytest.
 
+> **Pilot status:** sandbox pilot ready; see [`docs/progress/pilot-readiness.md`](docs/progress/pilot-readiness.md).
+> A competing `dealerflow/` app exists on another branch — see the conflict note in `docs/architecture/shared-stack.md`.
+>
 > Before changing anything, read [`docs/architecture/shared-stack.md`](docs/architecture/shared-stack.md) (shared contracts),
 > [`docs/progress/build-status.md`](docs/progress/build-status.md), [`docs/progress/known-limitations.md`](docs/progress/known-limitations.md)
-> and [`docs/architecture/integration-matrix.md`](docs/architecture/integration-matrix.md).
+> and [`docs/architecture/integration-setup.md`](docs/architecture/integration-setup.md).
 
 ## Quick start (sandbox — nothing is sent anywhere)
 
@@ -18,15 +21,17 @@ uv run uvicorn app.main:app --reload        # web app  → http://localhost:8000
 uv run python -m app.worker                 # persistent worker (scheduler + jobs) — run in a second terminal
 ```
 
-- Operator/admin workspace: `/admin` · Outreach agent dashboard: `/admin/outreach` · Dealer portal: `/portal`
+- Operator/admin workspace: `/admin` · **Pilot console** (emergency stop, allowlist, ledger, reconciliation): `/admin/pilot`
+- Outreach agent dashboard: `/admin/outreach` · Dealer portal: `/portal` · Account security (MFA, password): `/account/security`
 - Website chat test page: `/chat/<public_chat_key>` (printed by the seed script)
 - Health: `/healthz` (DB) and `/healthz/worker` (503 when no worker heartbeat within 90s)
 
 ## Tests & quality
 
 ```bash
-uv run pytest            # 112 tests
-uv run ruff check app tests
+uv run pytest            # 177 tests (unit, HTTP security, migrations, worker recovery, sandbox end-to-end)
+uv run ruff check .
+SMOKE_BASE_URL=http://127.0.0.1:8000 uv run python -m scripts.smoke_e2e   # against running web + worker (24 checks)
 ```
 The response-engine evaluation (46 synthetic EN/ES conversations, `evals/synthetic_conversations.json`) runs inside the test
 suite and from the UI (Admin → Evaluations, or Portal → Automation → Run evaluation). A passing run is required before a

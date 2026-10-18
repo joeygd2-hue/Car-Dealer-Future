@@ -5,7 +5,7 @@
 <div class="card stat"><div class="n">{{ badge("ON" if live_env else "SANDBOX") }}</div><div class="l">LIVE_INTEGRATIONS_ENABLED</div></div>
 <div class="card stat"><div class="n">{{ badge("ON" if pilot_mode else "OFF") }}</div><div class="l">PILOT_MODE (allowlist-only live sends)</div></div>
 <div class="card stat"><div class="n">{{ live_auths|length }}</div><div class="l">Active live authorizations</div></div>
-<div class="card stat"><div class="n">{{ badge("RUNNING" if health.healthy else "STOPPED") }}</div><div class="l">Worker · last seen {{ health.last_seen_at or "never" }}</div></div>
+<div class="card stat"><div class="n">{{ badge("RUNNING" if health.healthy else "STOPPED") }}</div><div class="l">Worker · {{ health.alive_workers|length }} alive{% if health.stale_workers %}, {{ health.stale_workers|length }} died without clean shutdown{% endif %} · last seen {{ health.last_seen_at or "never" }}</div></div>
 <div class="card stat"><div class="n">{{ badge("OK" if integrity.ok else "FAILED") }}</div><div class="l">Audit integrity ({{ integrity.checked }} rows)</div></div></div>
 {% if not integrity.ok %}<div class="flash err">Audit log integrity problem: tampered {{ integrity.tampered_ids }}, missing ids {{ integrity.missing_id_ranges }}, unsealed {{ integrity.unsealed_ids[:20] }}</div>{% endif %}
 <div class="card"><h2 style="margin-top:0">Emergency stop (everything)</h2><p class="small muted">Blocks every new external send — customer replies (staff, AI, system), outreach email and notification email — and halts the outreach agent. In-app notifications still work.</p>

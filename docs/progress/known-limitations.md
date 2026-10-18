@@ -1,28 +1,39 @@
 # Known limitations, blockers and unfinished work
 
-_Last updated: 2026-10-18._
+_Last updated: 2026-10-18 (Phase 3.5)._
+
+## Architecture / coordination
+- **Two competing application foundations.** This branch (`app/`, multi-tenant, Phase 3) and
+  `claude/dealership-inventory-publishing-iq0aqw` (`dealerflow/`, single-business, Phase 1+2). Neither is on `main`.
+  Owner decision (Phase 3.5): harden here, port later. Reconciliation plan: `docs/architecture/shared-stack.md`.
 
 ## Blocked on credentials / approvals (nothing live has been exercised)
-- **Meta Messenger**: needs Meta app, App Review for `pages_messaging` (+ HUMAN_AGENT for replies after 24h), Business Verification, per-Page tokens. Adapter is tested only against mocked HTTP.
-- **Twilio SMS**: needs accounts/numbers, A2P 10DLC registration, Spanish keywords in Twilio Advanced Opt-Out, documented consent. Automated SYSTEM messages (confirmations/reminders) over SMS are blocked unless `sms_consent` is recorded.
-- **SMTP/IMAP (notifications + outreach)**, **Google Places**, **Google Calendar**, **Zoom**, **Anthropic**: code only; need credentials, `LIVE_INTEGRATIONS_ENABLED=true` and recorded live authorizations.
-- **Outreach live sending** additionally requires: CAN-SPAM sender identity + postal address configured, human-verified recipient emails, SPF/DKIM/DMARC on the sending domain. Sandbox drafts show "[… not configured]" placeholders until `OUTREACH_*` is set; live sends with missing identity are blocked.
+- **No provider has been tested with a real account.** All provider tests use mocked HTTP or sandbox adapters.
+- **Meta Messenger**: Meta app, App Review (`pages_messaging` etc. + HUMAN_AGENT for >24h replies), Business Verification, per-Page tokens.
+- **Twilio SMS**: accounts/numbers, A2P 10DLC brand + campaign, Spanish keywords in Advanced Opt-Out, documented consent. Automated SYSTEM SMS needs recorded `sms_consent`.
+- **SMTP/IMAP, Google Places, Google Calendar, Zoom, Anthropic**: credentials + `LIVE_INTEGRATIONS_ENABLED=true` + a recorded live authorization per scope; in pilot mode also an allowlisted recipient.
+- **Outreach live sending** additionally needs CAN-SPAM identity + postal address, human-verified recipient emails, SPF/DKIM/DMARC, and legal review.
 
 ## Unsupported by providers
-- Facebook Marketplace conversations have **no official API**; only the human-assisted workflow exists. Never automate personal accounts.
-- Google Business Profile chat was discontinued (2024).
-- Dealer CRM APIs are partner-gated; ADF/XML is the interim integration.
+- Facebook Marketplace conversations: **no official API** — human-assisted workflow only. Google Business Profile chat: discontinued. Dealer CRM APIs: partner-gated (ADF/XML is the interim path).
 
-## Product/engineering gaps
-- Phase 1 and Phase 2 features beyond the minimal foundation are not built (inventory ingestion, listing generation/publishing, Phase 1 research tooling beyond the outreach agent).
-- Rule-based NLU: intent/opt-out/language detection is deterministic and conservative; unusual phrasing escalates rather than auto-answers. Time parsing handles weekday/today/tomorrow + clock times only.
-- Mode C allows only `test_drive`, `contact_info_provided`, `vehicle_details` as extra intents, and appointment requests always go to staff confirmation (no automatic confirmation, by design).
-- Customer-facing appointment confirmations/reminders go only through channels the platform can send on (website chat, Messenger, SMS); Marketplace/ADF customers must be contacted by staff.
-- Website chat is polling-based (4s); no websockets. Rate limiting is in-process (use a shared store such as Redis when running multiple web processes).
-- At-least-once delivery: if a worker crashes after a provider accepted a message but before commit, a retry could duplicate that one message (providers lack idempotency keys for these endpoints). Documented trade-off.
-- Booking page shows UTC times (invite shows local time); no prospect-side reschedule/cancel link yet.
-- Daily digest timing depends on the hourly job; digests go to dealership admins.
-- SQLite is used in dev/tests; PostgreSQL is supported by SQLAlchemy/Alembic but has not been tested in this environment.
-- No password reset / MFA yet; platform-admin creation is via the seed script or direct DB access (add a CLI in Phase 4).
-- Retention: raw provider events and finished jobs are purged after 30 days; Places-derived prospect fields are purged after 30 days unless human-verified. Conversation/contact retention policy is not yet configurable per dealership.
-- Research items to re-verify before go-live: WhatsApp Oct-2026 pricing, current 10DLC fees, CTIA Spanish keyword guidance, AIA Messenger lead webhooks, Places 30-day field list, Zoom/Graph scope names.
+## Security
+- **MFA**: TOTP only (no WebAuthn/passkeys yet). Required for platform admins only when `APP_ENV=production` (or `REQUIRE_ADMIN_MFA=true`); optional for dealer users. No admin-side MFA reset flow — recover with recovery codes or a DB operation.
+- **Password reset email** goes through the notification email path; in sandbox it is SIMULATED and the link is visible to platform admins in the sandbox records. Reset links expire in 60 min (setup links 72 h) and are single-use.
+- **Audit log**: per-row HMAC + id-gap detection + ORM append-only. A database superuser can delete the *newest* rows without detection and can disable checks entirely; ship audit rows to append-only external storage for production. Rotating `ENCRYPTION_KEY` invalidates existing seals (and stored credentials) — there is no key-rotation tool yet.
+- **No account lockout notifications**; throttling is per IP and per account (DB counters).
+- **Data at rest**: provider credentials and MFA secrets are encrypted; other data (messages, contacts) relies on database/disk encryption provided by the host.
+- No per-dealership data-retention configuration; raw provider events and finished jobs are purged after 30 days.
+
+## Sending / worker
+- **At-most-once with human reconciliation**: when a provider may have accepted a message (crash or timeout mid-send), the message becomes UNCERTAIN and waits for an operator decision in the Pilot console. This avoids duplicates but means such messages are not delivered automatically.
+- HTTP 5xx / 429 responses are treated as "not accepted" and retried; if a provider ever processes a request but returns 5xx, a duplicate is possible (documented provider behaviour suggests this is rare).
+- SQLite concurrency: correct but serialized (one writer). Use PostgreSQL for multiple workers in production (untested here).
+- Fixed-window counters allow up to 2× a limit across a window boundary (e.g. 8 at 09:59 + 8 at 10:00).
+
+## Product gaps
+- Phase 1/2 features beyond the minimal foundation live in the other branch (`dealerflow`).
+- Rule-based NLU (intent/opt-out/language/time parsing): conservative; unusual phrasing escalates. Time parsing: weekdays/today/tomorrow + clock times.
+- Mode C extra intents limited to `test_drive`, `contact_info_provided`, `vehicle_details`; appointments always need staff confirmation.
+- Website chat is polling-based; booking page shows UTC times; no prospect-side reschedule link.
+- Research items to re-verify before go-live: WhatsApp pricing, current 10DLC fees, CTIA Spanish keyword guidance, AIA Messenger lead webhooks, Places field storage rules, Zoom/Graph scope names.

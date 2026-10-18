@@ -109,9 +109,12 @@ def worker_health(db, stale_seconds: int | None = None) -> dict:
     now = utcnow()
     beats = list(db.scalars(select(WorkerHeartbeat).order_by(WorkerHeartbeat.last_seen_at.desc()).limit(10)))
     alive = [b for b in beats if b.status == "RUNNING" and (now - b.last_seen_at).total_seconds() <= stale]
+    stale_ids = [b.worker_id for b in beats if b.status == "RUNNING" and b not in alive]
     return {
         "healthy": bool(alive),
         "alive_workers": [b.worker_id for b in alive],
+        # Heartbeat says RUNNING but has gone quiet: the process died without a clean shutdown (e.g. SIGKILL).
+        "stale_workers": stale_ids,
         "last_seen_at": beats[0].last_seen_at.isoformat() if beats else None,
         "queue": jobs.queue_counts(db),
     }

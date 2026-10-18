@@ -1,5 +1,10 @@
 # Shared stack & contracts (all phases MUST follow)
 
+> **Open cross-chat conflict (2026-10-18).** Branch `claude/dealership-inventory-publishing-iq0aqw` contains a separate
+> application, `dealerflow/` (Phase 1 + Phase 2), whose own shared-stack doc also claims to be the single foundation.
+> Neither app is on `main`. The owner chose (Phase 3.5): keep hardening this `app/` for the dealership pilot and **port
+> later**. See "Reconciliation plan" at the end of this file. Do not merge either branch into `main` until that is decided.
+
 Agreed with the project owner on 2026-10-18: **Python FastAPI is the backend for all four phases.** When Phase 3 started, the
 repository contained only a README (no Phase 1/2 code on any branch), so Phase 3 created this shared base. Phases 1, 2 and 4
 must build on it — do not create a second app, auth system, job runner or navigation.
@@ -46,6 +51,15 @@ must build on it — do not create a second app, auth system, job runner or navi
 - **Integrations**: contracts in `app/integrations/base.py` (`CustomerChannel`, `EmailSender`, `InboxReader`, `CalendarProvider`, `VideoMeetingProvider`, `ProspectSource`, `LLMProvider`); obtain adapters only through `app/integrations/registry.py`, which returns the sandbox adapter unless `LIVE_INTEGRATIONS_ENABLED=true` **and** an unrevoked `LiveAuthorization` for the scope exists **and** credentials are configured. Results report `SENT` vs `SIMULATED` vs `FAILED` — persist and display them truthfully.
 - **Credentials**: `security.crypto.encrypt_json/decrypt_json` (Fernet, `ENCRYPTION_KEY`). Never render secrets, never put them in prompts or logs.
 - **Calendar/video** (shared by Phase 1 sales meetings and Phase 3 test drives): `registry.calendar(db)` (operator), `registry.dealership_calendar(db, dealership_id)` (per dealer, `None` if not connected), `registry.video(db)`. Customer `Appointment` and operator `SalesMeeting` are separate tables on purpose.
+- **Every external send goes through `services.send_gate`** (`open_attempt` → commit → provider call → `close_attempt`).
+  It enforces the platform emergency stop (`send_gate.EMERGENCY_STOP_ALL`) and pilot-mode allowlisting, and writes the
+  `send_attempts` ledger. New outbound channels MUST use it, claim their row atomically (status UPDATE … WHERE status=…)
+  before sending, and treat a row found mid-send as UNCERTAIN (never auto-resend). Adapters must set
+  `SendResult.uncertain=True` when the provider may have accepted the request (timeouts after sending).
+- **Distributed limits**: `services.rate_limits.try_acquire/acquire_all` (DB counters). Do not use in-process counters
+  for anything that must hold across processes (sending limits, budgets, login/chat throttles).
+- **Auth extras**: TOTP MFA (`security.mfa`), password reset/setup links (`/password/reset/{token}`, hashed + single
+  use), `invalidate_sessions(db, user_id)`. Secrets are only ever shown once in a response body — never in URLs.
 - **Customer messaging**: ingest through `services.inbox.processing.ingest_inbound(...)`; send through `services.inbox.outbound.queue_outbound(...)` (stop conditions re-checked at send time). Never call provider adapters directly from routes.
 
 ## Live operation rule
@@ -53,3 +67,15 @@ Nothing contacts a customer, prospect or provider for real until: env `LIVE_INTE
 recorded `LiveAuthorization` (Admin → Live authorizations) for the specific scope. Scopes: `outreach.email`, `outreach.inbox`,
 `outreach.discovery.google_places`, `calendar.google`, `video.zoom`, `notifications.email`, `llm.anthropic`,
 `customer_messaging.META_MESSENGER` / `customer_messaging.TWILIO_SMS` (per dealership).
+
+
+## Reconciliation plan with `dealerflow` (to execute only after the owner confirms)
+1. Pick one tenancy model. Phase 3 requires per-dealership tenants (client portal, isolation); dealerflow has a single
+   business with roles. Recommended: keep dealerflow's operator CRM (prospects/outreach) and add a `clients` table
+   (one-to-one with a won prospect) as the tenant root, as its own shared-stack doc suggests.
+2. Port Phase 3 modules as services: `responder/*`, `inbox/*`, `automation_policy`, `appointments`, `summaries`,
+   `escalation`, `send_gate`, `rate_limits`, `evaluation` + `evals/`. They depend only on SQLAlchemy sessions and the
+   integration contracts, so the port is mostly model renames.
+3. Keep one job queue (both are DB-backed with atomic claims) and one outreach agent (dealerflow's is the Phase 1 owner;
+   carry over this app's send ledger, uncertain-delivery handling and distributed counters).
+4. Re-run this branch's tests against the merged app (they encode the pilot guarantees) before retiring `app/`.

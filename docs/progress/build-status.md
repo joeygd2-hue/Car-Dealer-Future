@@ -1,6 +1,57 @@
 # Build status
 
-_Last updated: 2026-10-18 (Phase 3 chat; also built the shared platform base and the persistent outreach agent at the owner's request)._
+_Last updated: 2026-10-18 — Phase 3.5 (production readiness & dealership pilot). Phase 3 sections below are kept for history._
+
+## Phase 3.5 summary (verified)
+- **Repository state verified**: handoff claim of 112 tests confirmed (112 collected, 112 passed, 0 skipped) before changes.
+  Discovered an unreported competing app (`dealerflow/`) on `claude/dealership-inventory-publishing-iq0aqw`; owner chose
+  to harden this branch and port later (plan in `docs/architecture/shared-stack.md`).
+- **Security**: TOTP MFA (+ admin enforcement in production), password reset/setup links, session invalidation, DB-backed
+  login/MFA/reset/chat throttles, CSRF on logout, fail-fast config validation, CSP/HSTS/no-store, generic error page,
+  HMAC-sealed append-only audit log with verifier, secrets never in URLs, redacted raw webhook storage, role matrix.
+- **Worker/sending**: central send gate (platform emergency stop + pilot allowlist + `send_attempts` ledger), atomic
+  claims, IN_FLIGHT-before-call + UNCERTAIN reconciliation (no silent duplicates), distributed rate/budget counters,
+  revalidation immediately before every send, stale-worker detection.
+- **Accuracy**: final outgoing text validated against current verified facts at send time; staff text checked with
+  audited override; 24h freshness default for price/availability/mileage; ambiguity escalation; customer cancellation
+  handling; reminders blocked after opt-out or appointment change.
+- **Pilot mode**: Admin → Pilot console; documented sandbox pilot procedure in `docs/progress/pilot-readiness.md`.
+- **Migration** `44a34c76e0bf` (server defaults for existing rows; seals pre-existing audit rows).
+
+### Exact test results (Phase 3.5)
+`uv run pytest` → **177 passed, 0 skipped, 0 xfail** (≈70 s). `ruff check .` → clean.
+| File | Tests |
+|---|---|
+| test_accuracy_hardening.py | 10 |
+| test_appointments_notifications.py | 7 |
+| test_automation_modes.py | 9 |
+| test_evaluation_and_adf.py | 4 |
+| test_inbox_pipeline.py | 8 |
+| test_jobs.py | 9 |
+| test_language_analysis.py | 24 |
+| test_migrations.py | 2 (subprocess Alembic: fresh upgrade + `alembic check`, upgrade over Phase 3 data, downgrade) |
+| test_outbound_and_webhooks.py | 7 |
+| test_outreach_agent.py | 24 |
+| test_pilot_mode.py | 6 (live code path with **mocked** Meta HTTP — not a real provider) |
+| test_portal_security.py | 11 |
+| test_response_engine.py | 9 |
+| test_role_matrix.py | 24 |
+| test_security_hardening.py | 16 |
+| test_worker_resilience.py | 7 |
+Evaluation set: 46 synthetic EN/ES conversations, all metrics 1.0 (runs inside the suite).
+
+Two Phase 3 tests were updated because behaviour intentionally changed: website-chat replies are now `SIMULATED`
+until the chat channel is live-authorized (was `SENT`); outreach emergency stop now *holds* messages (was `BLOCKED`).
+
+### Real-process verification (Phase 3.5)
+Fresh SQLite DB → `alembic upgrade head` → seed → `uvicorn` and `python -m app.worker` as **separate processes** →
+`scripts/smoke_e2e.py`: **24/24 checks passed**, including a `kill -9` of the worker mid-run and a replacement worker
+taking over. Covered: EN + ES drafts from verified inventory, financing escalation without invented terms, test-drive
+request recorded but not promised, STOP opt-out, staff send → SIMULATED and not delivered to the visitor, staff
+appointment confirmation → SIMULATED confirmation, pilot console, emergency banner, emergency stop blocking a send,
+ledger with zero live SENT rows, audit integrity OK (34 rows). Logs had no tracebacks.
+
+**Still not verified:** any real provider account (none accessed), PostgreSQL, multi-host deployment.
 
 ## Starting state found
 The repository contained only `README.md` (single "Initial commit"; no other branches or PRs). **No Phase 1 or Phase 2 code
@@ -13,7 +64,7 @@ including minimal inventory (Phase 2) and outreach/CRM (Phase 1) foundations tha
 | Feature | Status | Verification |
 |---|---|---|
 | FastAPI app, Jinja UI, health endpoints | done | page-render tests; real uvicorn smoke test |
-| SQLAlchemy models (44 tables) + Alembic baseline `4122abfb2c23` | done | `alembic upgrade head` + `alembic check` clean |
+| SQLAlchemy models (48 tables after Phase 3.5) + Alembic `4122abfb2c23` → `44a34c76e0bf` | done | migration tests |
 | Auth: sessions, scrypt passwords, CSRF, login rate limit | done | tests |
 | Tenant isolation (server-side on every route + object ownership) | done | cross-client HTTP tests |
 | Encrypted credential storage (Fernet) | done | used by webhook tests |
@@ -52,7 +103,7 @@ including minimal inventory (Phase 2) and outreach/CRM (Phase 1) foundations tha
 | Meeting booking via public booking link → calendar + video (sandbox) → CONFIRMED; slot re-check | done | tests |
 | Operator dashboard (measured vs simulated vs estimated, queue, costs, approvals, replies, prospects, suppression, activity log, sandbox tools) | done | page-render test + smoke test |
 
-## Test results (actual)
+## Phase 3 test results (historical)
 `uv run pytest` → **112 passed** (≈32 s). `ruff check app tests` → clean. Per file: appointments/notifications 7, automation modes 9,
 evaluation/ADF 4, inbox pipeline 8, jobs 9, language/analysis 24, outbound/webhooks 7, outreach agent 24, portal security 11,
 response engine 9. Evaluation: 46 cases, all metrics 1.0, passed.
@@ -63,7 +114,11 @@ qualification → enrollment → 8 drafts pending approval; worker SIGTERM → h
 
 **Autonomous operation is verified only in sandbox.** No live provider has been called; see known-limitations.
 
-## Next steps for the next phase (Phase 4) — and for Phase 1/2 chats if they continue
+## Next steps
+0. **Decide the foundation** (`app/` vs `dealerflow/`) and execute the reconciliation plan before Phase 4.
+1. Run the sandbox pilot (`docs/progress/pilot-readiness.md`). Only with explicit approval: one live test to allowlisted internal recipients.
+
+## Earlier next steps (Phase 3 handoff)
 1. Read `docs/architecture/shared-stack.md`; extend existing models via Alembic migrations.
 2. Phase 2: replace the minimal manual inventory form with ingestion (keep `verified_at` / `data_conflict_note` semantics) and generate `ListingDraft` rows; the portal approval UI already exists.
 3. Phase 1: extend the outreach CRM (prospects/campaigns/sales_meetings) rather than creating new tables; outreach agent runbook is in this file's section above and `/admin/outreach`.

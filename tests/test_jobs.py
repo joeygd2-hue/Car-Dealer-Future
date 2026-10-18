@@ -128,4 +128,5 @@ def test_worker_heartbeat_health(db):
     assert worker_health(db)["healthy"] is True
     db.execute(update(WorkerHeartbeat).values(last_seen_at=dbmod.utcnow() - timedelta(minutes=10)))
     db.commit()
-    assert worker_health(db)["healthy"] is False
+    health = worker_health(db)
+    assert health["healthy"] is False and health["stale_workers"] == ["hb"]

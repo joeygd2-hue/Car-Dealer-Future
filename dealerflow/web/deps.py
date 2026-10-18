@@ -66,6 +66,13 @@ class NotAuthenticated(Exception):
     pass
 
 
+def password_version(user: User) -> str:
+    """Short fingerprint of the password hash; changing the password ends every existing session."""
+    import hashlib
+
+    return hashlib.sha256(user.password_hash.encode()).hexdigest()[:16]
+
+
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
@@ -83,6 +90,9 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         raise NotAuthenticated()
     if time.time() - request.session.get("t", 0) > get_settings().session_max_age_seconds:
         request.session.clear()
+        raise NotAuthenticated()
+    if request.session.get("pv") != password_version(user):
+        request.session.clear()  # password changed since this session started
         raise NotAuthenticated()
     request.state.api = False
     return user

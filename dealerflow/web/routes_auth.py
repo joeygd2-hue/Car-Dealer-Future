@@ -11,7 +11,7 @@ from ..audit import audit
 from ..db import get_db, utcnow
 from ..models import User
 from ..security import verify_password
-from .deps import check_csrf, current_user, login_limiter, render, safe_next
+from .deps import check_csrf, current_user, login_limiter, password_version, render, safe_next
 
 router = APIRouter()
 
@@ -35,7 +35,7 @@ def login(request: Request, email: str = Form(...), password: str = Form(...), n
         return render(request, "login.html", None, next=next, error="Invalid email or password.")
     login_limiter.reset(key)
     request.session.clear()
-    request.session.update({"uid": user.id, "t": time.time()})
+    request.session.update({"uid": user.id, "t": time.time(), "pv": password_version(user)})
     user.last_login_at = utcnow()
     audit(db, "auth.login", actor_id=user.id)
     return RedirectResponse(safe_next(next), status_code=303)

@@ -74,6 +74,7 @@ def main() -> None:
         "fin": ("Do you offer financing on the F-150? My credit isn't great.", "en"),
         "td": ("I'd like to test drive the Civic Saturday at 11am. I'm Sam, 281-555-0177", "en"),
         "stop": ("STOP", "en"),
+        "stale": ("Is the Equinox still available? What's the price?", "en"),
     }
     for tag, (text, _) in leads.items():
         r = c.post(f"/api/chat/{key}/messages", json={"visitor_id": f"smoke-{run}-{tag}", "text": text,
@@ -102,6 +103,9 @@ def main() -> None:
           and "approved" not in d_fin.body.lower(), d_fin.body if d_fin else "")
     with SessionLocal() as db:
         check("escalation record created", db.scalar(select(Escalation).where(Escalation.conversation_id == conv("fin").id)) is not None)
+    d_stale = wait_for(lambda: draft("stale"))
+    check("stale vehicle: price withheld and escalated", bool(d_stale) and "$16,450" not in d_stale.body
+          and "uncertain_inventory" in d_stale.escalation_reasons, d_stale.body if d_stale else "")
     appt = wait_for(lambda: SessionLocal().scalar(select(Appointment).where(Appointment.conversation_id == conv("td").id)))
     check("test drive request recorded, not confirmed", bool(appt) and appt.status == "PENDING_CONFIRMATION")
     check("draft does not promise the time", "isn't confirmed" in wait_for(lambda: draft("td")).body)
@@ -134,9 +138,21 @@ def main() -> None:
         check("appointment confirmed by staff", db.get(Appointment, appt.id).status == "CONFIRMED")
     check("confirmation message SIMULATED", wait_for(lambda: out_status("td")) == "SIMULATED")
 
+    # Role permissions.
+    check("dealer staff refused the admin workspace", staff.get("/admin").status_code == 403)
+    check("dealer staff refused the pilot console", staff.get("/admin/pilot").status_code == 403)
+    check("anonymous user redirected to login", httpx.get(f"{BASE}/portal/{did}", follow_redirects=False).status_code == 303)
+
     # Operator: emergency stop blocks a new send; lift it again.
     op = httpx.Client(base_url=BASE, timeout=15)
     login(op, "operator@demo.example")
+    page = op.get("/admin")
+    csrf_admin = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
+    op.post("/admin/dealerships", data={"name": f"Second Client {run} (SANDBOX)", "csrf_token": csrf_admin})
+    with SessionLocal() as db:
+        other = db.scalar(select(Dealership).where(Dealership.name == f"Second Client {run} (SANDBOX)"))
+    check("operator created a second client", other is not None)
+    check("dealer manager cannot see another client (404)", staff.get(f"/portal/{other.id}").status_code == 404)
     page = op.get("/admin/pilot")
     check("pilot console reachable", page.status_code == 200 and "Send ledger" in page.text)
     csrf = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
@@ -153,6 +169,7 @@ def main() -> None:
             select(func.count(SendAttempt.id)).where(SendAttempt.live.is_(True))), str(counts))
         integrity = audit.verify_integrity(db)
         check("audit log integrity", integrity["ok"], f"{integrity['checked']} rows")
+    check("worker healthy at end of run", c.get("/healthz/worker").status_code == 200)
     print(f"\nALL {len(results)} CHECKS PASSED")
 
 

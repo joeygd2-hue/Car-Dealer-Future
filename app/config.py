@@ -6,14 +6,16 @@ Nothing in this module should ever be rendered to a browser or included in an AI
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # APP_ENV_FILE lets tests (and containers) choose which dotenv file is read; default ".env".
+    model_config = SettingsConfigDict(env_file=os.getenv("APP_ENV_FILE", ".env"), env_file_encoding="utf-8", extra="ignore")
 
     app_env: str = Field(default="development", description="development | test | production")
     app_name: str = "Car Dealer Future"
@@ -84,6 +86,15 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = 2.0
     worker_lease_seconds: int = 120
     worker_heartbeat_stale_seconds: int = 90
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value, info):
+        """A blank `KEY=` line in .env means "not set": use the default instead of failing to parse it."""
+        if isinstance(value, str) and value.strip() == "":
+            field = cls.model_fields[info.field_name]
+            return field.default
+        return value
 
     @property
     def is_production(self) -> bool:

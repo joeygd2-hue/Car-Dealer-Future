@@ -269,3 +269,28 @@ def test_totp_rfc_vector():
     sec = base64.b32encode(b"12345678901234567890").decode().rstrip("=")
     assert mfa.hotp(sec, 1) == "287082"  # RFC 4226 Appendix D, counter 1
     assert mfa.verify(sec, mfa.totp(sec, at=time.time()), last_counter=None) is not None
+
+
+def test_env_example_loads_as_documented(tmp_path, monkeypatch):
+    """Regression (found in clean-environment reproduction): `cp .env.example .env` must produce a valid config."""
+    from pathlib import Path
+
+    for var in ("APP_ENV", "BASE_URL", "LIVE_INTEGRATIONS_ENABLED", "ENCRYPTION_KEY"):
+        monkeypatch.delenv(var, raising=False)  # real env vars override .env; test the file alone
+    from cryptography.fernet import Fernet
+
+    env = (Path(__file__).resolve().parents[1] / ".env.example").read_text()
+    env = env.replace("ENCRYPTION_KEY=\n", f"ENCRYPTION_KEY={Fernet.generate_key().decode()}\n")
+    f = tmp_path / ".env"
+    f.write_text(env)
+    s = Settings(_env_file=str(f))
+    assert s.live_integrations_enabled is False and s.pilot_mode is True and s.require_admin_mfa is None
+    assert s.database_url.startswith("sqlite:///") and s.app_env == "development"
+    validate_settings(s)
+
+
+def test_blank_values_fall_back_to_defaults(tmp_path):
+    f = tmp_path / ".env"
+    f.write_text("REQUIRE_ADMIN_MFA=\nPILOT_MODE=\nSMTP_PORT=\nLIVE_INTEGRATIONS_ENABLED=\n")
+    s = Settings(_env_file=str(f))
+    assert s.require_admin_mfa is None and s.pilot_mode is True and s.smtp_port == 587 and not s.live_integrations_enabled

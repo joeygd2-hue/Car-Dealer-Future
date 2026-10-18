@@ -8,6 +8,8 @@ from datetime import timedelta
 import pytest
 from cryptography.fernet import Fernet
 
+# Hermetic settings: never read a developer's local .env during tests.
+os.environ["APP_ENV_FILE"] = os.path.join(os.path.dirname(__file__), "no-such-env-file")
 os.environ.setdefault("ENCRYPTION_KEY", Fernet.generate_key().decode())
 os.environ["APP_ENV"] = "test"
 os.environ["LIVE_INTEGRATIONS_ENABLED"] = "false"

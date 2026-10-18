@@ -122,6 +122,10 @@ def main() -> None:
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    from app.config import validate_settings
+
+    for warning in validate_settings(get_settings()):  # raises ConfigError on unsafe configuration
+        log.warning("config: %s", warning)
     register_all_handlers()
     install_recurring_tasks()
     worker = Worker()

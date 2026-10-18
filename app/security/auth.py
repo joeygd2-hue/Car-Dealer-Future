@@ -36,13 +36,16 @@ def authenticate(db: Session, email: str, password: str) -> User | None:
     return user
 
 
-def create_session(db: Session, user: User, ip: str | None = None, user_agent: str | None = None) -> str:
+def create_session(db: Session, user: User, ip: str | None = None, user_agent: str | None = None,
+                   *, mfa_verified: bool | None = None) -> str:
+    """New random token per login (no fixation). Sessions of MFA users start unverified."""
     token = secrets.token_urlsafe(32)
     db.add(
         UserSession(
             token_hash=_hash_token(token),
             user_id=user.id,
             csrf_token=secrets.token_urlsafe(24),
+            mfa_verified=(not user.mfa_enabled) if mfa_verified is None else mfa_verified,
             expires_at=utcnow() + timedelta(hours=get_settings().session_ttl_hours),
             ip=ip,
             user_agent=(user_agent or "")[:300],
@@ -51,6 +54,25 @@ def create_session(db: Session, user: User, ip: str | None = None, user_agent: s
     user.last_login_at = utcnow()
     db.commit()
     return token
+
+
+def invalidate_sessions(db: Session, user_id: int, *, except_token: str | None = None) -> int:
+    keep = _hash_token(except_token) if except_token else None
+    n = 0
+    for sess in db.scalars(select(UserSession).where(UserSession.user_id == user_id)):
+        if sess.token_hash != keep:
+            db.delete(sess)
+            n += 1
+    return n
+
+
+def session_from_token(db: Session, token: str | None) -> UserSession | None:
+    if not token:
+        return None
+    sess = db.scalar(select(UserSession).where(UserSession.token_hash == _hash_token(token)))
+    if not sess or sess.expires_at < utcnow():
+        return None
+    return sess
 
 
 def destroy_session(db: Session, token: str | None) -> None:
@@ -76,19 +98,41 @@ class LoginRequired(Exception):
     """Raised for HTML routes; converted to a redirect to /login by an exception handler."""
 
 
-def get_auth(request: Request, db: Session = Depends(get_db)) -> AuthContext:
-    token = request.cookies.get(SESSION_COOKIE)
-    if not token:
-        raise LoginRequired()
-    sess = db.scalar(select(UserSession).where(UserSession.token_hash == _hash_token(token)))
-    if not sess or sess.expires_at < utcnow():
+class MfaRequired(Exception):
+    """Password accepted but the second factor has not been verified for this session."""
+
+
+class MfaEnrollmentRequired(Exception):
+    """Policy requires MFA for this user (platform admins in production) and it is not enrolled."""
+
+
+MFA_ENROLL_PATHS = ("/account/security", "/logout")
+
+
+def _load(request: Request, db: Session) -> AuthContext:
+    sess = session_from_token(db, request.cookies.get(SESSION_COOKIE))
+    if sess is None:
         raise LoginRequired()
     user = db.get(User, sess.user_id)
     if not user or not user.is_active:
         raise LoginRequired()
-    ctx = AuthContext(user=user, session=sess)
+    return AuthContext(user=user, session=sess)
+
+
+def get_auth(request: Request, db: Session = Depends(get_db)) -> AuthContext:
+    ctx = _load(request, db)
+    if not ctx.session.mfa_verified:
+        raise MfaRequired()
+    if (get_settings().admin_mfa_required and ctx.user.is_platform_admin and not ctx.user.mfa_enabled
+            and not request.url.path.startswith(MFA_ENROLL_PATHS)):
+        raise MfaEnrollmentRequired()
     request.state.auth = ctx
     return ctx
+
+
+def get_auth_pending_mfa(request: Request, db: Session = Depends(get_db)) -> AuthContext:
+    """Only for the MFA challenge page: accepts a session whose second factor is not yet verified."""
+    return _load(request, db)
 
 
 async def verify_csrf(request: Request, auth: AuthContext = Depends(get_auth)) -> AuthContext:

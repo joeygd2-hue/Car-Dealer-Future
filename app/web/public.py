@@ -31,17 +31,15 @@ from app.models import (
     Vehicle,
 )
 from app.security.crypto import CredentialEncryptionError, decrypt_json
-from app.services import audit
+from app.services import audit, rate_limits
 from app.services.inbox.adf import parse_adf
 from app.services.inbox.processing import ingest_inbound, record_event
 from app.services.outreach.agent import get_state
 from app.services.outreach.booking import available_slots, book
 from app.services.outreach.compliance import add_suppression
-from app.web.deps import RateLimiter, render
+from app.web.deps import render
 
 router = APIRouter()
-_chat_ip_limiter = RateLimiter(30, 60)
-_chat_visitor_limiter = RateLimiter(8, 60)
 
 
 # ----------------------------------------------------------------------------- website chat
@@ -84,7 +82,9 @@ async def chat_post(key: str, request: Request, db: Session = Depends(get_db)):
     if not visitor or len(visitor) < 8 or not text:
         raise HTTPException(400, "visitor_id and text are required")
     ip = request.client.host if request.client else "?"
-    if not _chat_ip_limiter.allow(f"{key}:{ip}") or not _chat_visitor_limiter.allow(f"{key}:{visitor}"):
+    if not (rate_limits.try_acquire(db, f"chat:ip:{dealership.id}:{ip}", 30, 60)
+            and rate_limits.try_acquire(db, f"chat:visitor:{dealership.id}:{visitor}", 8, 60)):
+        db.commit()
         return _cors(request, dealership, JSONResponse({"error": "Too many messages. Please wait a moment."}, 429))
     client_msg_id = str(data.get("client_message_id") or uuid.uuid4())[:64]
     vehicle_id = None
@@ -154,7 +154,9 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                                                              IntegrationConnection.external_account_id == ev["page_id"]))
         if conn is None or conn.dealership_id is None:
             continue  # page not connected to any dealership → ignore (never guess the tenant)
-        if not record_event(db, "META", ev["mid"], ev, conn.dealership_id):
+        # Store only identifiers in the raw-event table; the (redacted) text lives on the Message row.
+        meta_ids = {k: ev[k] for k in ("page_id", "sender_id", "mid", "timestamp_ms")}
+        if not record_event(db, "META", ev["mid"], meta_ids, conn.dealership_id):
             continue
         ts = datetime.fromtimestamp(ev["timestamp_ms"] / 1000, UTC).replace(tzinfo=None) if ev.get("timestamp_ms") else None
         ingest_inbound(db, dealership=db.get(Dealership, conn.dealership_id), channel=registry.META_MESSENGER,
@@ -243,7 +245,10 @@ async def adf_intake(connection_id: int, request: Request, db: Session = Depends
     given = hashlib.sha256(auth.removeprefix("Bearer ").encode()).hexdigest()
     if conn is None or conn.provider != registry.ADF_LEAD or not expected or not hmac.compare_digest(given, expected):
         raise HTTPException(401, "unauthorized")
-    raw = (await request.body()).decode("utf-8", "replace")
+    body = await request.body()
+    if len(body) > 1_000_000:
+        raise HTTPException(413, "payload too large")
+    raw = body.decode("utf-8", "replace")
     try:
         leads = parse_adf(raw)
     except Exception:  # noqa: BLE001 - malformed/hostile XML

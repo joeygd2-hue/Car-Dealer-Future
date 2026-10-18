@@ -13,9 +13,12 @@
 <div class="card"><h2 style="margin-top:0">Reply</h2>
 {% if pending %}<p class="small">Draft ({{ pending.generated_by }}, confidence {{ "%.2f"|format(pending.confidence) }}){% if pending.escalation_reasons %} · <span class="badge b-bad">escalation: {{ pending.escalation_reasons|join(", ") }}</span>{% endif %}</p>
 <p class="small muted">Not auto-sent because: {{ pending.decision_reasons|join("; ") or "—" }}</p>{% endif %}
+{% if send_warnings %}<div class="flash err">Not sent. This message contains content that isn't backed by verified data:<ul>{% for w in send_warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+Edit it, or confirm below that you have verified it yourself (your confirmation is recorded in the audit log).</div>{% endif %}
 <form method="post" action="/portal/{{ d.id }}/conversations/{{ conv.id }}/send"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 {% if pending %}<input type="hidden" name="draft_id" value="{{ pending.id }}">{% endif %}
-<textarea name="body" rows="5">{{ pending.body if pending else "" }}</textarea>
+<textarea name="body" rows="5">{{ unsent_body if unsent_body else (pending.body if pending else "") }}</textarea>
+{% if send_warnings %}<label><input type="checkbox" name="acknowledge_warnings"> I verified these details myself and want to send anyway</label>{% endif %}
 <p>{% if sendable %}<button class="primary" type="submit">Send</button> <label style="display:inline"><input type="checkbox" name="manual_external" value="1"> I sent this outside the platform</label>
 {% else %}<button class="primary" type="submit" name="manual_external" value="1">Record as sent (I pasted it myself)</button>{% endif %}</p></form>
 {% if pending %}<form method="post" action="/portal/{{ d.id }}/conversations/{{ conv.id }}/drafts/{{ pending.id }}/reject"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Reject draft</button></form>{% endif %}

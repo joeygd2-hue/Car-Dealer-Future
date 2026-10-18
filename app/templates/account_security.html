@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block content %}<h1>Account security</h1>
+{% if mfa_required and not user.mfa_enabled %}<div class="notice">Two-step verification is required for platform administrators. Set it up below to continue.</div>{% endif %}
+{% if recovery_codes %}<div class="card"><h2 style="margin-top:0">Save your recovery codes</h2><p class="small">Each code works once if you lose your phone. They are shown only now.</p>
+<pre class="mono">{% for c in recovery_codes %}{{ c }}
+{% endfor %}</pre><a href="{{ '/admin' if user.is_platform_admin else '/portal' }}">Continue</a></div>{% endif %}
+<div class="card"><h2 style="margin-top:0">Two-step verification (TOTP)</h2>
+{% if user.mfa_enabled %}<p><span class="badge b-ok">ON</span> {{ user.mfa_recovery_hashes|length }} recovery codes left.</p>
+<form method="post" action="/account/mfa/disable" class="row"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="password" name="password" placeholder="Password" required><input type="text" name="code" placeholder="Current code" required><button>Turn off</button></form>
+{% elif pending_secret %}<p>Add this key to your authenticator app (manual entry), then enter the 6-digit code it shows.</p>
+<p class="mono">{{ pending_secret }}</p><p class="small muted">Setup URI: <span class="mono">{{ uri }}</span></p>
+<form method="post" action="/account/mfa/confirm" class="row"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="text" name="code" inputmode="numeric" required><button class="primary">Confirm</button></form>
+{% else %}<p><span class="badge">OFF</span></p><form method="post" action="/account/mfa/start"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="primary">Set up two-step verification</button></form>{% endif %}</div>
+<div class="card"><h2 style="margin-top:0">Change password</h2><form method="post" action="/account/password"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Current password</label><input type="password" name="current_password" required autocomplete="current-password"><label>New password (10+ characters)</label><input type="password" name="new_password" required minlength="10" autocomplete="new-password">
+<p><button>Change password</button></p></form></div>{% endblock %}

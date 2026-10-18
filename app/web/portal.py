@@ -124,10 +124,25 @@ def conversation_view(conversation_id: int, request: Request, scope: DealershipS
                   vehicles=list(db.scalars(select(Vehicle).where(Vehicle.dealership_id == scope.dealership.id))))
 
 
+def staff_message_warnings(db: Session, conv: Conversation, body: str, draft: ResponseDraft | None) -> list[str]:
+    """Run the same safety checker on the exact text staff are about to send."""
+    from app.services.inbox.outbound import current_fact_snapshot
+    from app.services.responder.engine import T
+    from app.services.responder.safety import validate_output
+
+    _, fs = current_fact_snapshot(db, conv)
+    allowed = fs.allowed_strings() + [x[conv.preferred_language] for x in T.values()]
+    if draft:
+        allowed.append(draft.body)
+    # Staff may legitimately write in another language or confirm a time they booked themselves.
+    return [v for v in validate_output(body, allowed_sources=allowed, language=conv.preferred_language,
+                                       appointment_confirmed=True) if not v.startswith("language mismatch")]
+
+
 @router.post("/{dealership_id}/conversations/{conversation_id}/send")
-def send_reply(conversation_id: int, body: str = Form(...), draft_id: int | None = Form(None),
-               manual_external: int = Form(0), scope: DealershipScope = Depends(portal_scope_post),
-               db: Session = Depends(get_db)):
+def send_reply(conversation_id: int, request: Request, body: str = Form(...), draft_id: int | None = Form(None),
+               manual_external: int = Form(0), acknowledge_warnings: str = Form(""),
+               scope: DealershipScope = Depends(portal_scope_post), db: Session = Depends(get_db)):
     conv = get_owned(db, Conversation, conversation_id, scope.dealership.id)
     url = f"/portal/{scope.dealership.id}/conversations/{conv.id}"
     body = body.strip()
@@ -138,6 +153,15 @@ def send_reply(conversation_id: int, body: str = Form(...), draft_id: int | None
         raise HTTPException(404, "Not found")
     if conv.opted_out:
         return redirect(url, err="The customer opted out. Messages cannot be sent from the platform.")
+    warnings = staff_message_warnings(db, conv, body, draft)
+    if warnings and acknowledge_warnings != "on":
+        resp = conversation_view(conv.id, request, scope, db)
+        resp.context.update({"send_warnings": warnings, "unsent_body": body})
+        return render(request, "portal/conversation.html", db, **{k: v for k, v in resp.context.items()
+                                                                   if k not in ("request",)})
+    if warnings:
+        audit.record(db, "message.staff_override", actor_type="USER", actor_user_id=scope.user.id,
+                     dealership_id=scope.dealership.id, entity_type="conversation", entity_id=conv.id, warnings=warnings)
     if draft:
         draft.reviewed_by_id, draft.reviewed_at = scope.user.id, utcnow()
         if draft.body != body:
@@ -313,7 +337,7 @@ def verify_vehicle(vehicle_id: int, scope: DealershipScope = Depends(portal_scop
 
 
 @router.post("/{dealership_id}/listings/{draft_id}/{action}")
-def review_listing(draft_id: int, action: str, note: str = Form(""), scope: DealershipScope = Depends(portal_scope_post),
+def review_listing(draft_id: int, action: str, note: str = Form(""), scope: DealershipScope = Depends(dealer_admin_post),
                    db: Session = Depends(get_db)):
     if action not in ("approve", "reject"):
         raise HTTPException(404, "Not found")

@@ -56,14 +56,15 @@ def verify_integrity(db: Session, limit: int | None = None) -> dict:
     stmt = select(AuditLog).order_by(AuditLog.id)
     if limit:
         stmt = stmt.limit(limit)
-    tampered, gaps, unsealed, checked, prev = [], [], [], 0, None
+    # Audit rows are never purged, so ids must run 1..N without gaps.
+    tampered, gaps, unsealed, checked, prev = [], [], [], 0, 0
     for row in db.scalars(stmt):
         checked += 1
         if row.entry_hmac is None:
             unsealed.append(row.id)
         elif row.entry_hmac != audit_entry_hmac(row):
             tampered.append(row.id)
-        if prev is not None and row.id != prev + 1:
+        if row.id != prev + 1:
             gaps.append([prev + 1, row.id - 1])
         prev = row.id
     return {"checked": checked, "tampered_ids": tampered, "missing_id_ranges": gaps, "unsealed_ids": unsealed,

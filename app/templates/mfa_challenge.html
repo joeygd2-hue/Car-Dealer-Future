@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block content %}<div class="card" style="max-width:380px;margin:40px auto">
+<h1>Two-step verification</h1>{% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+<form method="post" action="/login/mfa"><label>6-digit code from your authenticator app (or a recovery code)</label>
+<input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus>
+<p><button class="primary">Verify</button></p></form></div>{% endblock %}

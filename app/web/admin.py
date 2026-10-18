@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import get_db, utcnow
 from app.integrations import registry
 from app.integrations.sandbox import add_simulated_inbound_email
@@ -78,7 +79,8 @@ def admin_home(request: Request, auth: AuthContext = Depends(admin_get), db: Ses
                   live_auths=list(db.scalars(select(LiveAuthorization).order_by(LiveAuthorization.id.desc()).limit(30))),
                   scopes=registry.ALL_PLATFORM_SCOPES,
                   evals=list(db.scalars(select(EvaluationRun).order_by(EvaluationRun.id.desc()).limit(5))),
-                  cost_total=db.scalar(select(func.coalesce(func.sum(CostEntry.amount_cents), 0.0))) or 0.0)
+                  cost_total=db.scalar(select(func.coalesce(func.sum(CostEntry.amount_cents), 0.0))) or 0.0,
+                  users=list(db.scalars(select(User).order_by(User.email))))
 
 
 @router.post("/global-pause")
@@ -119,7 +121,7 @@ def dealership_detail(dealership_id: int, request: Request, auth: AuthContext = 
     conns = list(db.scalars(select(IntegrationConnection).where(IntegrationConnection.dealership_id == d.id)))
     return render(request, "admin/dealership.html", db, d=d, members=members, conns=conns,
                   providers=["META_MESSENGER", "TWILIO_SMS", "ADF_LEAD", "GOOGLE_CALENDAR"],
-                  settings_row=get_settings_row(db, d.id), new_token=request.query_params.get("token"))
+                  settings_row=get_settings_row(db, d.id))
 
 
 @router.post("/dealerships/{dealership_id}/status")
@@ -134,33 +136,71 @@ def dealership_status(dealership_id: int, status: str = Form(...), plan: str = F
     return redirect(f"/admin/dealerships/{d.id}", msg="Updated.")
 
 
+def _one_time(request: Request, db: Session, title: str, label: str, secret: str, back: str, note: str = ""):
+    """Show a secret exactly once in the response body — never in a URL, log line or flash message."""
+    return render(request, "admin/one_time.html", db, title=title, label=label, secret=secret, back=back, note=note)
+
+
 @router.post("/dealerships/{dealership_id}/members")
-def add_member(dealership_id: int, email: str = Form(...), name: str = Form(...), role: str = Form("DEALER_STAFF"),
-               password: str = Form(""), auth: AuthContext = Depends(admin_post), db: Session = Depends(get_db)):
+def add_member(dealership_id: int, request: Request, email: str = Form(...), name: str = Form(...),
+               role: str = Form("DEALER_STAFF"), auth: AuthContext = Depends(admin_post), db: Session = Depends(get_db)):
+    from app.web.auth_routes import issue_reset_token
+
     d = db.get(Dealership, dealership_id)
     if d is None or role not in ("DEALER_ADMIN", "DEALER_STAFF"):
         raise HTTPException(400, "Invalid request")
     user = db.scalar(select(User).where(User.email == email.strip().lower()))
-    temp = None
+    link = None
     if user is None:
-        temp = password or secrets.token_urlsafe(12)
-        try:
-            user = User(email=email.strip().lower(), name=name.strip(), password_hash=hash_password(temp))
-        except ValueError as exc:
-            return redirect(f"/admin/dealerships/{d.id}", err=str(exc))
+        # No password is ever chosen or shown by the admin: the user sets one through a single-use link.
+        user = User(email=email.strip().lower(), name=name.strip(), password_hash=hash_password(secrets.token_urlsafe(32)))
         db.add(user)
         db.flush()
+        token = issue_reset_token(db, user, created_by_id=auth.user.id, purpose="SETUP")
+        link = f"{get_settings().base_url.rstrip('/')}/password/reset/{token}"
     if not db.scalar(select(Membership.id).where(Membership.user_id == user.id, Membership.dealership_id == d.id)):
         db.add(Membership(user_id=user.id, dealership_id=d.id, role=role, receives_escalations=role == "DEALER_ADMIN"))
     audit.record(db, "membership.added", actor_type="USER", actor_user_id=auth.user.id, dealership_id=d.id,
                  member=user.email, role=role)
     db.commit()
-    msg = f"Added {user.email}." + (f" Temporary password: {temp} (share securely; shown once)." if temp and not password else "")
-    return redirect(f"/admin/dealerships/{d.id}", msg=msg)
+    if link:
+        return _one_time(request, db, f"Account created for {user.email}", "Account setup link (valid 72 hours, single use)",
+                         link, f"/admin/dealerships/{d.id}", "Send it to the person over a channel you trust.")
+    return redirect(f"/admin/dealerships/{d.id}", msg=f"Added existing user {user.email}.")
+
+
+@router.post("/users/{user_id}/reset-link")
+def admin_reset_link(user_id: int, request: Request, auth: AuthContext = Depends(admin_post), db: Session = Depends(get_db)):
+    from app.web.auth_routes import issue_reset_token
+
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(404, "Not found")
+    token = issue_reset_token(db, user, created_by_id=auth.user.id)
+    db.commit()
+    return _one_time(request, db, f"Password reset for {user.email}",
+                     f"Reset link (valid {get_settings().password_reset_ttl_minutes} minutes, single use)",
+                     f"{get_settings().base_url.rstrip('/')}/password/reset/{token}", "/admin",
+                     "Existing sessions end when the password is changed.")
+
+
+@router.post("/users/{user_id}/deactivate")
+def deactivate_user(user_id: int, auth: AuthContext = Depends(admin_post), db: Session = Depends(get_db)):
+    from app.security.auth import invalidate_sessions
+
+    user = db.get(User, user_id)
+    if user is None or user.id == auth.user.id:
+        raise HTTPException(400, "Invalid request")
+    user.is_active = False
+    n = invalidate_sessions(db, user.id)
+    audit.record(db, "user.deactivated", actor_type="USER", actor_user_id=auth.user.id, entity_type="user",
+                 entity_id=user.id, sessions_ended=n)
+    db.commit()
+    return redirect("/admin", msg=f"{user.email} deactivated and signed out.")
 
 
 @router.post("/dealerships/{dealership_id}/connections")
-def add_connection(dealership_id: int, provider: str = Form(...), external_account_id: str = Form(""),
+def add_connection(dealership_id: int, request: Request, provider: str = Form(...), external_account_id: str = Form(""),
                    display_name: str = Form(""), credentials_json: str = Form(""),
                    auth: AuthContext = Depends(admin_post), db: Session = Depends(get_db)):
     d = db.get(Dealership, dealership_id)
@@ -190,7 +230,8 @@ def add_connection(dealership_id: int, provider: str = Form(...), external_accou
                  entity_type="integration", entity_id=conn.id, provider=provider)
     db.commit()
     if token:
-        return redirect(f"{url}?token={token}", msg=f"ADF intake created. POST to /api/leads/adf/{conn.id} with the bearer token shown once below.")
+        return _one_time(request, db, "ADF lead intake created", f"Bearer token for POST /api/leads/adf/{conn.id}", token, url,
+                         "Configure it in the lead provider's HTTP delivery settings. It cannot be shown again.")
     return redirect(url, msg="Connection saved (credentials encrypted). Live use still requires a live authorization.")
 
 
@@ -374,7 +415,10 @@ def message_action(message_id: int, action: str, body: str = Form(None), subject
 
 @router.post("/outreach/prospects/import")
 async def prospects_import(file: UploadFile, auth: AuthContext = Depends(admin_post), db: Session = Depends(get_db)):
-    text = (await file.read()).decode("utf-8-sig", "replace")
+    raw = await file.read(2_000_001)
+    if len(raw) > 2_000_000:
+        return redirect("/admin/outreach#prospects", err="CSV too large (max 2 MB).")
+    text = raw.decode("utf-8-sig", "replace")
     out = import_csv(db, text, user_id=auth.user.id)
     db.commit()
     return redirect("/admin/outreach#prospects", msg=f"Imported {out['created']}, duplicates {out['duplicates']}, invalid {out['invalid']} (rows need name + source_url).")

@@ -3,5 +3,5 @@
 <h1>Sign in</h1>{% if error %}<div class="flash err">{{ error }}</div>{% endif %}
 <form method="post" action="/login"><label>Email</label><input type="email" name="email" required autocomplete="username">
 <label>Password</label><input type="password" name="password" required autocomplete="current-password">
-<p><button class="primary" type="submit">Sign in</button></p></form></div>
+<p><button class="primary" type="submit">Sign in</button></p></form><p class="small"><a href="/password/forgot">Forgot password?</a></p></div>
 {% endblock %}

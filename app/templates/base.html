@@ -7,12 +7,14 @@
   <a class="brand" href="/">{{ settings.app_name }}</a>
   <nav>
   {% if user %}
-    {% if user.is_platform_admin %}<a href="/admin">Admin</a><a href="/admin/outreach">Outreach agent</a><a href="/admin/audit">Audit</a>{% endif %}
+    {% if user.is_platform_admin %}<a href="/admin">Admin</a><a href="/admin/pilot">Pilot console</a><a href="/admin/outreach">Outreach agent</a><a href="/admin/audit">Audit</a>{% endif %}
     {% for nd in nav_dealerships[:6] %}<a href="/portal/{{ nd.id }}">{{ nd.name }}</a>{% endfor %}
   {% endif %}
   </nav>
-  {% if user %}<div class="me">{{ user.name }}{% if unread %} · <span class="badge b-info">{{ unread }} unread</span>{% endif %}
-    <form class="inline" method="post" action="/logout"><button>Sign out</button></form></div>{% endif %}
+  {% if user %}<div class="me"><a href="/account/security">{{ user.name }}</a>{% if unread %} · <span class="badge b-info">{{ unread }} unread</span>{% endif %}
+    <form class="inline" method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Sign out</button></form></div>{% endif %}
 </header>
+{% if platform_status and platform_status.emergency_stop %}<div class="flash err" style="margin:0;border-radius:0">EMERGENCY STOP ACTIVE — no messages will leave the platform.{% if user and user.is_platform_admin %} <a href="/admin/pilot">Pilot console</a>{% endif %}</div>
+{% elif platform_status and platform_status.live %}<div class="notice" style="margin:0;border-radius:0">LIVE SENDING ENABLED{% if platform_status.pilot %} — pilot mode: only allowlisted internal recipients{% endif %}.</div>{% endif %}
 {% block body %}<main>{% block flash %}{% if flash %}<div class="flash">{{ flash }}</div>{% endif %}{% if flash_error %}<div class="flash err">{{ flash_error }}</div>{% endif %}{% endblock %}{% block content %}{% endblock %}</main>{% endblock %}
 </body></html>

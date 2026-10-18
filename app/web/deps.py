@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-from collections import defaultdict, deque
 from pathlib import Path
 from urllib.parse import quote
 
@@ -44,7 +42,15 @@ def render(request: Request, name: str, db: Session | None = None, **ctx):
             dealerships = [m.dealership for m in db.scalars(select(Membership).where(Membership.user_id == auth.user.id))]
         unread = db.query(Notification).filter(Notification.user_id == auth.user.id, Notification.channel == "IN_APP",
                                                Notification.read_at.is_(None)).count()
+    platform_status = None
+    if db is not None:
+        from app.services import send_gate
+
+        st = get_settings()
+        platform_status = {"emergency_stop": send_gate.emergency_stopped(db), "live": st.live_integrations_enabled,
+                           "pilot": st.pilot_mode}
     return TEMPLATES.TemplateResponse(request, name, {
+        "platform_status": platform_status,
         "auth": auth, "user": auth.user if auth else None, "csrf_token": auth.csrf_token if auth else "",
         "nav_dealerships": dealerships, "unread": unread, "flash": request.query_params.get("msg"),
         "flash_error": request.query_params.get("err"), "settings": get_settings(), **ctx})
@@ -82,21 +88,3 @@ async def admin_post(auth: AuthContext = Depends(verify_csrf)) -> AuthContext:
 
 
 admin_get = require_platform_admin
-
-
-class RateLimiter:
-    """In-process sliding-window limiter (per key). Use a shared store (e.g. Redis) when running several web processes."""
-
-    def __init__(self, limit: int, window_seconds: float):
-        self.limit, self.window = limit, window_seconds
-        self.hits: dict[str, deque] = defaultdict(deque)
-
-    def allow(self, key: str) -> bool:
-        now = time.monotonic()
-        q = self.hits[key]
-        while q and now - q[0] > self.window:
-            q.popleft()
-        if len(q) >= self.limit:
-            return False
-        q.append(now)
-        return True

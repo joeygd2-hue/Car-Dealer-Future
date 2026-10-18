@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Tickets{% endblock %}
+{% block content %}
+<h1>Support tickets</h1>
+{% if tickets %}<table><thead><tr><th scope="col">#</th><th scope="col">Client</th><th scope="col">Type</th><th scope="col">Title</th><th scope="col">Priority</th><th scope="col">Source</th><th scope="col">Status</th></tr></thead><tbody>
+{% for t in tickets %}<tr><td>{{ t.id }}</td><td>{{ names[t.client_id] }}</td><td>{{ t.kind|label }}</td><td>{{ t.title }}{% if t.description %}<br><span class="muted">{{ t.description[:200] }}</span>{% endif %}</td><td>{{ t.priority }}</td><td>{{ t.source }}</td>
+<td><form method="post" action="/app/tickets/{{ t.id }}/status" class="row"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label class="sr" for="ts{{ t.id }}">Status</label><select id="ts{{ t.id }}" name="status">{% for s in statuses %}<option {% if s == t.status %}selected{% endif %}>{{ s }}</option>{% endfor %}</select><button>Save</button></form></td></tr>{% endfor %}
+</tbody></table>{% else %}<p class="empty">No tickets.</p>{% endif %}
+<section class="card"><h2>New ticket</h2>
+<form method="post" action="/app/tickets" class="grid"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Client<select name="client_id">{% for cid, n in clients.items() %}<option value="{{ cid }}">{{ n }}</option>{% endfor %}</select></label>
+<label>Type<select name="kind">{% for k in kinds %}<option value="{{ k }}">{{ k|label }}</option>{% endfor %}</select></label>
+<label>Priority<select name="priority">{% for p in ['low','normal','high','urgent'] %}<option {% if p == 'normal' %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+<label>Title<input name="title" required maxlength="200"></label><label class="wide">Description<textarea name="description" rows="3"></textarea></label><button>Create</button></form></section>
+{% endblock %}

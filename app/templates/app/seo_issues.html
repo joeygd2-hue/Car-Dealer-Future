@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}SEO issues — {{ client.name }}{% endblock %}
+{% block content %}
+<h1>SEO issues — {{ client.name }}</h1>
+<p><a href="?">All</a> · <a href="?status=open">Open</a> · <a href="?status=resolved">Resolved</a></p>
+<p class="muted"><span class="pill measured">measured</span> directly observed on the site · <span class="pill heuristic">heuristic</span> rule-based opportunity · <span class="pill ai">ai</span> AI-generated recommendation</p>
+{% if issues %}{% for i in issues %}
+<section class="card issue {{ i.severity }}">
+  <div class="row between"><h2>{{ i.finding }}</h2><span><span class="pill {{ i.severity }}">{{ i.severity }}</span> <span class="pill {{ i.detection }}">{{ i.detection }}</span> <span class="pill {{ i.status }}">{{ i.status|label }}</span></span></div>
+  <dl class="kv">
+    <dt>URL</dt><dd>{{ i.url or '—' }}</dd><dt>Evidence</dt><dd>{{ i.evidence }}</dd><dt>Likely impact</dt><dd>{{ i.impact }}</dd>
+    <dt>Recommended fix</dt><dd>{{ i.recommended_fix }}</dd><dt>Effort</dt><dd>{{ i.effort }}</dd><dt>Responsible</dt><dd>{{ i.responsible_party|label }}</dd>
+    <dt>Before / after</dt><dd>{{ i.before_value or '—' }} → {{ i.after_value or '—' }}</dd>
+  </dl>
+  <form method="post" action="/app/seo/issues/{{ i.id }}" class="row"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label class="sr" for="is{{ i.id }}">Status</label>
+  <select id="is{{ i.id }}" name="status">{% for s in ['open','in_progress','resolved','wont_fix'] %}<option {% if s == i.status %}selected{% endif %}>{{ s }}</option>{% endfor %}</select><button>Update</button></form>
+</section>{% endfor %}{% else %}<p class="empty">No issues recorded. Run an audit from the SEO page.</p>{% endif %}
+{% endblock %}

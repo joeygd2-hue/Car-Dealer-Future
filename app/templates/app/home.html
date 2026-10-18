@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Overview{% endblock %}
+{% block content %}
+<h1>Overview</h1>
+<div class="tiles">
+  {% if tiles.mrr is not none %}<div class="tile"><span class="k">Contracted MRR</span><span class="v">{{ tiles.mrr|money }}</span><span class="muted">from active agreements</span></div>{% endif %}
+  <div class="tile"><span class="k">Active clients</span><span class="v">{{ tiles.clients_active }}</span></div>
+  <div class="tile"><span class="k">Onboarding</span><span class="v">{{ tiles.clients_onboarding }}</span></div>
+  <div class="tile"><span class="k">Open tickets</span><span class="v">{{ tiles.open_tickets }}</span></div>
+  <div class="tile"><span class="k">Unacknowledged alerts</span><span class="v">{{ tiles.alerts }}</span></div>
+  <div class="tile"><span class="k">Messages awaiting approval</span><span class="v">{{ tiles.pending_approvals }}</span></div>
+</div>
+<section class="card">
+  <h2>Outreach agent</h2>
+  <p>State: <span class="pill {{ agent.state }}">{{ agent.state|label }}</span> · Live mode: <strong>{{ 'on' if agent.live_mode else 'off (sandbox only)' }}</strong> · Last tick: {{ agent.last_tick_at or 'never' }}</p>
+  <p><a href="/app/agent">Open the operator dashboard</a></p>
+</section>
+{% endblock %}

@@ -247,7 +247,8 @@ def send_email_job(db: Session, payload: dict) -> dict:
         raise DeferJob(utcnow() + timedelta(minutes=30), hold)
     if not provider.simulated:
         ok, why = live_sending_allowed(db)
-        if not ok:
+        controlled = msg.origin == "live_check" and msg.to_email.lower() in get_settings().test_inbox_list
+        if not ok and not controlled:
             raise DeferJob(utcnow() + timedelta(hours=1), why)
     blockers = email_blockers(db, msg, at_send=True, provider_simulated=provider.simulated)
     if blockers:

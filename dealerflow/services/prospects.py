@@ -16,6 +16,10 @@ from ..models import DEALERSHIP_TYPES, Evidence, Prospect, ProspectSource
 from .crm import add_activity
 from .normalize import domain_of, is_free_mail_domain, normalize_name, validate_prospect_fields
 
+# Sources whose record IDs identify distinct legal entities (a TxDMV license number is one licensed
+# dealer). Two different IDs from such a source are never merged, even with a shared phone.
+DISTINCT_ID_SOURCES = {"txdmv"}
+
 MERGE_FIELDS = ("website", "inventory_url", "address_line", "city", "state", "postal_code", "lat", "lng",
                 "phone_e164", "email", "dealership_type")
 
@@ -68,12 +72,22 @@ def miles_between(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 def find_duplicate(db: Session, data: dict[str, Any], *, source: str | None = None,
                    external_id: str | None = None) -> tuple[Prospect | None, str | None]:
-    live = Prospect.merged_into_id.is_(None)
     if source and external_id:
         link = db.scalar(select(ProspectSource).where(ProspectSource.source == source,
                                                       ProspectSource.external_id == external_id))
         if link:
             return link.prospect, "source_id"
+    p, how = _find_duplicate(db, data)
+    if p is not None and source in DISTINCT_ID_SOURCES and external_id and any(
+            s.source == source and s.external_id != external_id for s in p.sources):
+        # Same source, different record ID (e.g. two TxDMV license numbers): different businesses,
+        # even when they share a phone number, website or similar name.
+        return None, None
+    return p, how
+
+
+def _find_duplicate(db: Session, data: dict[str, Any]) -> tuple[Prospect | None, str | None]:
+    live = Prospect.merged_into_id.is_(None)
     domain = domain_of(data.get("website"))
     if domain and not is_free_mail_domain(domain):
         p = db.scalar(select(Prospect).where(live, Prospect.domain == domain))

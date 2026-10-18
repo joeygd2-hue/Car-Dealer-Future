@@ -105,6 +105,13 @@ class Settings(BaseSettings):
 
     # Notifications
     notify_email: str = ""  # optional daily digest recipient; empty disables it
+    # Inboxes you control, comma separated. `live-check` may send real test emails ONLY to these, even
+    # before live operation is authorized. Never put a prospect's address here.
+    test_inboxes: str = ""
+
+    @property
+    def test_inbox_list(self) -> list[str]:
+        return [x.strip().lower() for x in self.test_inboxes.split(",") if x.strip()]
 
 
     session_max_age_seconds: int = Field(default=60 * 60 * 12)

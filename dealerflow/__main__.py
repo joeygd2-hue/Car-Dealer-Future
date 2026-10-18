@@ -9,6 +9,8 @@
   check-integrations           verify configured provider credentials without sending anything
   backup DIR                   write a verified database backup to DIR
   restore FILE --yes           replace the database with a backup (stop web + worker first)
+  live-check send|inbox|meeting  controlled real-provider test (see dealerflow/livecheck.py)
+  retention [DAYS]             redact message bodies older than DAYS (default 730) and prune old logs
 """
 
 from __future__ import annotations
@@ -92,6 +94,25 @@ def main(argv: list[str]) -> None:
         from .backup import backup
 
         print(backup(argv[1] if len(argv) > 1 else "./backups"))
+    elif cmd == "live-check":
+        from . import handlers  # noqa: F401
+        from . import livecheck
+
+        sub = argv[1] if len(argv) > 1 else ""
+        if sub == "send":
+            print(livecheck.send(argv[argv.index("--to") + 1], confirmed="--i-control-this-inbox" in argv))
+        elif sub == "inbox":
+            print(livecheck.inbox())
+        elif sub == "meeting":
+            print(livecheck.meeting())
+        else:
+            print(livecheck.__doc__)
+    elif cmd == "retention":
+        from .db import session_scope
+        from .retention import apply
+
+        with session_scope() as db:
+            print(apply(db, message_days=int(argv[1]) if len(argv) > 1 else 730))
     elif cmd == "restore":
         from .backup import restore
 

@@ -168,3 +168,13 @@ def test_csrf_covers_every_unsafe_method(method):
     asyncio.run(check_csrf(Request(ok)))
     bearer = dict(scope, headers=[(b"authorization", b"Bearer df_x")])
     asyncio.run(check_csrf(Request(bearer)))  # API keys are exempt
+
+
+def test_secrets_can_come_from_files_not_the_environment(tmp_path, monkeypatch):
+    from dealerflow.config import get_settings
+
+    (tmp_path / "df_smtp_password").write_text("from-a-secret-file")
+    monkeypatch.setenv("DF_SECRETS_DIR", str(tmp_path))
+    monkeypatch.delenv("DF_SMTP_PASSWORD", raising=False)
+    get_settings.cache_clear()
+    assert get_settings().smtp_password.get_secret_value() == "from-a-secret-file"

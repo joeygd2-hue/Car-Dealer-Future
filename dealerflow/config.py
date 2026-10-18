@@ -16,9 +16,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     # Secrets can come from files instead of environment variables: one file per setting, named like the
     # variable in lower case (e.g. /run/secrets/df_smtp_password). Docker/Compose secrets mount there.
-    model_config = SettingsConfigDict(env_prefix="DF_", env_file=".env", extra="ignore",
-                                      secrets_dir=os.environ.get("DF_SECRETS_DIR", "/run/secrets")
-                                      if os.path.isdir(os.environ.get("DF_SECRETS_DIR", "/run/secrets")) else None)
+    # The directory is resolved when settings are built (see get_settings), not at import time.
+    model_config = SettingsConfigDict(env_prefix="DF_", env_file=".env", extra="ignore")
 
     env: str = "development"  # development | test | production
     database_url: str = "sqlite:///./state/dealerflow.db"
@@ -152,6 +151,11 @@ class Settings(BaseSettings):
         raise RuntimeError("DF_SECRET_KEY must be set outside development")
 
 
+def secrets_dir() -> str | None:
+    path = os.environ.get("DF_SECRETS_DIR", "/run/secrets")
+    return path if os.path.isdir(path) else None
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings(_secrets_dir=secrets_dir())

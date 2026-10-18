@@ -1,17 +1,18 @@
 # Build status
 
-| Phase | Scope | Status |
-|---|---|---|
-| **1** | Research, lead generation, CRM, sales operations, persistent outreach agent | **Implemented and tested with simulated providers.** Live integrations not yet verified (no credentials). |
-| **2** | Dealership inventory ingestion, bilingual listings, approvals, publishing | **Implemented in this app and tested with fixtures, SIMULATED channel and mocked HTTP.** Meta catalog not live-verified (no credentials). See the Phase 2 section below. |
-| 3 | (defined in its own task) | Not started. |
-| 4 | (defined in its own task) | Not started. |
-| **1.5** | Launch-readiness audit | **Done 2026-10-18.** Verdict: not ready for live outreach; blockers in `docs/audit/launch-readiness-audit.md` §7. |
-| 2 | Inventory/listing publishing | In progress on `claude/dealership-inventory-publishing-iq0aqw`, merged onto `dealerflow`. Don't start new Phase 2 work here until audit blocker #5 is decided. |
-| 3 | Customer-response engine | In progress on `claude/magical-darwin-nncp64` as a **separate `app/` package**; needs porting onto `dealerflow`. |
-| 4 | (see branch) | In progress on `claude/blissful-davinci-82py6w` as a **separate `app/` package**; needs porting onto `dealerflow`. |
+> **This branch (`claude/mybot-unification`) is the unified MyBot application in progress.** It combines Phase 1–1.5
+> (hardened `dealerflow`) and Phase 2. Phases 3 and 4 are being ported in increments:
+> `docs/unification/porting-plan.md`, `feature-matrix.md`, `control-preservation.md`.
 
-Last updated: 2026-10-18 · branch `claude/charming-ritchie-358e1g`
+| Phase | Scope | Status on this branch |
+|---|---|---|
+| **1** | Research, lead generation, CRM, sales operations, persistent outreach agent | **Included.** Tested with simulated providers; live integrations not verified (no credentials). |
+| **1.5** | Launch-readiness audit and hardening | **Included.** Verdict: not ready for live outreach; blockers in `docs/audit/launch-readiness-audit.md` §7. |
+| **2** | Dealership inventory, bilingual listings, approvals, publishing | **Included** (merged from `claude/dealership-inventory-publishing-iq0aqw`). Tested with fixtures, SIMULATED channel and mocked HTTP; Meta catalog not live-verified. |
+| 3 | Customer-response engine | **Not yet ported.** Separate `app/` package on `claude/magical-darwin-nncp64`; porting-plan increments 2, 4–7. |
+| 4 | Client back office (finance, SEO, portal, reports) | **Not yet ported.** `dealerflow`-based on `claude/blissful-davinci-82py6w`, with table and migration collisions; porting-plan increment 3. |
+
+Last updated: 2026-10-18 · branch `claude/mybot-unification` (204 tests)
 
 ## Starting point
 

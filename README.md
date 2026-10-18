@@ -47,6 +47,7 @@ Docker: `docker compose up --build` runs `migrate`, then `web` and `worker`.
 | [docs/architecture/autonomous-agent.md](docs/architecture/autonomous-agent.md) | Agent states, tick steps, safety gates, how to go live |
 | [docs/research/feasibility-report.md](docs/research/feasibility-report.md) | Data sources, providers, law: what's allowed |
 | [docs/research/source-register.md](docs/research/source-register.md) | Sources, access dates, confidence |
+| [docs/unification/porting-plan.md](docs/unification/porting-plan.md) | **MyBot unification:** porting plan, feature matrix, control preservation |
 | [docs/audit/launch-readiness-audit.md](docs/audit/launch-readiness-audit.md) | **Phase 1.5 audit: verdict, blockers, priorities** (plus deployment, security, integration, compliance, lead-sourcing and pilot docs in `docs/audit/`) |
 | [docs/progress/build-status.md](docs/progress/build-status.md) | What's implemented and tested |
 | [docs/progress/known-limitations.md](docs/progress/known-limitations.md) | What's missing, untested or needs credentials |

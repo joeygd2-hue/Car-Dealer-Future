@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% from "macros.html" import sim, status_pill %}{% block content %}
+<h1>Message #{{ m.id }} {{ status_pill(m.status) }} {{ sim(m.simulated) }}</h1>
+<div class="two"><div class="card">
+<p class="small">To <b>{{ m.to_email }}</b> · <a href="/prospects/{{ m.prospect_id }}">{{ m.prospect.name }}</a> · {{ m.language }} · origin {{ m.origin }}{% if m.approval_kind %} · approved ({{ m.approval_kind }}) {{ m.approved_at|local }}{% endif %}{% if m.sent_at %} · sent {{ m.sent_at|local }} via {{ m.provider }} id {{ m.provider_message_id }}{% endif %}</p>
+{% if m.status=='draft' and role_at_least(user.role,'rep') %}<form method="post" action="/outreach/{{ m.id }}/edit"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Subject</label><input name="subject" value="{{ m.subject }}" style="width:100%"><label>Body</label><textarea name="body" style="min-height:320px">{{ m.body }}</textarea><button class="secondary">Save edits</button></form>
+{% else %}<h3>{{ m.subject }}</h3><pre>{{ m.body }}</pre>{% endif %}
+{% if m.error %}<p style="color:var(--bad)">{{ m.error }}</p>{% endif %}</div>
+<div><div class="card"><h3>Pre-send checks</h3>{% for b in blockers %}<div style="color:var(--bad)">✖ {{ b }}</div>{% else %}{% if m.status=='draft' %}<div style="color:var(--ok)">✔ No blocking issues</div>{% endif %}{% endfor %}
+{% for f in m.review_flags or [] %}<div class="pill warn">review: {{ f }}</div>{% endfor %}
+<p class="small muted">Checks run again immediately before sending.</p>
+{% if m.status=='draft' and role_at_least(user.role,'manager') and not blockers %}
+<form method="post" action="/outreach/{{ m.id }}/approve"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Approve and queue</button></form>
+<form method="post" action="/outreach/{{ m.id }}/approve" style="margin-top:6px"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="send_now" value="1"><button class="secondary">Approve and send now</button></form>{% endif %}
+{% if m.status in ('draft','queued') %}<form method="post" action="/outreach/{{ m.id }}/cancel" style="margin-top:6px"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="reason" placeholder="reason"><button class="danger">Cancel</button></form>{% endif %}
+{% if m.status=='failed' and role_at_least(user.role,'manager') %}<form method="post" action="/outreach/{{ m.id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Return to draft</button></form>{% endif %}
+</div></div></div>{% endblock %}

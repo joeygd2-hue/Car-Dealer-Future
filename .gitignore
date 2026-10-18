@@ -1,9 +1,11 @@
+*.db
+*.db-journal
+*.egg-info/
+*.pyc
+.env
+.pytest_cache/
 .venv/
 __pycache__/
-*.pyc
-.pytest_cache/
-.coverage
-htmlcov/
 data/
-*.db
-.env
+secrets/
+state/

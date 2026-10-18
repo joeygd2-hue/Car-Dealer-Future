@@ -1,0 +1,136 @@
+"""Authentication, role-based access, CSRF, API keys and page smoke tests."""
+
+from sqlalchemy import select
+
+from dealerflow.models import AuditLog, OutreachMessage
+from dealerflow.services.discovery import run_source
+from tests.conftest import login, make_user
+
+PAGES = ["/", "/agent", "/prospects", "/prospects/new", "/import", "/outreach", "/outreach?status=", "/inbox",
+         "/meetings", "/tasks", "/reports/weekly", "/reports/weekly?simulated=1", "/integrations", "/settings",
+         "/suppression", "/activity", "/audit"]
+
+
+def test_anonymous_is_redirected_or_rejected(client):
+    r = client.get("/prospects", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/login")
+    assert client.get("/api/v1/prospects").status_code == 401
+    assert client.post("/agent/status", data={"status": "running"}).status_code in (401, 403, 303)
+
+
+def test_login_rate_limit(db, client):
+    make_user(db, "x@test.example", "admin")
+    r = client.get("/login")
+    csrf = r.text.split('name="csrf" value="')[1].split('"')[0]
+    for _ in range(5):
+        r = client.post("/login", data={"email": "x@test.example", "password": "wrong-password", "csrf": csrf})
+        assert "Invalid email or password" in r.text
+    r = client.post("/login", data={"email": "x@test.example", "password": "correct horse battery", "csrf": csrf})
+    assert "Too many failed attempts" in r.text
+    assert db.scalar(select(AuditLog).where(AuditLog.action == "auth.login_blocked"))
+
+
+def test_all_pages_render_for_admin(db, client):
+    admin = make_user(db)
+    run_source(db, "fixture")
+    db.commit()
+    login(client, admin.email)
+    for path in PAGES:
+        r = client.get(path)
+        assert r.status_code == 200, (path, r.text[:300])
+        assert "SIMULATED providers active" in r.text
+    pid = client.get("/api/v1/prospects").json()["items"][0]["id"]
+    assert client.get(f"/prospects/{pid}").status_code == 200
+
+
+def test_csrf_required_for_form_posts(db, client):
+    admin = make_user(db)
+    login(client, admin.email)
+    assert client.post("/agent/status", data={"status": "running"}).status_code == 403
+    assert client.post("/agent/status", data={"status": "running", "csrf": "wrong"}).status_code == 403
+
+
+def test_viewer_and_rep_cannot_do_privileged_things(db, client):
+    admin = make_user(db)
+    make_user(db, "viewer@test.example", "viewer")
+    make_user(db, "rep@test.example", "rep")
+    run_source(db, "fixture")
+    db.commit()
+    csrf = login(client, "viewer@test.example")
+    pid = client.get("/api/v1/prospects").json()["items"][0]["id"]
+    assert client.post(f"/prospects/{pid}/note", data={"body": "x", "csrf": csrf}).status_code == 403
+    assert client.post("/agent/status", data={"status": "running", "csrf": csrf}).status_code == 403
+    client.post("/logout", data={"csrf": csrf})
+
+    csrf = login(client, "rep@test.example")
+    r = client.post(f"/prospects/{pid}/draft", data={"template_id": 1, "csrf": csrf}, follow_redirects=False)
+    assert r.status_code == 303
+    mid = db.scalar(select(OutreachMessage.id))
+    assert client.post(f"/outreach/{mid}/approve", data={"csrf": csrf}).status_code == 403
+    assert client.post("/agent/live", data={"authorize": "1", "confirm": "AUTHORIZE LIVE", "csrf": csrf}).status_code == 403
+    assert client.post("/settings/scoring", data={"csrf": csrf}).status_code == 403
+    assert client.get("/audit").status_code == 403
+    _ = admin
+
+
+def test_manual_stage_cannot_fake_workflow_states(db, client):
+    admin = make_user(db)
+    run_source(db, "fixture")
+    db.commit()
+    csrf = login(client, admin.email)
+    pid = client.get("/api/v1/prospects").json()["items"][0]["id"]
+    for stage in ("contacted", "meeting_booked", "replied", "outreach_approved"):
+        r = client.post(f"/api/v1/prospects/{pid}/stage", json={"stage": stage}, headers={"x-csrf-token": csrf})
+        assert r.status_code == 409, stage
+
+
+def test_api_key_auth(db, client):
+    admin = make_user(db)
+    csrf = login(client, admin.email)
+    r = client.post("/settings/api-key", data={"csrf": csrf})
+    key = r.text.split("New API key (shown once): ")[1].split("<")[0].strip()
+    from fastapi.testclient import TestClient
+
+    from dealerflow.web.app import create_app
+
+    anon = TestClient(create_app())
+    assert anon.get("/api/v1/prospects", headers={"Authorization": "Bearer nope"}).status_code == 401
+    r = anon.post("/api/v1/prospects", headers={"Authorization": f"Bearer {key}"},
+                  json={"name": "API Motors (SIMULATED)", "city": "Sugar Land", "phone": "281-555-0199"})
+    assert r.status_code == 201 and r.json()["created"]
+    r = anon.post("/api/v1/prospects", headers={"Authorization": f"Bearer {key}"},
+                  json={"name": "API Motors LLC", "phone": "(281) 555-0199"})
+    assert r.json()["created"] is False and r.json()["matched_by"] == "phone"
+
+
+def test_bulk_requires_confirmation_and_blocks_workflow_stages(db, client):
+    admin = make_user(db)
+    run_source(db, "fixture")
+    db.commit()
+    csrf = login(client, admin.email)
+    ids = [p["id"] for p in client.get("/api/v1/prospects").json()["items"][:3]]
+    r = client.post("/prospects/bulk", data={"ids": ids, "action": "stage", "value": "researching", "csrf": csrf})
+    assert "Type the number" in r.text
+    r = client.post("/prospects/bulk", data={"ids": ids, "action": "stage", "value": "contacted", "confirm": "3", "csrf": csrf})
+    assert "set by its workflow" in r.text
+    r = client.post("/prospects/bulk", data={"ids": ids, "action": "stage", "value": "researching", "confirm": "3", "csrf": csrf})
+    assert "3 updated" in r.text
+
+
+def test_zoom_webhook_signature(db, client, monkeypatch):
+    import hashlib
+    import hmac
+    import json
+    import time
+
+    from dealerflow.config import get_settings
+
+    monkeypatch.setenv("DF_ZOOM_WEBHOOK_SECRET_TOKEN", "whsec")
+    get_settings.cache_clear()
+    body = json.dumps({"event": "endpoint.url_validation", "payload": {"plainToken": "abc"}})
+    ts = str(int(time.time()))
+    sig = "v0=" + hmac.new(b"whsec", f"v0:{ts}:{body}".encode(), hashlib.sha256).hexdigest()
+    r = client.post("/webhooks/zoom", content=body, headers={"x-zm-request-timestamp": ts, "x-zm-signature": sig})
+    assert r.status_code == 200 and r.json()["encryptedToken"] == hmac.new(b"whsec", b"abc", hashlib.sha256).hexdigest()
+    r = client.post("/webhooks/zoom", content=body, headers={"x-zm-request-timestamp": ts, "x-zm-signature": "v0=bad"})
+    assert r.status_code == 401

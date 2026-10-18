@@ -1,8 +1,0 @@
-{% extends "base.html" %}
-{% block title %}Audit log{% endblock %}
-{% block content %}
-<h1>Audit log</h1>
-<table><thead><tr><th scope="col">When (UTC)</th><th scope="col">Actor</th><th scope="col">Action</th><th scope="col">Entity</th><th scope="col">Client</th><th scope="col">Details</th></tr></thead><tbody>
-{% for r in rows %}<tr><td>{{ r.created_at }}</td><td>{{ r.actor_label }}</td><td>{{ r.action }}</td><td>{{ r.entity_type or '' }} {{ r.entity_id or '' }}</td><td>{{ r.client_id or '' }}</td><td><code>{{ r.details }}</code></td></tr>{% endfor %}
-</tbody></table>
-{% endblock %}

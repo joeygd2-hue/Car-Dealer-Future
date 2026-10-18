@@ -1,126 +1,152 @@
-"""Test fixtures. All data is synthetic; all providers are sandboxed; no network access is used."""
+"""Test setup: each test gets a fresh SQLite database built by the real Alembic migrations.
+
+All providers are the SIMULATED mocks. No network access is needed or attempted.
+"""
+
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 
-_tmp = tempfile.mkdtemp(prefix="dgs-test-")
-os.environ.update({
-    "ENVIRONMENT": "test",
-    "DATABASE_URL": os.environ.get("TEST_DATABASE_URL", f"sqlite:///{_tmp}/test.db"),
-    "SECRET_KEY": "test-secret-key-that-is-long-enough-123456",
-    "ATTACHMENTS_DIR": f"{_tmp}/attachments",
-    "STRIPE_WEBHOOK_SECRET": "whsec_test_secret",
-    "INBOUND_WEBHOOK_SECRET": "inbound_test_secret",
-    "EMAIL_PROVIDER": "sandbox",
-    "INBOX_PROVIDER": "sandbox",
-    "CALENDAR_PROVIDER": "sandbox",
-    "GOOGLE_PLACES_API_KEY": "",
-    "PAGESPEED_API_KEY": "",
-    "ANTHROPIC_API_KEY": "",
-    "AI_ENABLED": "false",
-    "BASE_URL": "http://testserver",
-    "COMPANY_NAME": "Dealer Growth Services",
-    "API_RATE_LIMIT_PER_MINUTE": "100000",
-    "LOGIN_RATE_LIMIT_PER_MINUTE": "1000",
-})
+import pytest
 
-import pytest  # noqa: E402
-from alembic import command  # noqa: E402
-from alembic.config import Config  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import text  # noqa: E402
+_TMP = tempfile.mkdtemp(prefix="dealerflow-tests-")
+_TEMPLATE_DB = os.path.join(_TMP, "template.db")
 
-from app.config import get_settings  # noqa: E402
-from app.db import Base, SessionLocal, get_engine, reset_engine  # noqa: E402
+PG_URL = os.environ.get("DF_TEST_PG_URL")  # optional: run the suite against Postgres instead of SQLite
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_ENV = {
+    "DF_ENV": "test",
+    "DF_SECRET_KEY": "test-secret-key",
+    "DF_BUSINESS_NAME": "Test Marketing Co (TEST)",
+    "DF_BUSINESS_POSTAL_ADDRESS": "123 Test St, Sugar Land, TX 77478",
+    "DF_SENDER_NAME": "Test Sender",
+    "DF_SENDER_EMAIL": "sender@testco.example",
+    "DF_EMAIL_PROVIDER": "mock",
+    "DF_CALENDAR_PROVIDER": "mock",
+    "DF_ZOOM_PROVIDER": "mock",
+    "DF_CALL_PROVIDER": "mock",
+    "DF_OUTREACH_SENDING_ENABLED": "false",
+    "DF_WEBSITE_RESEARCH_ENABLED": "false",
+    "DF_LOG_LEVEL": "WARNING",
+}
+for k, v in BASE_ENV.items():
+    os.environ[k] = v
+for k in list(os.environ):
+    if k.startswith("DF_") and k not in BASE_ENV:
+        del os.environ[k]
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _schema():
+def _build_template() -> None:
+    from dealerflow.config import get_settings
+    from dealerflow.db import reset_engine, session_scope
+    from dealerflow.migrate import upgrade
+    from dealerflow.seed import seed
+
+    os.environ["DF_DATABASE_URL"] = f"sqlite:///{_TEMPLATE_DB}"
     get_settings.cache_clear()
     reset_engine()
-    cfg = Config(os.path.join(ROOT, "alembic.ini"))
-    cfg.set_main_option("script_location", os.path.join(ROOT, "migrations"))
-    command.upgrade(cfg, "head")  # the real migration, not create_all
-    yield
+    upgrade()
+    with session_scope() as db:
+        seed(db)
+    reset_engine()
+
+
+if not PG_URL:
+    _build_template()
+
+
+def _reset_pg() -> None:
+    from sqlalchemy import create_engine, text
+
+    from dealerflow.db import reset_engine, session_scope
+    from dealerflow.migrate import upgrade
+    from dealerflow.seed import seed
+
+    eng = create_engine(PG_URL)
+    with eng.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
+    eng.dispose()
+    reset_engine()
+    upgrade(PG_URL)
+    with session_scope() as db:
+        seed(db)
 
 
 @pytest.fixture(autouse=True)
-def _clean_db():
+def fresh_db(tmp_path, monkeypatch):
+    from dealerflow.config import get_settings
+    from dealerflow.db import reset_engine
+    from dealerflow.integrations.calendar import MockCalendarProvider
+    from dealerflow.integrations.email import MockEmailProvider
+    from dealerflow.integrations.zoom import MockZoomProvider
+    from dealerflow.web.deps import login_limiter
+
+    if PG_URL:
+        monkeypatch.setenv("DF_DATABASE_URL", PG_URL)
+        get_settings.cache_clear()
+        _reset_pg()
+    else:
+        path = tmp_path / "test.db"
+        shutil.copy(_TEMPLATE_DB, path)
+        monkeypatch.setenv("DF_DATABASE_URL", f"sqlite:///{path}")
+        get_settings.cache_clear()
+    reset_engine()
+    MockEmailProvider.reset()
+    MockCalendarProvider.reset()
+    MockZoomProvider.reset()
+    login_limiter.fails.clear()
+    import dealerflow.integrations.http as http
+    monkeypatch.setattr(http.time, "sleep", lambda s: None)
     yield
-    engine = get_engine()
-    with engine.begin() as conn:
-        if engine.dialect.name == "sqlite":
-            conn.execute(text("PRAGMA foreign_keys=OFF"))
-        for table in reversed(Base.metadata.sorted_tables):
-            conn.execute(table.delete())
-        if engine.dialect.name == "sqlite":
-            conn.execute(text("PRAGMA foreign_keys=ON"))
-    from app.integrations import calendar, inbox
-    from app.security.rate_limit import limiter
-
-    inbox.sandbox_inbox.clear()
-    calendar._sandbox.busy.clear()
-    limiter.reset()
+    reset_engine()
+    get_settings.cache_clear()
 
 
-@pytest.fixture()
+@pytest.fixture
 def db():
-    s = SessionLocal()
-    try:
-        yield s
-    finally:
-        s.close()
+    from dealerflow import handlers  # noqa: F401
+    from dealerflow.db import session_factory
+
+    s = session_factory()()
+    yield s
+    s.rollback()
+    s.close()
 
 
-@pytest.fixture()
-def app():
-    from app.main import create_app
+def make_user(db, email="admin@test.example", role="admin", password="correct horse battery"):
+    from dealerflow.models import User
+    from dealerflow.security import hash_password
 
-    return create_app()
-
-
-@pytest.fixture()
-def client(app):
-    return TestClient(app)
-
-
-@pytest.fixture()
-def seeded(db):
-    """Two dealerships, an owner, an admin, a staff member and one client user per dealership."""
-    from app.models.core import Client, User
-    from app.security.auth import create_api_token
-    from app.security.crypto import hash_password
-    from app.services import onboarding
-    from app.services.maintenance import bootstrap
-
-    bootstrap(db)
-    pw = hash_password("correct-horse-battery")
-    a = Client(name="Alpha Motors", city="Sugar Land", phone="281-555-0101", contact_email="owner@alpha.example", website="https://alpha.example")
-    b = Client(name="Bravo Auto", city="Stafford", phone="281-555-0202", contact_email="owner@bravo.example")
-    db.add_all([a, b])
-    db.flush()
-    owner = User(email="owner@agency.example", password_hash=pw, role="owner")
-    admin = User(email="admin@agency.example", password_hash=pw, role="admin")
-    staff = User(email="staff@agency.example", password_hash=pw, role="staff")
-    ua = User(email="manager@alpha.example", password_hash=pw, role="client", client_id=a.id)
-    ub = User(email="manager@bravo.example", password_hash=pw, role="client", client_id=b.id)
-    db.add_all([owner, admin, staff, ua, ub])
-    db.flush()
-    onboarding.ensure_checklist(db, a)
-    onboarding.ensure_checklist(db, b)
+    u = User(email=email, name=email.split("@")[0], role=role, password_hash=hash_password(password))
+    db.add(u)
     db.commit()
-    tokens = {name: create_api_token(db, u, f"test-{name}") for name, u in
-              {"owner": owner, "admin": admin, "staff": staff, "alpha": ua, "bravo": ub}.items()}
-    return {"alpha": a, "bravo": b, "owner": owner, "admin": admin, "staff": staff, "alpha_user": ua, "bravo_user": ub, "tokens": tokens}
+    return u
 
 
-def auth(tokens: dict, who: str) -> dict:
-    return {"Authorization": f"Bearer {tokens[who]}"}
+@pytest.fixture
+def admin(db):
+    return make_user(db)
 
 
-@pytest.fixture()
-def h(seeded):
-    return lambda who: auth(seeded["tokens"], who)
+@pytest.fixture
+def client():
+    from fastapi.testclient import TestClient
+
+    from dealerflow.web.app import create_app
+
+    return TestClient(create_app())
+
+
+def login(client, email, password="correct horse battery"):
+    r = client.get("/login")
+    csrf = r.text.split('name="csrf" value="')[1].split('"')[0]
+    r = client.post("/login", data={"email": email, "password": password, "csrf": csrf, "next": "/"}, follow_redirects=False)
+    assert r.status_code == 303, r.text[:500]
+    return csrf_of(client)  # the session (and its CSRF token) is replaced at login
+
+
+def csrf_of(client) -> str:
+    r = client.get("/settings")
+    return r.text.split('name="csrf" value="')[1].split('"')[0]

@@ -177,3 +177,38 @@ def test_back_redirect_uses_same_host_referer_only(db, client):
     r = client.post(f"/tasks/{t2.id}/done", data={"csrf": csrf}, headers={"referer": "https://evil.example/x"},
                     follow_redirects=False)
     assert r.headers["location"] == "/tasks"
+
+
+def test_detail_pages_render_through_the_ui_workflow(db, client):
+    """Drive the main workflow through HTTP and render every detail page along the way."""
+    from dealerflow.models import AgentRun, InboundMessage, Meeting, OutreachMessage, Template
+
+    admin = make_user(db)
+    run_source(db, "fixture")
+    db.commit()
+    csrf = login(client, admin.email)
+    p = client.get("/api/v1/prospects", params={"q": "Brazos"}).json()["items"][0]
+    tpl = db.scalar(select(Template).where(Template.name == "intro", Template.language == "es"))
+    r = client.post(f"/prospects/{p['id']}/draft", data={"template_id": tpl.id, "csrf": csrf})
+    assert r.status_code == 200 and "Seguimiento de clientes" in r.text and "cancele su suscripción" in r.text
+    mid = db.scalar(select(OutreachMessage.id))
+    r = client.post(f"/outreach/{mid}/approve", data={"csrf": csrf, "send_now": "1"})
+    assert "SIMULATED" in r.text
+    r = client.post("/inbox/simulate", data={"prospect_id": p["id"], "csrf": csrf,
+                                             "body": "Me interesa. ¿Podemos agendar una llamada por Zoom?"})
+    assert r.status_code == 200
+    iid = db.scalar(select(InboundMessage.id))
+    assert "meeting_request" in client.get(f"/inbox/{iid}").text
+    meeting_id = db.scalar(select(Meeting.id))
+    client.post(f"/meetings/{meeting_id}/availability", data={"csrf": csrf, "days": "7"})
+    db.expire_all()
+    slot = db.get(Meeting, meeting_id).proposed_slots[0]["start"]
+    client.post(f"/meetings/{meeting_id}/choose", data={"csrf": csrf, "start": slot})
+    r = client.post(f"/meetings/{meeting_id}/approve", data={"csrf": csrf})
+    assert "Booked" in r.text and "simulated.invalid" in r.text
+    client.post("/agent/tick", data={"csrf": csrf})
+    for path in (f"/prospects/{p['id']}", f"/outreach/{mid}", f"/inbox/{iid}", f"/meetings/{meeting_id}", "/",
+                 "/agent", "/reports/weekly?simulated=1", "/audit", "/integrations"):
+        assert client.get(path).status_code == 200, path
+    run_id = db.scalar(select(AgentRun.id))
+    assert client.get(f"/agent/runs/{run_id}").status_code == 200

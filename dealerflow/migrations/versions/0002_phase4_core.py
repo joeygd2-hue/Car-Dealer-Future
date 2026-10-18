@@ -4,7 +4,7 @@ Additive only: new tables plus nullable/defaulted columns on users and cost_entr
 
 Revision ID: 0002
 Revises: 0001
-Create Date: 2026-10-18 07:40:46.756738
+Create Date: 2026-10-18 18:59:51.917058
 """
 from alembic import op
 import sqlalchemy as sa
@@ -29,33 +29,6 @@ def upgrade() -> None:
     sa.Column('active', sa.Boolean(), nullable=False),
     sa.CheckConstraint("period in ('daily','monthly')", name='ck_budgets_period'),
     sa.PrimaryKeyConstraint('id')
-    )
-    op.create_table('clients',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('prospect_id', sa.Integer(), nullable=True),
-    sa.Column('name', sa.String(length=255), nullable=False),
-    sa.Column('legal_name', sa.String(length=255), nullable=True),
-    sa.Column('status', sa.String(length=20), nullable=False),
-    sa.Column('address_line', sa.String(length=255), nullable=True),
-    sa.Column('city', sa.String(length=120), nullable=True),
-    sa.Column('state', sa.String(length=2), nullable=True),
-    sa.Column('postal_code', sa.String(length=10), nullable=True),
-    sa.Column('phone', sa.String(length=40), nullable=True),
-    sa.Column('website', sa.String(length=500), nullable=True),
-    sa.Column('contact_name', sa.String(length=255), nullable=True),
-    sa.Column('contact_email', sa.String(length=255), nullable=True),
-    sa.Column('timezone', sa.String(length=64), nullable=False),
-    sa.Column('languages', sa.JSON(), nullable=False),
-    sa.Column('business_hours', sa.JSON(), nullable=False),
-    sa.Column('response_rules', sa.JSON(), nullable=False),
-    sa.Column('activated_at', sa.DateTime(), nullable=True),
-    sa.Column('cancelled_at', sa.DateTime(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), nullable=False),
-    sa.CheckConstraint("status in ('onboarding','active','paused','cancelled')", name='ck_clients_status'),
-    sa.ForeignKeyConstraint(['prospect_id'], ['prospects.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('prospect_id')
     )
     op.create_table('expense_categories',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -133,6 +106,33 @@ def upgrade() -> None:
     with op.batch_alter_table('attachments', schema=None) as batch_op:
         batch_op.create_index('ix_attachments_owner', ['owner_type', 'owner_id'], unique=False)
 
+    op.create_table('clients',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('prospect_id', sa.Integer(), nullable=True),
+    sa.Column('name', sa.String(length=255), nullable=False),
+    sa.Column('legal_name', sa.String(length=255), nullable=True),
+    sa.Column('status', sa.String(length=20), nullable=False),
+    sa.Column('address_line', sa.String(length=255), nullable=True),
+    sa.Column('city', sa.String(length=120), nullable=True),
+    sa.Column('state', sa.String(length=2), nullable=True),
+    sa.Column('postal_code', sa.String(length=10), nullable=True),
+    sa.Column('phone', sa.String(length=40), nullable=True),
+    sa.Column('website', sa.String(length=500), nullable=True),
+    sa.Column('contact_name', sa.String(length=255), nullable=True),
+    sa.Column('contact_email', sa.String(length=255), nullable=True),
+    sa.Column('timezone', sa.String(length=64), nullable=False),
+    sa.Column('languages', sa.JSON(), nullable=False),
+    sa.Column('business_hours', sa.JSON(), nullable=False),
+    sa.Column('response_rules', sa.JSON(), nullable=False),
+    sa.Column('activated_at', sa.DateTime(), nullable=True),
+    sa.Column('cancelled_at', sa.DateTime(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
+    sa.CheckConstraint("status in ('onboarding','active','paused','cancelled')", name='ck_clients_status'),
+    sa.ForeignKeyConstraint(['prospect_id'], ['prospects.id'], ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('prospect_id')
+    )
     op.create_table('automation_settings',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('client_id', sa.Integer(), nullable=False),
@@ -255,23 +255,6 @@ def upgrade() -> None:
     )
     with op.batch_alter_table('integration_connections', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_integration_connections_client_id'), ['client_id'], unique=False)
-
-    op.create_table('inventory_imports',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('client_id', sa.Integer(), nullable=False),
-    sa.Column('source', sa.String(length=40), nullable=False),
-    sa.Column('started_at', sa.DateTime(), nullable=False),
-    sa.Column('finished_at', sa.DateTime(), nullable=True),
-    sa.Column('rows_total', sa.Integer(), nullable=False),
-    sa.Column('rows_created', sa.Integer(), nullable=False),
-    sa.Column('rows_updated', sa.Integer(), nullable=False),
-    sa.Column('rows_failed', sa.Integer(), nullable=False),
-    sa.Column('errors', sa.JSON(), nullable=False),
-    sa.ForeignKeyConstraint(['client_id'], ['clients.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
-    )
-    with op.batch_alter_table('inventory_imports', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_inventory_imports_client_id'), ['client_id'], unique=False)
 
     op.create_table('onboarding_steps',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -411,56 +394,6 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_seo_audits_client_id'), ['client_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_seo_audits_site_id'), ['site_id'], unique=False)
 
-    op.create_table('vehicles',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('client_id', sa.Integer(), nullable=False),
-    sa.Column('vin', sa.String(length=17), nullable=False),
-    sa.Column('stock_number', sa.String(length=40), nullable=True),
-    sa.Column('year', sa.Integer(), nullable=True),
-    sa.Column('make', sa.String(length=60), nullable=True),
-    sa.Column('model', sa.String(length=60), nullable=True),
-    sa.Column('trim', sa.String(length=60), nullable=True),
-    sa.Column('mileage', sa.Integer(), nullable=True),
-    sa.Column('price_cents', sa.Integer(), nullable=True),
-    sa.Column('status', sa.String(length=20), nullable=False),
-    sa.Column('import_id', sa.Integer(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), nullable=False),
-    sa.CheckConstraint('price_cents IS NULL OR price_cents >= 0', name='ck_vehicles_price'),
-    sa.ForeignKeyConstraint(['client_id'], ['clients.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['import_id'], ['inventory_imports.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('client_id', 'vin', name='uq_vehicle_vin')
-    )
-    with op.batch_alter_table('vehicles', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_vehicles_client_id'), ['client_id'], unique=False)
-
-    op.create_table('conversations',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('client_id', sa.Integer(), nullable=False),
-    sa.Column('channel', sa.String(length=30), nullable=False),
-    sa.Column('customer_name', sa.String(length=200), nullable=True),
-    sa.Column('customer_contact', sa.String(length=255), nullable=True),
-    sa.Column('language', sa.String(length=5), nullable=False),
-    sa.Column('vehicle_id', sa.Integer(), nullable=True),
-    sa.Column('status', sa.String(length=20), nullable=False),
-    sa.Column('lead_qualified', sa.Boolean(), nullable=False),
-    sa.Column('simulated', sa.Boolean(), nullable=False),
-    sa.Column('escalated_at', sa.DateTime(), nullable=True),
-    sa.Column('first_inbound_at', sa.DateTime(), nullable=True),
-    sa.Column('first_response_at', sa.DateTime(), nullable=True),
-    sa.Column('summary', sa.Text(), nullable=True),
-    sa.Column('summary_delivered_at', sa.DateTime(), nullable=True),
-    sa.Column('pii_purged_at', sa.DateTime(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), nullable=False),
-    sa.ForeignKeyConstraint(['client_id'], ['clients.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['vehicle_id'], ['vehicles.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
-    )
-    with op.batch_alter_table('conversations', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_conversations_client_id'), ['client_id'], unique=False)
-
     op.create_table('credit_notes',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('client_id', sa.Integer(), nullable=False),
@@ -502,30 +435,6 @@ def upgrade() -> None:
     )
     with op.batch_alter_table('invoice_lines', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_invoice_lines_invoice_id'), ['invoice_id'], unique=False)
-
-    op.create_table('listings',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('client_id', sa.Integer(), nullable=False),
-    sa.Column('vehicle_id', sa.Integer(), nullable=False),
-    sa.Column('language', sa.String(length=5), nullable=False),
-    sa.Column('title', sa.String(length=300), nullable=False),
-    sa.Column('body', sa.Text(), nullable=False),
-    sa.Column('generated_by', sa.String(length=10), nullable=False),
-    sa.Column('status', sa.String(length=20), nullable=False),
-    sa.Column('approved_by_id', sa.Integer(), nullable=True),
-    sa.Column('approved_at', sa.DateTime(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), nullable=False),
-    sa.CheckConstraint("language in ('en','es')", name='ck_listings_language'),
-    sa.ForeignKeyConstraint(['approved_by_id'], ['users.id'], ),
-    sa.ForeignKeyConstraint(['client_id'], ['clients.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['vehicle_id'], ['vehicles.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('vehicle_id', 'language', name='uq_listing_vehicle_lang')
-    )
-    with op.batch_alter_table('listings', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_listings_client_id'), ['client_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_listings_vehicle_id'), ['vehicle_id'], unique=False)
 
     op.create_table('payments',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -614,24 +523,6 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_seo_pages_audit_id'), ['audit_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_seo_pages_client_id'), ['client_id'], unique=False)
 
-    op.create_table('appointments',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('client_id', sa.Integer(), nullable=False),
-    sa.Column('conversation_id', sa.Integer(), nullable=True),
-    sa.Column('kind', sa.String(length=20), nullable=False),
-    sa.Column('requested_at', sa.DateTime(), nullable=False),
-    sa.Column('scheduled_for', sa.DateTime(), nullable=True),
-    sa.Column('status', sa.String(length=20), nullable=False),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), nullable=False),
-    sa.CheckConstraint("status in ('requested','confirmed','cancelled','completed','no_show')", name='ck_appointments_status'),
-    sa.ForeignKeyConstraint(['client_id'], ['clients.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['conversation_id'], ['conversations.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
-    )
-    with op.batch_alter_table('appointments', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_appointments_client_id'), ['client_id'], unique=False)
-
     op.create_table('bank_transactions',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('posted_date', sa.Date(), nullable=False),
@@ -653,53 +544,12 @@ def upgrade() -> None:
     with op.batch_alter_table('bank_transactions', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_bank_transactions_posted_date'), ['posted_date'], unique=False)
 
-    op.create_table('conversation_messages',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('client_id', sa.Integer(), nullable=False),
-    sa.Column('conversation_id', sa.Integer(), nullable=False),
-    sa.Column('direction', sa.String(length=10), nullable=False),
-    sa.Column('body', sa.Text(), nullable=False),
-    sa.Column('language', sa.String(length=5), nullable=False),
-    sa.Column('status', sa.String(length=20), nullable=False),
-    sa.Column('approved_by_id', sa.Integer(), nullable=True),
-    sa.Column('provider_message_id', sa.String(length=300), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.Column('sent_at', sa.DateTime(), nullable=True),
-    sa.ForeignKeyConstraint(['approved_by_id'], ['users.id'], ),
-    sa.ForeignKeyConstraint(['client_id'], ['clients.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['conversation_id'], ['conversations.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('provider_message_id')
-    )
-    with op.batch_alter_table('conversation_messages', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_conversation_messages_client_id'), ['client_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_conversation_messages_conversation_id'), ['conversation_id'], unique=False)
-
-    op.create_table('publish_attempts',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('client_id', sa.Integer(), nullable=False),
-    sa.Column('listing_id', sa.Integer(), nullable=False),
-    sa.Column('channel', sa.String(length=40), nullable=False),
-    sa.Column('status', sa.String(length=30), nullable=False),
-    sa.Column('external_url', sa.String(length=500), nullable=True),
-    sa.Column('note', sa.Text(), nullable=False),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.Column('confirmed_at', sa.DateTime(), nullable=True),
-    sa.CheckConstraint("status in ('pending','published_confirmed','manual_required','failed','removed')", name='ck_publish_attempts_status'),
-    sa.ForeignKeyConstraint(['client_id'], ['clients.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['listing_id'], ['listings.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
-    )
-    with op.batch_alter_table('publish_attempts', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_publish_attempts_client_id'), ['client_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_publish_attempts_listing_id'), ['listing_id'], unique=False)
-
     with op.batch_alter_table('cost_entries', schema=None) as batch_op:
         batch_op.add_column(sa.Column('provider', sa.String(length=80), nullable=True))
         batch_op.add_column(sa.Column('metric', sa.String(length=60), nullable=True))
         batch_op.add_column(sa.Column('quantity', sa.Numeric(precision=18, scale=4), nullable=True))
         batch_op.add_column(sa.Column('client_id', sa.Integer(), nullable=True))
-        batch_op.add_column(sa.Column('verified', sa.Boolean(), nullable=False, server_default=sa.false()))
+        batch_op.add_column(sa.Column('verified', sa.Boolean(), server_default=sa.false(), nullable=False))
         batch_op.create_index(batch_op.f('ix_cost_entries_client_id'), ['client_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_cost_entries_provider'), ['provider'], unique=False)
         batch_op.create_foreign_key('fk_cost_entries_client_id', 'clients', ['client_id'], ['id'], ondelete='SET NULL')
@@ -729,24 +579,10 @@ def downgrade() -> None:
         batch_op.drop_column('metric')
         batch_op.drop_column('provider')
 
-    with op.batch_alter_table('publish_attempts', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_publish_attempts_listing_id'))
-        batch_op.drop_index(batch_op.f('ix_publish_attempts_client_id'))
-
-    op.drop_table('publish_attempts')
-    with op.batch_alter_table('conversation_messages', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_conversation_messages_conversation_id'))
-        batch_op.drop_index(batch_op.f('ix_conversation_messages_client_id'))
-
-    op.drop_table('conversation_messages')
     with op.batch_alter_table('bank_transactions', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_bank_transactions_posted_date'))
 
     op.drop_table('bank_transactions')
-    with op.batch_alter_table('appointments', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_appointments_client_id'))
-
-    op.drop_table('appointments')
     with op.batch_alter_table('seo_pages', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_seo_pages_client_id'))
         batch_op.drop_index(batch_op.f('ix_seo_pages_audit_id'))
@@ -762,11 +598,6 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_payments_client_id'))
 
     op.drop_table('payments')
-    with op.batch_alter_table('listings', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_listings_vehicle_id'))
-        batch_op.drop_index(batch_op.f('ix_listings_client_id'))
-
-    op.drop_table('listings')
     with op.batch_alter_table('invoice_lines', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_invoice_lines_invoice_id'))
 
@@ -776,14 +607,6 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_credit_notes_client_id'))
 
     op.drop_table('credit_notes')
-    with op.batch_alter_table('conversations', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_conversations_client_id'))
-
-    op.drop_table('conversations')
-    with op.batch_alter_table('vehicles', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_vehicles_client_id'))
-
-    op.drop_table('vehicles')
     with op.batch_alter_table('seo_audits', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_seo_audits_site_id'))
         batch_op.drop_index(batch_op.f('ix_seo_audits_client_id'))
@@ -811,10 +634,6 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_onboarding_steps_client_id'))
 
     op.drop_table('onboarding_steps')
-    with op.batch_alter_table('inventory_imports', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_inventory_imports_client_id'))
-
-    op.drop_table('inventory_imports')
     with op.batch_alter_table('integration_connections', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_integration_connections_client_id'))
 
@@ -837,6 +656,7 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_automation_settings_client_id'))
 
     op.drop_table('automation_settings')
+    op.drop_table('clients')
     with op.batch_alter_table('attachments', schema=None) as batch_op:
         batch_op.drop_index('ix_attachments_owner')
 
@@ -848,6 +668,5 @@ def downgrade() -> None:
     op.drop_table('webhook_events')
     op.drop_table('service_packages')
     op.drop_table('expense_categories')
-    op.drop_table('clients')
     op.drop_table('budgets')
     # ### end Alembic commands ###

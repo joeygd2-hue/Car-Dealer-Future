@@ -571,3 +571,4 @@ class KnowledgeItem(TimestampMixin, Base):
 
 # Phase 2-4 models live in their own module; importing it here registers them with Alembic.
 from .models_ops import *  # noqa: E402,F401,F403
+from .models_interim import *  # noqa: E402,F401,F403

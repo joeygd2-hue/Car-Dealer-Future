@@ -1,0 +1,3 @@
+{% extends "base.html" %}{% block content %}<h1>Agent tick #{{ run.id }}</h1>
+<div class="card"><p>Started {{ run.started_at|local }} · finished {{ run.finished_at|local }} · {{ run.status }} {{ run.skipped_reason or '' }}</p>
+<h3>Steps</h3><pre>{{ run.counts|tojson(indent=2) }}</pre><h3>Errors</h3><pre>{{ run.errors|tojson(indent=2) }}</pre></div>{% endblock %}

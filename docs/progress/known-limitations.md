@@ -49,6 +49,12 @@ ran against SIMULATED providers or mocked HTTP.
   fields, and conflicts are kept as evidence. Use merge or add notes; Phase 2 should add an editor with evidence capture.
 - **Email open/click tracking is not implemented** (deliberately: no tracking pixels).
 
+## Deployment
+
+- The Dockerfile and docker-compose.yml have **not been built or run**: no Docker daemon was available. The wheel was
+  checked and includes templates, migrations, fixtures and static files. The app was run directly with `python -m dealerflow`.
+- `DF_BASE_URL` must be public HTTPS for unsubscribe links and webhooks. No reverse-proxy config is included.
+
 ## Security notes
 
 - Secrets live only in environment variables. They are **not encrypted at rest by the app**. Use your host's secret

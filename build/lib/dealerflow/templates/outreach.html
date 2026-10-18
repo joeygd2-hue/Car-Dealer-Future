@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% from "macros.html" import sim, status_pill %}{% block title %}Outreach{% endblock %}{% block content %}
+<h1>Outreach</h1>
+<p class="row">{% for s in ['draft','queued','sending','sent','replied','bounced','failed','cancelled'] %}<a class="pill {% if s==status %}ok{% endif %}" href="?status={{ s }}">{{ s }} ({{ counts.get(s,0) }})</a>{% endfor %}<a class="pill" href="?status=">all</a></p>
+{% if not sending_enabled and providers.email != 'mock' %}<div class="flash warn">Real sending is off (DF_OUTREACH_SENDING_ENABLED=false). Approved messages wait in the queue.</div>{% endif %}
+<form method="post" action="/outreach/approve-batch"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="tablewrap"><table><tr><th></th><th>#</th><th>Prospect</th><th>To</th><th>Subject</th><th>Status</th><th>Origin</th><th>Checks</th></tr>
+{% for m in rows %}<tr><td>{% if m.status=='draft' and not blockers.get(m.id) %}<input type="checkbox" name="ids" value="{{ m.id }}">{% endif %}</td>
+<td><a href="/outreach/{{ m.id }}">{{ m.id }}</a></td><td><a href="/prospects/{{ m.prospect_id }}">{{ m.prospect.name }}</a></td><td class="small">{{ m.to_email }}</td>
+<td>{{ m.subject }} {{ sim(m.simulated) }} <span class="pill">{{ m.language }}</span></td><td>{{ status_pill(m.status) }}</td><td class="small">{{ m.origin }}</td>
+<td class="small">{% for b in blockers.get(m.id, []) %}<div style="color:var(--bad)">✖ {{ b }}</div>{% endfor %}{% for f in m.review_flags or [] %}<div class="pill warn">{{ f }}</div>{% endfor %}{% if m.error %}<div style="color:var(--bad)">{{ m.error }}</div>{% endif %}</td></tr>
+{% else %}<tr><td colspan="8" class="muted">Nothing here.</td></tr>{% endfor %}</table></div>
+{% if status=='draft' and role_at_least(user.role,'manager') %}<p><button>Approve selected (max 50)</button> <span class="small muted">Review each message first. Only drafts with no blocking checks can be selected.</span></p>{% endif %}</form>
+{% endblock %}

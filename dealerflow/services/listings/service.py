@@ -23,6 +23,7 @@ from ...db import utcnow
 from ...models_dealer import Listing, ListingReview, ListingRevision, Vehicle
 from ...tenancy import ClientContext
 from ..dealer_errors import BadRequest, Conflict, Forbidden, NotFound, Unprocessable
+from ...audit import track_integration
 from . import ai_generator, template_generator
 from .dealer_settings import ListingSettings, get_settings
 from .facts import build_facts, facts_hash
@@ -111,7 +112,10 @@ def generate_listing(ctx: ClientContext, listing_id: int, *, feedback: str | Non
     model, meta = None, None
     if want_ai:
         try:
-            content, uncertainty, meta = ai_generator.generate(facts, s, feedback)
+            # Through the integration gate: emergency stop and a disabled provider block AI calls too.
+            with track_integration(ctx.db, "anthropic", "listing_copy") as log:
+                content, uncertainty, meta = ai_generator.generate(facts, s, feedback)
+                log["detail"] = f"listing {listing_id} via {meta['model']}"
             origin, model = "ai_generator", meta["model"]
         except Exception as exc:  # noqa: BLE001 - fall back, but say so
             content, uncertainty = template_generator.generate(facts, s)

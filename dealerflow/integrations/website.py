@@ -89,22 +89,13 @@ class UnsafeURL(PermanentError):
 
 
 def assert_public_url(url: str) -> None:
-    """Allow only http(s) URLs whose host resolves exclusively to public IP addresses."""
-    import ipaddress
-    import socket
+    """Delegates to the shared guard (services.netguard); dealer sites may use plain http."""
+    from ..services import netguard
 
-    parts = urlparse(url)
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise UnsafeURL(f"not an http(s) URL: {url!r}")
     try:
-        infos = socket.getaddrinfo(parts.hostname, parts.port or (443 if parts.scheme == "https" else 80),
-                                   type=socket.SOCK_STREAM)
-    except socket.gaierror as exc:
-        raise IntegrationError(f"DNS lookup failed for {parts.hostname}: {exc}") from exc
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if not ip.is_global or ip.is_multicast:
-            raise UnsafeURL(f"{parts.hostname} resolves to a non-public address ({ip})")
+        netguard.assert_public_url(url, require_https=False)
+    except netguard.UnsafeURL as exc:
+        raise UnsafeURL(str(exc)) from exc
 
 
 def _get(url: str, client: httpx.Client, *, max_redirects: int = 3) -> httpx.Response:

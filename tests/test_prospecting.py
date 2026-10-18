@@ -113,3 +113,11 @@ def test_license_list_columns_become_evidence(db):
     assert p.name == "ACME HOLDINGS LLC" and p.city == "Sugar Land" and p.postal_code == "77478"
     ev = {e.field: e.value for e in p.evidence}
     assert ev["license:number"] == "P123456" and ev["dba"] == "Acme Used Cars (SIMULATED)" and ev["county"] == "Fort Bend"
+
+
+def test_similar_names_with_different_websites_are_not_merged(db):
+    a = intake(db, LeadRecord(name="Gulf Auto Sales 1", source="manual", city="Katy", website="https://gulf1.example")).prospect
+    b = intake(db, LeadRecord(name="Gulf Auto Sales 2", source="manual", city="Katy", website="https://gulf2.example")).prospect
+    assert a.id != b.id
+    c = intake(db, LeadRecord(name="Gulf Auto Sales 2", source="manual", city="Katy", website="https://gulf2.example/x")).prospect
+    assert c.id == b.id  # same site: same business

@@ -30,7 +30,8 @@ python -m dealerflow create-user you@example.com admin
 python -m dealerflow demo         # optional: 8 SIMULATED fixture dealerships, no network
 python -m dealerflow web          # http://127.0.0.1:8000
 python -m dealerflow worker       # second terminal: agent ticks, sending, inbox polling
-pytest                            # 102 tests, no network
+python -m dealerflow backup ./backups   # verified backup; `restore FILE --yes` to restore
+pytest                            # 136 tests, no network
 ```
 
 Docker: `docker compose up --build` runs `migrate`, then `web` and `worker`.
@@ -46,6 +47,7 @@ Docker: `docker compose up --build` runs `migrate`, then `web` and `worker`.
 | [docs/architecture/autonomous-agent.md](docs/architecture/autonomous-agent.md) | Agent states, tick steps, safety gates, how to go live |
 | [docs/research/feasibility-report.md](docs/research/feasibility-report.md) | Data sources, providers, law: what's allowed |
 | [docs/research/source-register.md](docs/research/source-register.md) | Sources, access dates, confidence |
+| [docs/audit/launch-readiness-audit.md](docs/audit/launch-readiness-audit.md) | **Phase 1.5 audit: verdict, blockers, priorities** (plus deployment, security, integration, compliance, lead-sourcing and pilot docs in `docs/audit/`) |
 | [docs/architecture/system-design.md](docs/architecture/system-design.md) | Processes, tenancy and roles, Phase 4 modules, data model |
 | [docs/security/threat-model.md](docs/security/threat-model.md) | Security review: controls, issues fixed, remaining risks |
 | [docs/operations/deployment.md](docs/operations/deployment.md) | Deploying web + worker, going live in order, production checklist |

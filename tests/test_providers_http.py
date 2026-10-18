@@ -34,6 +34,14 @@ def routes(monkeypatch):
     return table
 
 
+@pytest.fixture
+def public_dns(monkeypatch):
+    """Treat the fake test domains as public so robots/parsing logic is what's under test."""
+    from dealerflow.integrations import website
+
+    monkeypatch.setattr(website, "assert_public_url", lambda url: None)
+
+
 def _env(monkeypatch, **kw):
     for k, v in kw.items():
         monkeypatch.setenv(k, v)
@@ -153,7 +161,7 @@ def test_overpass_parsing(monkeypatch, routes):
     assert recs[0].source_url == "https://www.openstreetmap.org/node/1" and "ODbL" in recs[0].notes
 
 
-def test_website_research_respects_robots(monkeypatch, routes):
+def test_website_research_respects_robots(monkeypatch, routes, public_dns):
     from dealerflow.integrations import website
 
     _env(monkeypatch, DF_WEBSITE_RESEARCH_ENABLED="true")
@@ -164,7 +172,7 @@ def test_website_research_respects_robots(monkeypatch, routes):
     assert obs.blocked_by_robots and obs.pages_fetched == []
 
 
-def test_website_research_signals(monkeypatch, routes):
+def test_website_research_signals(monkeypatch, routes, public_dns):
     from dealerflow.integrations import website
 
     _env(monkeypatch, DF_WEBSITE_RESEARCH_ENABLED="true")
@@ -252,10 +260,36 @@ def test_twilio_bridges_agent_first_without_recording(monkeypatch, routes):
     assert 'record="do-not-record"' in twiml and "+12815550123" in twiml and 'callerId="+12815550100"' in twiml
 
 
-def test_robots_unreachable_means_disallow(monkeypatch):
+def test_robots_unreachable_means_disallow(monkeypatch, public_dns):
     from dealerflow.integrations import website
 
     _env(monkeypatch, DF_WEBSITE_RESEARCH_ENABLED="true")
     client = REAL_CLIENT(transport=httpx.MockTransport(
         lambda req: httpx.Response(503) if req.url.path == "/robots.txt" else httpx.Response(200, text="<html></html>")))
     assert website.research_site("https://down.example/", client=client).blocked_by_robots
+
+
+@pytest.mark.parametrize("url", ["http://127.0.0.1/", "http://localhost:8000/admin", "http://169.254.169.254/latest/meta-data/",
+                                 "http://10.0.0.5/", "http://[::1]/", "file:///etc/passwd", "http://192.168.1.1/"])
+def test_website_research_refuses_private_addresses(monkeypatch, url):
+    from dealerflow.integrations import website
+
+    with pytest.raises(website.UnsafeURL):
+        website.assert_public_url(url)
+
+
+def test_redirect_to_private_address_is_refused(monkeypatch):
+    from dealerflow.integrations import website
+
+    _env(monkeypatch, DF_WEBSITE_RESEARCH_ENABLED="true")
+    monkeypatch.setattr(website, "assert_public_url",
+                        lambda u: (_ for _ in ()).throw(website.UnsafeURL("private")) if "169.254" in u else None)
+
+    def h(req):
+        if req.url.path == "/robots.txt":
+            return httpx.Response(404)
+        return httpx.Response(302, headers={"location": "http://169.254.169.254/latest/meta-data/"})
+
+    client = REAL_CLIENT(transport=httpx.MockTransport(h))
+    with pytest.raises(website.IntegrationError):
+        website.research_site("https://dealer.example/", client=client)

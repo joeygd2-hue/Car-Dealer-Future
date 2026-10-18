@@ -3,6 +3,7 @@
 | Phase | Scope | Status |
 |---|---|---|
 | **1** | Research, lead generation, CRM, sales operations, persistent outreach agent | **Implemented and tested with simulated providers.** Live integrations not yet verified (no credentials). |
+| **1.5** | Launch-readiness audit | **Done 2026-10-18.** Verdict: not ready for live outreach; blockers in `docs/audit/launch-readiness-audit.md` §7. |
 | 2 | Inventory, listings, publishing | In progress on `claude/dealership-inventory-publishing-iq0aqw` (porting into dealerflow). Phase 4 ships interim tables it must replace (`shared-stack.md`). |
 | 3 | Customer response, conversations, portal | On `claude/magical-darwin-nncp64` as a **separate `app` package — not yet ported into dealerflow**. |
 | **4** | Finance, expenses, usage costs, SEO audits, client reporting, service catalog, onboarding, tickets, client portal, security review | **Implemented and tested with simulated providers** on branch `claude/blissful-davinci-82py6w` (merged with this Phase 1 work). Live integrations not verified. |
@@ -36,7 +37,8 @@ SQLAlchemy/Alembic + Jinja, matching the owner's other Python/FastAPI project. D
 
 ## Tests
 
-`pytest` runs 102 tests in about 20 s with no network. The same suite passes on Postgres 16
+`pytest` runs 136 tests in about 30 s with no network (102 at the end of Phase 1; 34 added by the audit, including
+`test_adversarial.py`, `test_txdmv.py`, `test_backup.py`, `test_livecheck.py`). The same suite passes on Postgres 16
 (`DF_TEST_PG_URL=postgresql+psycopg://… pytest`).
 
 | File | Tests | Covers |
@@ -70,6 +72,14 @@ python -m dealerflow demo && python -m dealerflow web    # and `python -m dealer
 In the UI: Prospects → open a SIMULATED dealer → Draft email → Approve and send now → Inbox → Simulate a reply
 asking for a Zoom call → Meetings → Check calendar → Choose → Approve and book. Agent page: Start, Run one tick now,
 Pause, Emergency stop.
+
+## Phase 1.5 additions
+
+- Central integration gate (emergency stop and disabled providers), campaign and agent send holds, Zoom lost-response recovery,
+  bounce matching, SSRF guard, CSRF on the JSON API, CSP/HSTS, password-bound sessions, file-based secrets.
+- TxDMV `.xls` import profile built against the real public file.
+- `backup`, `restore`, `retention` and `live-check` commands.
+- Audit documents in `docs/audit/`.
 
 ## Next steps for the owner
 

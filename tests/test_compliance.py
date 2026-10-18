@@ -187,7 +187,8 @@ def test_daily_cap_defers_real_sends(db, admin, monkeypatch):
     from dealerflow.config import get_settings
     from dealerflow.services.agent import authorize_live
 
-    p = _prospect(db)
+    p = intake(db, LeadRecord(name="Cap Test Motors", source="manual", email="owner@captest-dealer.com",
+                              dealership_type="independent_used", city="Sugar Land")).prospect  # not simulated
     m = outreach.create_draft(db, p, _tpl(db), actor=admin)
     m.simulated = False
     outreach.approve(db, m, actor=admin)
@@ -201,3 +202,24 @@ def test_daily_cap_defers_real_sends(db, admin, monkeypatch):
     job = db.scalar(select(Job).where(Job.key == f"send_email:{m.id}"))
     assert job.status == "pending" and "daily cap" in job.last_error and job.attempts == 0
     assert MockEmailProvider.outbox == []
+
+
+def test_mailer_daemon_bounce_is_matched_and_suppressed(db, admin):
+    from dealerflow.integrations.email import parse_raw
+    from dealerflow.services.inbox import ingest
+
+    p = _prospect(db)
+    sent = _send(db, admin, p)
+    dsn = (b"From: Mail Delivery Subsystem <mailer-daemon@googlemail.com>\r\nTo: sender@testco.example\r\n"
+           b"Subject: Delivery Status Notification (Failure)\r\nMessage-ID: <dsn1@mx.example>\r\n"
+           b"Date: Mon, 19 Oct 2026 10:00:00 -0500\r\nMIME-Version: 1.0\r\n"
+           b"Content-Type: multipart/report; report-type=delivery-status; boundary=B\r\n\r\n"
+           b"--B\r\nContent-Type: text/plain\r\n\r\nAddress not found. The address couldn't be found.\r\n"
+           b"--B\r\nContent-Type: message/delivery-status\r\n\r\nReporting-MTA: dns; mx.example\r\n\r\n"
+           b"Final-Recipient: rfc822; " + p.email.encode() + b"\r\nAction: failed\r\nStatus: 5.1.1\r\n"
+           b"--B--\r\n")
+    row = ingest(db, parse_raw(dsn, "dsn-1"), provider="mock_email")
+    db.commit()
+    assert row.classification == "bounce" and row.matched_by == "bounce_dsn" and row.prospect_id == p.id
+    assert db.get(OutreachMessage, sent.id).status == "bounced"
+    assert db.scalar(select(Suppression).where(Suppression.value == p.email)).reason == "bounce"

@@ -76,10 +76,13 @@ def create_app() -> FastAPI:
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         if s.env == "production":
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        if not path.startswith("/static"):
-            response.headers.setdefault("Cache-Control", "no-store")
+        if path != "/healthz" and not path.startswith("/static"):
+            response.headers["Cache-Control"] = "no-store"
         if not request.url.path.startswith("/static"):
-            log.info("request", extra={"rid": rid, "method": request.method, "path": request.url.path,
+            path = request.url.path
+            if path.startswith("/u/"):
+                path = "/u/[token]"  # unsubscribe tokens carry the recipient's email
+            log.info("request", extra={"rid": rid, "method": request.method, "path": path,
                                        "status": response.status_code, "ms": int((time.monotonic() - start) * 1000)})
         return response
 

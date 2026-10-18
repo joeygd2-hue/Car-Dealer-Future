@@ -212,3 +212,24 @@ def test_detail_pages_render_through_the_ui_workflow(db, client):
         assert client.get(path).status_code == 200, path
     run_id = db.scalar(select(AgentRun.id))
     assert client.get(f"/agent/runs/{run_id}").status_code == 200
+
+
+def test_password_change_ends_existing_sessions(db, client):
+    from dealerflow.security import hash_password
+
+    admin = make_user(db)
+    login(client, admin.email)
+    assert client.get("/prospects", follow_redirects=False).status_code == 200
+    admin.password_hash = hash_password("a brand new password")
+    db.commit()
+    assert client.get("/prospects", follow_redirects=False).status_code == 303
+
+
+def test_unsubscribe_tokens_are_not_logged(db, client, caplog):
+    import logging
+
+    from dealerflow.security import sign
+
+    with caplog.at_level(logging.INFO, logger="dealerflow.web"):
+        client.get("/u/" + sign({"e": "someone@dealer.example", "p": 1}, "unsubscribe"))
+    assert all("/u/[token]" == getattr(r, "path", "/u/[token]") for r in caplog.records if hasattr(r, "path"))

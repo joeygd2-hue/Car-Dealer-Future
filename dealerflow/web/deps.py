@@ -140,11 +140,13 @@ def csrf_token(request: Request) -> str:
 
 
 async def check_csrf(request: Request) -> None:
-    """For cookie-authenticated form posts. Bearer-token API calls are exempt."""
-    if request.method != "POST" or request.headers.get("authorization", "").lower().startswith("bearer "):
+    """For every cookie-authenticated state-changing request. Bearer-token API calls are exempt."""
+    if request.method in ("GET", "HEAD", "OPTIONS") or request.headers.get("authorization", "").lower().startswith("bearer "):
         return
-    form = await request.form()
-    sent = form.get("csrf") or request.headers.get("x-csrf-token")
+    sent = request.headers.get("x-csrf-token")
+    if not sent and request.headers.get("content-type", "").startswith(("application/x-www-form-urlencoded",
+                                                                       "multipart/form-data")):
+        sent = (await request.form()).get("csrf")
     if not sent or not secrets.compare_digest(str(sent), request.session.get("csrf", "")):
         raise HTTPException(403, "CSRF token missing or invalid; reload the page and try again")
 

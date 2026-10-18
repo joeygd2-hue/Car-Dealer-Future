@@ -149,3 +149,22 @@ def test_dealer_user_still_confined_to_own_workspace(client):
     assert client.get(f"/dealers/{other}", follow_redirects=False).status_code in (403, 404)
 
 
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+def test_csrf_covers_every_unsafe_method(method):
+    import asyncio
+
+    from fastapi import HTTPException
+    from starlette.requests import Request
+
+    from dealerflow.web.deps import check_csrf
+
+    scope = {"type": "http", "method": method, "path": "/x", "headers": [(b"content-type", b"application/json")],
+             "session": {"csrf": "right"}, "query_string": b""}
+    with pytest.raises(HTTPException):
+        asyncio.run(check_csrf(Request(scope)))
+    ok = dict(scope, headers=[(b"x-csrf-token", b"right")])
+    asyncio.run(check_csrf(Request(ok)))
+    bearer = dict(scope, headers=[(b"authorization", b"Bearer df_x")])
+    asyncio.run(check_csrf(Request(bearer)))  # API keys are exempt

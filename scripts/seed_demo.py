@@ -10,7 +10,7 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from app.db import SessionLocal, create_all, utcnow
+from app.db import SessionLocal, utcnow
 from app.models import (
     AutomationSettings,
     BusinessHours,
@@ -30,7 +30,13 @@ PASSWORD = "demo-password-123"
 
 
 def main() -> None:
-    create_all()
+    from sqlalchemy import inspect
+
+    from app.db import get_engine
+
+    if "alembic_version" not in inspect(get_engine()).get_table_names():
+        # Never create an unversioned schema: later `alembic upgrade` would fail on it.
+        raise SystemExit("Database is not migrated. Run `uv run alembic upgrade head` first.")
     with SessionLocal() as db:
         if db.scalar(select(User).where(User.email == "operator@demo.example")):
             print("Demo data already present.")

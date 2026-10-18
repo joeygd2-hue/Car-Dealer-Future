@@ -20,7 +20,12 @@ import app.models  # noqa: E402,F401
 from app.config import get_settings  # noqa: E402
 from app.db import Base  # noqa: E402
 
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+_url = get_settings().database_url
+if _url.startswith("sqlite:///") and not _url.startswith("sqlite:///:memory:"):
+    from pathlib import Path
+
+    Path(_url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)  # fresh checkout has no data/
+config.set_main_option("sqlalchemy.url", _url)
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

@@ -47,3 +47,18 @@ def test_upgrade_preserves_existing_rows_and_seals_audit(tmp_path):
     down = _alembic(url, "downgrade", "4122abfb2c23")
     assert down.returncode == 0, down.stderr
     assert "send_attempts" not in inspect(create_engine(url)).get_table_names()
+
+
+def test_upgrade_creates_missing_sqlite_directory(tmp_path):
+    """Regression (clean-checkout reproduction): the default DATABASE_URL points into ./data/, which doesn't exist yet."""
+    url = f"sqlite:///{tmp_path}/not-yet-created/sub/app.db"
+    r = _alembic(url, "upgrade", "head")
+    assert r.returncode == 0, r.stderr
+    assert (tmp_path / "not-yet-created" / "sub" / "app.db").exists()
+
+
+def test_seed_refuses_unmigrated_database(tmp_path):
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{tmp_path}/empty.db"}
+    r = subprocess.run([sys.executable, "-m", "scripts.seed_demo"], cwd=ROOT, env=env, capture_output=True, text=True)
+    assert r.returncode != 0 and "alembic upgrade head" in (r.stderr + r.stdout)
+    assert "users" not in inspect(create_engine(f"sqlite:///{tmp_path}/empty.db")).get_table_names()

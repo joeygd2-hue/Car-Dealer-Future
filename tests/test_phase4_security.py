@@ -218,3 +218,29 @@ def test_client_users_cannot_log_in_to_staff_pages_via_next(client, t):
 def test_make_user_helper_still_creates_staff(db):
     u = make_user(db, "v@x.example", "viewer")
     assert not u.is_client
+
+
+def test_settings_cannot_convert_a_portal_user_to_staff(client, db, admin, t):
+    csrf = login(client, admin.email)
+    client.post("/settings/user", data={"csrf": csrf, "email": "alpha@p4.example", "role": "admin", "active": "1"})
+    db.expire_all()
+    from dealerflow.models import User
+
+    u = db.query(User).filter_by(email="alpha@p4.example").one()
+    assert u.role == "client" and u.client_id == t["alpha"].id
+
+
+def test_admin_resets_portal_password_only_within_that_client(client, db, admin, t):
+    csrf = login(client, admin.email)
+    alpha_user = t["u"]["alpha"]
+    assert client.post(f"/clients/{t['bravo'].id}/users/{alpha_user.id}", data={"csrf": csrf, "password": "brand-new-password"}).status_code == 404
+    client.post(f"/clients/{t['alpha'].id}/users/{alpha_user.id}", data={"csrf": csrf, "password": "brand-new-password", "active": "1"})
+    from fastapi.testclient import TestClient
+
+    from dealerflow.web.app import create_app
+
+    other = TestClient(create_app())
+    r = other.get("/login")
+    c2 = r.text.split('name="csrf" value="')[1].split('"')[0]
+    r = other.post("/login", data={"email": "alpha@p4.example", "password": "brand-new-password", "csrf": c2, "next": "/"}, follow_redirects=False)
+    assert r.headers["location"] == "/portal"

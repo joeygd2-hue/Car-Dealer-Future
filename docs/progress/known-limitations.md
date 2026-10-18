@@ -1,4 +1,4 @@
-# Known limitations (Phase 1)
+# Known limitations (Phases 1 and 4)
 
 Last updated 2026-10-18. Be explicit with anyone relying on this system: **no real email, calendar,
 Zoom, Twilio, Google Places or website request has been made by this code yet.** Every end-to-end test
@@ -73,3 +73,48 @@ ran against SIMULATED providers or mocked HTTP.
 The compliance rules in the code (CAN-SPAM footer and opt-out, suppression, Texas calling hours, no autodialing or
 recording) reflect the research in `docs/research/`. They are **not legal advice**. Have counsel review
 templates, the data sources you choose, and any move to automated (`auto`) sending before going live.
+
+## Phase 4
+
+Every Phase 4 end-to-end test ran with SIMULATED providers and synthetic data. **No real payment, accounting,
+PageSpeed, Search Console, Claude API or client email call has been made.**
+
+### Integrations needing credentials or third-party approval
+
+| Integration | Status | What's needed |
+|---|---|---|
+| Stripe webhooks | Verified locally with self-signed payloads only | Stripe account; a **test-mode** endpoint for `/webhooks/stripe` (events `invoice.paid`, `invoice.payment_failed`, `charge.refunded`) and `DF_STRIPE_WEBHOOK_SECRET`; public HTTPS. Creating Stripe invoices from the app is **not** built (invoices are created here, payments recorded from Stripe events or manually) |
+| QuickBooks Online / Xero | **Not implemented** | OAuth app + sandbox company; for now use manual entry, CSV export and bank-CSV reconciliation |
+| Google Search Console | **API not implemented**; CSV export import works | Property owner access + OAuth (`webmasters.readonly`) to automate |
+| PageSpeed Insights | Parser only, never called | API key (`DF_PAGESPEED_API_KEY`) |
+| Claude API | Stubbed-client test only | API key; `DF_AI_ENABLED=true`. Nothing in Phase 4 depends on it |
+| Client email (reports, lead summaries) | Mock only | Real provider (Phase 1), `DF_CLIENT_EMAIL_SENDING_ENABLED=true`, and per-client authorized `report_email` connection |
+| Listing publication channels (Phase 2) | None; all attempts `manual_required` | Phase 2 |
+| Customer messaging channels (Phase 3) | None; inquiries are simulated | Phase 3 |
+
+### Functional gaps
+
+* **Interim Phase 2/3 tables** (`models_interim.py`, migration `0003`) are minimal stand-ins; the real Phase 2/3
+  models must replace them. Reports read these tables today.
+* Phase 3 lives in a separate `app` package (`claude/magical-darwin-nncp64`) with its own auth and models; it is
+  not integrated, so the client portal shows only Phase 4 data plus interim conversations.
+* Finance is single-currency for reporting (USD); other currencies are excluded and counted, not converted.
+  No sales tax handling. Expense categories are management categories, not tax advice.
+* Invoices are not emailed or sent to clients; there is no PDF invoice. Reports are HTML (print to PDF).
+* Stripe mapping needs either `invoices.external_id` = Stripe invoice id or `metadata.client_id`; unmatched
+  events fail and raise an alert.
+* No receipts OCR; no recurring-expense automation (recurrence is a label used by the forecast).
+* SEO checks are rule-based; no AI recommendations are generated yet (`detection='ai'` is reserved). JavaScript-
+  rendered sites are seen as raw HTML only. External links are not checked (internal only).
+* Gross margin covers only directly allocated costs; overhead allocation is not modelled.
+* Automations listed on the client page are gates only: the Phase 2/3 automation workers they protect do not
+  exist yet (`inventory_sync`, `listing_publish`, `inquiry_auto_response`); `seo_monitoring` does not schedule
+  audits yet — audits are started by staff; `monthly_report_email` is implemented.
+* Client data deletion and export are service functions (no UI) — deliberate, see the runbook.
+
+### Phase 4 security notes
+
+See `docs/security/threat-model.md`. Open items: in-process rate limiting (single process only), no MFA,
+attachments unencrypted at rest on local disk, no external penetration test, `style-src 'unsafe-inline'` kept
+for Phase 1 templates. **The platform is not production-ready** until live integrations are verified, MFA or
+an identity-aware proxy is in place, backups are tested, and the Phase 2/3 code is integrated.

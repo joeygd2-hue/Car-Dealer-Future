@@ -149,6 +149,8 @@ def user_save(request: Request, email: str = Form(...), name: str = Form(""), ro
             u = User(email=email.lower().strip(), name=name, role=role, password_hash=hash_password(password))
             db.add(u)
         else:
+            if u.is_client:
+                raise ValueError("That address belongs to a client portal user; manage it from the client's page")
             if u.id == user.id and (role != "admin" or not active):
                 raise ValueError("You cannot demote or deactivate yourself")
             u.name, u.role, u.active = name or u.name, role, bool(active)

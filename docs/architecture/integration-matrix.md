@@ -26,6 +26,22 @@ Policy and legal sources for each row are in `docs/research/source-register.md` 
 | Calls | Twilio (`twilio`) | Account SID + auth token; owned/verified caller ID | Agent-first click-to-call bridge | HTTP-tested | No autodialer, no prerecorded/AI voice, no recording, accurate caller ID [S-TCPA][S-TX304] | per-minute |
 | Notifications | Configured email provider | as above | Daily digest to `DF_NOTIFY_EMAIL` | Mock-tested | Internal email | — |
 
+## Phase 4 integrations
+
+| Capability | Provider (setting) | Auth / minimum permissions | Used for | Status | Allowed use / constraints | Cost |
+|---|---|---|---|---|---|---|
+| Payments (webhooks) | Stripe (`DF_STRIPE_WEBHOOK_SECRET`) | Endpoint signing secret; events `invoice.paid`, `invoice.payment_failed`, `charge.refunded` | Record confirmed payments and refunds against invoices | Signature, dedup and processing tested with locally signed payloads; **no Stripe account connected** | Card details are never stored; only an allow-list of event fields is kept | Stripe processing fees (per Stripe pricing) |
+| Accounting | QuickBooks Online / Xero | OAuth 2.0 (sandbox companies available) | — | **Not implemented.** Manual entry + CSV export + bank-CSV reconciliation instead | — | — |
+| Bank data | Bank statement CSV import | n/a | Reconciliation | Tested | Import only; no bank credentials stored | free |
+| Provider billing | Billing CSV import (date, metric, quantity, cost) | n/a | Verified usage costs | Tested | Marks rows `verified_billing` | — |
+| AI | Claude API (`DF_AI_ENABLED`, `DF_ANTHROPIC_API_KEY`) | API key | Optional; records measured tokens and estimated cost | Tested with a stubbed SDK client; **no live call made** | AI output never sent without approval | Opus 5.5 $4 / $20 per MTok in/out (list price, cached 2026-10-06; re-verify) |
+| Website performance | Google PageSpeed Insights API v5 (`DF_PAGESPEED_API_KEY`) | API key | Mobile Lighthouse score, LCP, CLS, TBT in SEO audits | Parser written against the documented response; **not called** | Within quota | free within quota |
+| SEO crawl | Client dealership websites | Written authorization recorded per site | Audits | Tested against an in-memory site | robots.txt, ≥0.5 s delay, page cap, stop on 429, GET/HEAD only, never modifies the site | free |
+| Organic search | Google Search Console | — | Clicks/impressions in client reports | **API not implemented**; CSV export import tested | Authorized property owner exports the performance report | free |
+| Client email | Same provider as outreach (`DF_CLIENT_EMAIL_SENDING_ENABLED`) | as above | Monthly reports, lead summaries | Mock-tested; real sending gated per client | Transactional email to the client's own contact | mailbox plan |
+| Customer messaging (Phase 3) | — | — | Car-buyer inquiries | **Not connected.** Simulated inquiries only | — | — |
+| Listing publication (Phase 2) | — | — | Marketplace publishing | **Not connected.** Every publish attempt is `manual_required` | — | — |
+
 ## Explicitly not built
 
 | Option | Reason |

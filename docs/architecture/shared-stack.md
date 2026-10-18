@@ -92,3 +92,47 @@ Public, unauthenticated endpoints: `GET /healthz`, `GET|POST /u/{token}` (unsubs
 
 Errors: raise `CredentialError` (not retried), `RateLimitedError` (retried, honours Retry-After),
 `PermanentError` (not retried), or `IntegrationError` (retried).
+
+
+## Phase 4 additions (shared by every phase)
+
+Added on branch `claude/blissful-davinci-82py6w` (migrations `0002`, `0003`). Details:
+`docs/architecture/system-design.md`.
+
+### Clients and the `client` role
+
+* `clients` is the tenant boundary for dealership data. A won `Prospect` becomes a `Client`
+  (`clients.prospect_id`, unique) via `services.tenancy.create_client()`, which also stops prospecting
+  sequences and suppresses the address. Phase 2/3 tables that belong to a dealership must have
+  `client_id → clients.id` (indexed, NOT NULL, `ON DELETE CASCADE`).
+* Role `client` (lowest rank, `users.client_id` set) may only reach `/portal` and `/api/v1/portal/*`;
+  `web.deps.current_user` enforces this for every route. Portal code must use `services.tenancy.scope()` /
+  `owned_or_404()` and must never take a client id from the request. Use `Depends(require_client)` for portal
+  routes; `require("viewer")` and above never admit client users.
+* Staff-side Phase 2/3 routes under `/clients/{cid}/…` must check that the row's `client_id` equals `cid`.
+
+### Shared Phase 4 services other phases should use
+
+| Need | Use |
+|---|---|
+| Record metered provider usage (AI tokens, API calls) | `services.usage.record_usage(db, provider=, category=, metric=, quantity=, ref=, client_id=)` (idempotent by `ref`) |
+| Call Claude | `integrations.llm.complete()` (records tokens; raises `AIUnavailable` when off) |
+| Email a client dealership | `services.client_email.send()` (gated; SIMULATED by default) |
+| Open a ticket for a client-facing failure | `services.tickets.open_system_ticket(db, client_id=, kind="integration_failure", …, dedupe_key=)` |
+| Raise an operator alert | `services.alerts.raise_alert(db, kind, message, severity, dedupe_key)` |
+| Gate an automation on onboarding | add an entry to `services.onboarding.AUTOMATION_PREREQS`; check `automation_enabled(db, client_id, feature)` before acting |
+| Audit with an entity | `audit.record(db, action, actor=, entity=, details=)` (secret-named keys redacted) |
+
+### Phase 4 interim tables — Phase 2/3 must replace these
+
+`models_interim.py` + migration `0003` define minimal `inventory_imports`, `vehicles`, `listings`,
+`publish_attempts`, `conversations`, `conversation_messages`, `appointments`, used only so Phase 4 reporting and
+the end-to-end test work before Phases 2/3 land in dealerflow. When the real Phase 2 (inventory, listings,
+publishing) or Phase 3 (conversations, appointments) models are ported:
+
+1. Rebase your migration onto `0002` (not `0003`), or add a migration after `0003` that drops the interim tables
+   your models replace. Do not keep two definitions of the same table.
+2. Delete the replaced classes from `models_interim.py` and the matching functions in `services/dealer_ops.py`.
+3. Update `services/client_reports.build_report_data()` to read your tables (keep: one source per metric,
+   SIMULATED rows excluded from real counts, channel status from `integration_connections`).
+4. Keep `tests/test_e2e_business_journey.py` passing (swap its Phase 2/3 steps to your APIs).

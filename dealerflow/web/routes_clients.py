@@ -189,6 +189,24 @@ def client_user_create(cid: int, request: Request, email: str = Form(...), name:
     return _back(cid, "#users")
 
 
+@router.post("/clients/{cid}/users/{uid}")
+def client_user_update(cid: int, uid: int, request: Request, password: str = Form(""), active: str = Form("1"),
+                       user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+    u = db.get(User, uid)
+    if u is None or u.client_id != cid or not u.is_client:
+        raise HTTPException(404, "Portal user not found")
+    try:
+        if password:
+            u.password_hash = hash_password(password)
+        u.active = active == "1"
+    except ValueError as exc:
+        flash(request, str(exc), "error")
+        return _back(cid, "#users")
+    audit.record(db, "user.updated", actor=user, client_id=cid, details={"user_id": u.id, "active": u.active, "password_reset": bool(password)})
+    flash(request, "Portal user updated.")
+    return _back(cid, "#users")
+
+
 @router.get("/tickets")
 def tickets_page(request: Request, status: str = "", user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
     q = select(SupportTicket).order_by(SupportTicket.id.desc())

@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, st %}{% block title %}Imports · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'imports', user) }}<h1>Imports</h1>
+{% if ctx.can('import') %}<form class="card" method="post" action="/dealers/{{ client.id }}/imports" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}">
+<h2>Upload dealership inventory (CSV, spreadsheet or DMS export)</h2><div class="row"><input type="file" name="file" accept=".csv,.tsv,.txt,.xlsx,.json" required>
+<select name="source_id"><option value="">New upload source</option>{% for s in sources if s.source_type != 'manual' %}<option value="{{ s.id }}">{{ s.name }} ({{ s.source_type }})</option>{% endfor %}</select>
+<input name="column_map" placeholder='{"price": "Internet Price"} (optional column mapping)' style="min-width:300px"><button>Import</button></div>
+<p class="small muted">Columns are matched by common names (Stock #, VIN, Year, Make, Miles, Internet Price, Photo URLs…). Values that cannot be read are left blank and flagged, never guessed. Original rows are kept.</p></form>
+<details class="card"><summary><strong>Add an authorised feed or DMS export URL</strong></summary><form method="post" action="/dealers/{{ client.id }}/sources"><input type="hidden" name="csrf" value="{{ csrf }}"><div class="grid">
+<div><label>Name</label><input name="name" required></div><div><label>Type</label><select name="source_type">{% for t in feed_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}</select></div>
+<div><label>HTTPS feed URL</label><input name="url" required></div><div><label>Format</label><select name="format"><option>csv</option><option>json</option><option>xlsx</option></select></div>
+<div><label>Credential env var (optional)</label><input name="secret_env" placeholder="DF_FEED_ALPHA_DMS"></div><div><label>Auth type</label><select name="auth_type"><option value="">none</option><option value="bearer">bearer</option><option value="header">header</option><option value="basic">basic</option></select></div>
+<div><label>Sync every (minutes, ≥15)</label><input name="schedule_minutes" value="60"></div><div><label>Full snapshot (absent = removed)</label><select name="full_snapshot"><option value="yes">yes</option><option value="no">no</option></select></div></div>
+<label>Who at the dealership authorised this feed, and how (required)</label><input name="authorization_note" required style="width:100%">
+<p class="small muted">Only structured feeds the dealer or its DMS/website provider authorised. Website pages are never scraped. Secrets go in the server environment, not here.</p><p><button>Save source</button></p></form></details>{% endif %}
+<div class="card"><h2>Sources</h2><table>{% for s in sources %}<tr><td>{{ s.name }}</td><td><span class="pill">{{ s.source_type }}</span></td><td>{{ st(s.last_status, labels) if s.last_status else 'never synced' }}</td>
+<td class="small muted">{{ s.last_sync_at|local }}</td><td class="small muted">{{ 'every %d min'|format(s.schedule_minutes) if s.schedule_minutes else 'on upload' }}</td>
+<td>{% if s.config.get('url') and ctx.can('import') %}<form class="inline" method="post" action="/dealers/{{ client.id }}/sources/{{ s.id }}/sync"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Sync now</button></form>{% endif %}</td></tr>
+{% else %}<tr><td class="muted">No sources yet.</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>Import history</h2><div class="tablewrap"><table>{% for r in runs %}<tr><td class="small"><a href="/dealers/{{ client.id }}/imports/{{ r.id }}">{{ r.started_at|local }}</a></td><td>{{ r.file_name or r.trigger }}</td><td>{{ st(r.status, labels) }}</td>
+<td class="small muted">{{ r.counts.get('created', 0) }} new · {{ r.counts.get('updated', 0) }} updated · {{ r.counts.get('removed', 0) }} removed · {{ r.counts.get('rejected', 0) }} rejected</td><td class="small" style="color:var(--bad)">{{ r.error or '' }}</td></tr>
+{% else %}<tr><td class="muted">No imports yet.</td></tr>{% endfor %}</table></div></div>
+{% endblock %}

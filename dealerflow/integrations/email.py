@@ -105,6 +105,13 @@ def _text_body(m: email.message.Message) -> str:
 
 def parse_raw(raw: bytes, provider_message_id: str, thread_id: str | None = None) -> IncomingEmail:
     m = email.message_from_bytes(raw, policy=email.policy.default)
+    dsn = ""
+    if m.get_content_type() == "multipart/report":
+        # Delivery status notifications: keep the machine-readable parts so bounces can be matched.
+        for part in m.walk():
+            if part.get_content_type() in ("message/delivery-status", "text/rfc822-headers", "message/rfc822-headers",
+                                           "message/rfc822"):
+                dsn += part.as_string()[:20000] + "\n"
     try:
         received = parsedate_to_datetime(m["Date"]).astimezone(timezone.utc).replace(tzinfo=None)
     except Exception:  # noqa: BLE001
@@ -119,8 +126,9 @@ def parse_raw(raw: bytes, provider_message_id: str, thread_id: str | None = None
         in_reply_to=str(m.get("In-Reply-To", "")) or None,
         references=str(m.get("References", "")) or None,
         thread_id=thread_id,
-        headers={k: str(v) for k, v in m.items() if k.lower() in ("auto-submitted", "x-autoreply", "precedence",
-                                                                   "x-failed-recipients", "content-type")},
+        headers={**{k: str(v) for k, v in m.items() if k.lower() in ("auto-submitted", "x-autoreply", "precedence",
+                                                                      "x-failed-recipients", "content-type")},
+                 **({"dsn": dsn} if dsn else {})},
     )
 
 
@@ -142,7 +150,7 @@ class EmailProvider:
 class MockEmailProvider(EmailProvider):
     """SIMULATED provider. Tests and the dev UI push replies with ``inject_reply``."""
 
-    name = "mock"
+    name = "mock_email"
     simulated = True
     outbox: list[tuple[OutgoingEmail, SendResult]] = []
     inbox: list[IncomingEmail] = []

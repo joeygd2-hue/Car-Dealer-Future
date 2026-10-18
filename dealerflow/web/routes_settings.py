@@ -189,7 +189,8 @@ def integrations_page(request: Request, user: User = Depends(current_user), db: 
 
 @router.post("/integrations/check")
 def integrations_check(request: Request, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
-    from ..audit import log_integration
+    from ..audit import log_integration, set_integration_disabled
+    from ..services.agent import state as get_agent_state
     from ..integrations.calendar import get_calendar_provider
     from ..integrations.email import get_email_provider
     from ..integrations.zoom import get_zoom_provider
@@ -198,13 +199,17 @@ def integrations_check(request: Request, user: User = Depends(require("admin")),
     for label, factory in (("email", get_email_provider), ("calendar", get_calendar_provider), ("zoom", get_zoom_provider)):
         try:
             prov = factory()
+            if get_agent_state(db).status == "emergency_stopped":
+                raise RuntimeError("emergency stop is active; checks make external calls")
             detail = prov.check()
             log_integration(db, prov.name, "check", "ok", detail=detail, simulated=prov.simulated)
+            set_integration_disabled(db, prov.name, None)  # a passing check re-enables a disabled provider
             results.append(f"{label}: {detail}")
         except Exception as exc:  # noqa: BLE001
             log_integration(db, label, "check", "auth_error" if "auth" in str(exc).lower() or "configured" in str(exc).lower() else "error",
                             detail=str(exc))
             results.append(f"{label}: FAILED — {exc}")
+    audit(db, "integration.check", actor_id=user.id, data={"results": results})
     flash(request, " | ".join(results), "info")
     return RedirectResponse("/integrations", status_code=303)
 

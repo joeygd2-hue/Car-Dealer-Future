@@ -57,7 +57,8 @@ def test_tick_replenishes_scores_enrolls_and_drafts_for_approval(db, admin):
     assert len(list(db.scalars(select(OutreachMessage)))) == len(drafts)
 
 
-def test_auto_mode_sends_in_simulation_and_sequence_progresses(db, admin):
+def test_auto_mode_sends_in_simulation_and_sequence_progresses(db, admin, monkeypatch):
+    monkeypatch.setattr(agent, "in_operating_window", lambda cfg, now: True)
     _start(db, admin, auto=True)
     tick(db, now=IN_HOURS)
     db.commit()
@@ -154,9 +155,26 @@ def test_operating_hours_block_drafting(db, admin):
 
 def test_budget_blocks_paid_discovery(db, admin):
     _start(db, admin)
-    agent.update_config(db, {"discovery_source": "google_places", "daily_budget_usd": 0.0}, actor=admin)
+    from dealerflow.services.settings_store import put_setting
+
+    put_setting(db, "cost_estimates", {"discovery:fixture": 0.50}, actor_id=admin.id)
+    agent.update_config(db, {"daily_budget_usd": 0.25}, actor=admin)
     run = tick(db, now=IN_HOURS)
     assert "budget" in run.counts["replenish"]["skipped"]
+    agent.update_config(db, {"daily_budget_usd": 1.0}, actor=admin)
+    run = tick(db, now=IN_HOURS + timedelta(minutes=5))
+    assert run.counts["replenish"]["created"] == 7
+    from dealerflow.services.costs import spent_today
+    assert spent_today(db) == 0.5  # recorded as an estimate
+
+
+def test_google_places_cannot_be_stored(db, admin):
+    from dealerflow.services.discovery import run_source
+
+    with pytest.raises(ValueError, match="place IDs"):
+        run_source(db, "google_places")
+    with pytest.raises(ControlError):
+        agent.update_config(db, {"discovery_source": "google_places"}, actor=admin)
 
 
 def test_discovery_limited_per_day(db, admin):
@@ -186,7 +204,8 @@ def test_step_failure_does_not_stop_other_steps(db, admin, monkeypatch):
     assert run.counts["score"]["scored"] == 7
 
 
-def test_auto_answer_uses_only_approved_info_and_escalates_sensitive(db, admin):
+def test_auto_answer_uses_only_approved_info_and_escalates_sensitive(db, admin, monkeypatch):
+    monkeypatch.setattr(agent, "in_operating_window", lambda cfg, now: True)
     _start(db, admin, auto=True, auto_reply=True)
     kb = db.scalar(select(KnowledgeItem).where(KnowledgeItem.topic == "Pricing"))
     tick(db, now=IN_HOURS)

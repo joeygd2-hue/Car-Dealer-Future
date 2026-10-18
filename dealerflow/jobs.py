@@ -19,7 +19,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .db import session_scope, utcnow
-from .integrations.errors import IntegrationError, RateLimitedError
+from .audit import clear_failures, replay_failures
+from .integrations.errors import ExternalActionsHalted, IntegrationError, RateLimitedError
 from .models import Job
 
 log = logging.getLogger("dealerflow.jobs")
@@ -100,15 +101,19 @@ def run_job(job_id: int) -> str:
             result = fn(db, dict(job.payload or {}))
             job.status, job.result, job.finished_at, job.last_error = "done", result, utcnow(), None
             db.commit()
-        except DeferJob as exc:
+            clear_failures(db)
+        except (DeferJob, ExternalActionsHalted) as exc:
             db.rollback()
+            replay_failures(db)
+            until = exc.until if isinstance(exc, DeferJob) else utcnow() + timedelta(minutes=10)
             job = db.get(Job, job_id)
             assert job is not None
-            job.status, job.run_after, job.attempts = "pending", exc.until, max(0, job.attempts - 1)
+            job.status, job.run_after, job.attempts = "pending", until, max(0, job.attempts - 1)
             job.last_error = f"deferred: {exc}"
             db.commit()
         except Exception as exc:  # noqa: BLE001 - every failure is recorded on the job
             db.rollback()
+            replay_failures(db)
             job = db.get(Job, job_id)
             assert job is not None
             job.last_error = f"{type(exc).__name__}: {exc}"[:4000]

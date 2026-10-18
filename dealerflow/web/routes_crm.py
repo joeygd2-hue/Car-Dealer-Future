@@ -406,26 +406,40 @@ def import_page(request: Request, user: User = Depends(require("rep"))):
 
 
 @router.post("/import")
-async def import_upload(request: Request, file: UploadFile = File(...), source_label: str = Form(...),
+async def import_upload(request: Request, file: UploadFile = File(None), source_label: str = Form(""),
                         source_url: str = Form(""), commit: str = Form(""), payload: str = Form(""),
+                        counties: str = Form(""), cities: str = Form(""), include_franchise: str = Form(""),
+                        data_date: str = Form(""),
                         user: User = Depends(require("rep")), db: Session = Depends(get_db)):
     if commit and payload:
         raw = base64.b64decode(payload)
         filename = request.session.get("import_name", "upload.csv")
     else:
+        if file is None:
+            raise HTTPException(400, "Choose a file")
         raw = await file.read()
         filename = file.filename or "upload.csv"
-        if len(raw) > 5_000_000:
-            raise HTTPException(413, "File too large (5 MB max)")
+        if len(raw) > 20_000_000:
+            raise HTTPException(413, "File too large (20 MB max)")
+    split = lambda s: [x.strip() for x in s.split(",") if x.strip()]  # noqa: E731
     try:
         rows = importer.read_rows(filename, raw)
-        report = importer.import_rows(db, rows, source_label=source_label, source_url=source_url or None,
-                                      dry_run=not commit, actor_id=user.id)
+        if rows and importer.txdmv.is_txdmv(rows[0].keys()):
+            source_label = "TxDMV dealer list"
+            report = importer.import_txdmv(db, rows, counties=split(counties), cities=split(cities),
+                                           include_franchise=bool(include_franchise), data_date=data_date,
+                                           dry_run=not commit, actor_id=user.id)
+        else:
+            if not source_label.strip():
+                raise ValueError("Say where this list came from (source)")
+            report = importer.import_rows(db, rows, source_label=source_label, source_url=source_url or None,
+                                          dry_run=not commit, actor_id=user.id)
     except ValueError as exc:
         flash(request, str(exc), "error")
         return RedirectResponse("/import", status_code=303)
     request.session["import_name"] = filename
     return render(request, "import.html", user, report=report, source_label=source_label, source_url=source_url,
+                  counties=counties, cities=cities, include_franchise=include_franchise, data_date=data_date,
                   payload=base64.b64encode(raw).decode() if not commit else "",
                   aliases=sorted(set(importer.HEADER_ALIASES.values())))
 

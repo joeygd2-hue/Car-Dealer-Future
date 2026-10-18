@@ -103,3 +103,21 @@ def test_score_is_explainable_and_configurable(db, admin):
 def test_missing_fields_indicator(db):
     p = intake(db, LeadRecord(name="Delta", source="manual")).prospect
     assert {"website", "phone_e164", "verified_contact", "dealership_type"} <= set(missing_fields(p))
+
+
+def test_license_list_columns_become_evidence(db):
+    csv_bytes = (b"License Number,License Holder,Assumed Name/DBA,Physical Address,Physical City,Physical Zip,County,License Type\n"
+                 b"P123456,ACME HOLDINGS LLC,Acme Used Cars (SIMULATED),1 Test Rd,Sugar Land,77478,Fort Bend,Independent Motor Vehicle GDN\n")
+    rep = importer.import_rows(db, importer.read_rows("dealers.csv", csv_bytes), source_label="TxDMV list (test)")
+    p = db.get(Prospect, rep.rows[0]["prospect_id"])
+    assert p.name == "ACME HOLDINGS LLC" and p.city == "Sugar Land" and p.postal_code == "77478"
+    ev = {e.field: e.value for e in p.evidence}
+    assert ev["license:number"] == "P123456" and ev["dba"] == "Acme Used Cars (SIMULATED)" and ev["county"] == "Fort Bend"
+
+
+def test_similar_names_with_different_websites_are_not_merged(db):
+    a = intake(db, LeadRecord(name="Gulf Auto Sales 1", source="manual", city="Katy", website="https://gulf1.example")).prospect
+    b = intake(db, LeadRecord(name="Gulf Auto Sales 2", source="manual", city="Katy", website="https://gulf2.example")).prospect
+    assert a.id != b.id
+    c = intake(db, LeadRecord(name="Gulf Auto Sales 2", source="manual", city="Katy", website="https://gulf2.example/x")).prospect
+    assert c.id == b.id  # same site: same business

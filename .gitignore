@@ -9,5 +9,6 @@
 __pycache__/
 build/
 data/
+dist/
 secrets/
 state/

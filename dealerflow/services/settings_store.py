@@ -22,7 +22,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "qualification_threshold": 55,
     # Estimated per-call costs (USD) used for budget checks; edit to match your provider invoices.
-    "cost_estimates": {"google_places_text_search": 0.032, "email_send": 0.0, "zoom_meeting": 0.0, "twilio_call_minute": 0.014},
+    "cost_estimates": {"discovery:osm": 0.0, "discovery:fixture": 0.0, "email_send": 0.0, "zoom_meeting": 0.0},
 }
 
 

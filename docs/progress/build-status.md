@@ -6,6 +6,10 @@
 | **2** | Dealership inventory ingestion, bilingual listings, approvals, publishing | **Implemented in this app and tested with fixtures, SIMULATED channel and mocked HTTP.** Meta catalog not live-verified (no credentials). See the Phase 2 section below. |
 | 3 | (defined in its own task) | Not started. |
 | 4 | (defined in its own task) | Not started. |
+| **1.5** | Launch-readiness audit | **Done 2026-10-18.** Verdict: not ready for live outreach; blockers in `docs/audit/launch-readiness-audit.md` §7. |
+| 2 | Inventory/listing publishing | In progress on `claude/dealership-inventory-publishing-iq0aqw`, merged onto `dealerflow`. Don't start new Phase 2 work here until audit blocker #5 is decided. |
+| 3 | Customer-response engine | In progress on `claude/magical-darwin-nncp64` as a **separate `app/` package**; needs porting onto `dealerflow`. |
+| 4 | (see branch) | In progress on `claude/blissful-davinci-82py6w` as a **separate `app/` package**; needs porting onto `dealerflow`. |
 
 Last updated: 2026-10-18 · branch `claude/charming-ritchie-358e1g`
 
@@ -20,8 +24,8 @@ SQLAlchemy/Alembic + Jinja, matching the owner's other Python/FastAPI project. D
 
 | Area | Implemented | Where |
 |---|---|---|
-| Research docs | Feasibility report, source register, integration matrix | `docs/research/`, `docs/architecture/integration-matrix.md` |
-| Lead discovery | Fixture (SIMULATED), OpenStreetMap Overpass, Google Places (New) Text Search, dealer website research (robots.txt-aware, off by default), CSV/XLSX import with dry run, manual entry, JSON API | `integrations/discovery.py`, `integrations/website.py`, `services/importer.py`, `services/discovery.py` |
+| Research docs | Feasibility report (lead sources, email, calling, Texas law, privacy, costs, unresolved questions), source register with access dates and confidence, integration matrix | `docs/research/`, `docs/architecture/integration-matrix.md` |
+| Lead discovery | Fixture (SIMULATED), OpenStreetMap Overpass (with ODbL attribution), CSV/XLSX import with dry run (incl. TxDMV-style license columns), manual entry, JSON API, dealer website research (robots.txt-aware, off by default). Google Places is **disabled for stored leads** (terms allow storing place IDs only) | `integrations/discovery.py`, `integrations/website.py`, `services/importer.py`, `services/discovery.py` |
 | Data quality | Validation (URL, email, US phone→E.164, state, ZIP), missing-field indicators, per-field evidence with source URL and timestamp, conflicts kept as evidence (never overwritten), last-verified date | `services/normalize.py`, `services/prospects.py` |
 | Deduplication | Source ID → domain → phone → email domain → fuzzy name with same ZIP/city/≤0.5 mi; manual merge | `services/prospects.py` |
 | Scoring | 7 weighted factors (configurable weights and threshold), per-factor reason, evidence IDs, unverified list; DNC scores 0; no revenue/volume/demographic estimates | `services/scoring.py` |
@@ -37,6 +41,8 @@ SQLAlchemy/Alembic + Jinja, matching the owner's other Python/FastAPI project. D
 ## Tests
 
 `pytest` runs 146 tests (99 Phase 1 + 47 Phase 2) with no network. The same suite passes on Postgres 16
+`pytest` runs 136 tests in about 30 s with no network (102 at the end of Phase 1; 34 added by the audit, including
+`test_adversarial.py`, `test_txdmv.py`, `test_backup.py`, `test_livecheck.py`). The same suite passes on Postgres 16
 (`DF_TEST_PG_URL=postgresql+psycopg://… pytest`).
 
 | File | Tests | Covers |
@@ -44,10 +50,10 @@ SQLAlchemy/Alembic + Jinja, matching the owner's other Python/FastAPI project. D
 | `test_workflow.py` | 1 | **Step 9 scenario:** fixture import → dedup → score → draft → approve → mock send → reply matched → CRM stage + tasks → availability → approval → Zoom + calendar booking → reschedule → cancel |
 | `test_compliance.py` | 13 | Opt-out by reply (EN/ES) and link (incl. one-click POST), domain suppression, opt-out between approval and send, duplicate jobs send once, cooldown/duplicate/touch limits, stop on reply, missing CAN-SPAM identity, rep can't approve, missing verified values, unverified observations, daily-cap deferral |
 | `test_failures.py` | 15 | Rate-limit retry with backoff, expired credentials fail fast, provider rejection, interrupted send not resent, stale-lock recovery, exclusive claim, Zoom failure leaves meeting unbooked, calendar failure retry reuses Zoom meeting, availability failure offers no times, HTTP 5xx/401/429/400 mapping, Google `invalid_grant`, missing credentials |
-| `test_agent.py` | 16 | Stopped/paused/emergency-stop behaviour, replenish → score → enroll → draft, auto mode in simulation, auto mode needs admin, real provider never sends without live authorization + env flag, budget limit, discovery-per-day limit, campaign daily cap, step isolation, approved-answers-only with sensitive escalation, idempotent tick scheduling, restart recovery, health/heartbeat |
+| `test_agent.py` | 17 | Stopped/paused/emergency-stop behaviour, replenish → score → enroll → draft, auto mode in simulation, auto mode needs admin, real provider never sends without live authorization + env flag, budget limit with estimated costs, Google Places refused, discovery-per-day limit, campaign daily cap, step isolation, approved-answers-only with sensitive escalation, idempotent tick scheduling, restart recovery, health/heartbeat |
 | `test_web.py` | 13 | Full UI workflow over HTTP (Spanish draft → send → simulated reply → booking) rendering every detail page, anonymous access, login rate limit, every page renders, CSRF, viewer/rep restrictions, workflow-only stages via API, API keys, bulk-action safeguards, Zoom webhook signature, link/redirect safety |
-| `test_prospecting.py` | 8 | Validation, CSV dry run + commit + dedup, XLSX, conflicting values, fuzzy-name dedup, manual merge, explainable/configurable scoring, missing fields |
-| `test_providers_http.py` | 10 | Request/response shape for Gmail, Google Calendar (incl. 409 idempotency), Zoom S2S, Places, Overpass, website research (robots + signals), SMTP, Twilio, against mocked HTTP |
+| `test_prospecting.py` | 9 | Validation, CSV dry run + commit + dedup, XLSX, conflicting values, fuzzy-name dedup, manual merge, explainable/configurable scoring, missing fields, license-list columns kept as evidence |
+| `test_providers_http.py` | 11 | Request/response shape for Gmail, Google Calendar (incl. 409 idempotency), Zoom S2S, Places, Overpass, website research (robots disallow, unreachable robots.txt, signals), SMTP, Twilio, against mocked HTTP |
 | `test_classify.py` | 20 | EN/ES classification cases, quoted text ignored, mixed signals, header-based auto-reply/bounce |
 | `test_reports.py` | 2 | Drafts ≠ sent, simulated counted separately, simulated sends don't mark real prospects contacted |
 | `test_migrations.py` | 1 | Migrations match models exactly |
@@ -70,6 +76,14 @@ python -m dealerflow demo && python -m dealerflow web    # and `python -m dealer
 In the UI: Prospects → open a SIMULATED dealer → Draft email → Approve and send now → Inbox → Simulate a reply
 asking for a Zoom call → Meetings → Check calendar → Choose → Approve and book. Agent page: Start, Run one tick now,
 Pause, Emergency stop.
+
+## Phase 1.5 additions
+
+- Central integration gate (emergency stop and disabled providers), campaign and agent send holds, Zoom lost-response recovery,
+  bounce matching, SSRF guard, CSRF on the JSON API, CSP/HSTS, password-bound sessions, file-based secrets.
+- TxDMV `.xls` import profile built against the real public file.
+- `backup`, `restore`, `retention` and `live-check` commands.
+- Audit documents in `docs/audit/`.
 
 ## Next steps for the owner
 
@@ -123,3 +137,6 @@ mobile width; staff pages return 403) and as staff (dealership directory).
 3. To verify Meta live: Meta app with App Review, a test vehicle catalog, a system-user token in `DF_META_TOKEN_*`,
    then publish one SIMULATED dealership's listing to a test catalog.
 4. Get real DMS export samples from pilot dealers and add column-mapping presets.
+4. Download the TxDMV *Motor Vehicle Dealers List* and import it (dry run first). Google Places is not usable for stored leads.
+5. Before a cold-calling routine, settle the Texas Chapter 302 question (feasibility report §4).
+6. Send 5–10 human-approved emails, then consider enabling the agent in `manual` approval mode.

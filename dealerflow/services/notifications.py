@@ -41,4 +41,6 @@ def daily_digest_job(db: Session, payload: dict) -> dict:
         provider.send(OutgoingEmail(to=s.notify_email, subject="dealerflow daily digest", body=digest_text(db),
                                     from_name=s.sender_name or "dealerflow", from_email=s.sender_email,
                                     idempotency_key=payload.get("day")))
+    from ..audit import audit
+    audit(db, "notification.digest_sent", data={"to": s.notify_email, "simulated": provider.simulated})
     return {"sent_to": s.notify_email, "simulated": provider.simulated}

@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..audit import audit, log_integration
+from ..audit import audit, clear_failures, log_integration, replay_failures
 from ..config import get_settings
 from ..db import utcnow
 from ..integrations.email import get_email_provider
@@ -69,8 +69,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_drafts_per_tick": 10,
     "max_auto_replies_per_tick": 5,
     "replenish_below": 15,  # run discovery when fewer eligible prospects than this are waiting
-    "discovery_source": "fixture",  # fixture (SIMULATED) | osm | google_places
-    "discovery_queries": ["used car dealer"],
+    "discovery_source": "fixture",  # fixture (SIMULATED) | osm
     "discovery_max_runs_per_day": 1,
     "daily_budget_usd": 5.0,
     "monthly_budget_usd": 50.0,
@@ -115,8 +114,8 @@ def update_config(db: Session, changes: dict[str, Any], *, actor: User) -> dict[
             if v < 0:
                 raise ControlError(f"{k} cannot be negative")
             new[k] = v
-    if new["discovery_source"] not in ("fixture", "osm", "google_places"):
-        raise ControlError("discovery_source must be fixture, osm or google_places")
+    if new["discovery_source"] not in ("fixture", "osm"):
+        raise ControlError("discovery_source must be fixture or osm (Google Places results may not be stored)")
     st.config = new
     audit(db, "agent.config", actor_id=actor.id, data={"changes": changes})
     return new
@@ -262,17 +261,13 @@ def step_replenish(db: Session, cfg: dict, cp: dict, now: datetime) -> dict:
     if runs.get(today, 0) >= cfg["discovery_max_runs_per_day"]:
         return {"skipped": "daily discovery limit reached"}
     source = cfg["discovery_source"]
-    est = costs.estimate(db, "google_places_text_search") * len(cfg["discovery_queries"]) if source == "google_places" else 0
+    est = costs.estimate(db, f"discovery:{source}")
     ok, why = costs.within_budget(db, est, cfg["daily_budget_usd"], cfg["monthly_budget_usd"])
     if not ok:
         return {"skipped": why}
     from .discovery import run_source
-    result: dict[str, Any] = {"source": source, "created": 0, "merged": 0}
-    queries = cfg["discovery_queries"] if source == "google_places" else [None]
-    for q in queries:
-        r = run_source(db, source, query=q)
-        result["created"] += r["created"]
-        result["merged"] += r["merged"]
+    r = run_source(db, source)
+    result: dict[str, Any] = {"source": source, "created": r["created"], "merged": r["merged"]}
     runs = {today: runs.get(today, 0) + 1}  # keep only today's counter
     cp["discovery_runs"] = runs
     return result
@@ -456,11 +451,12 @@ def tick(db: Session, *, now: datetime | None = None) -> AgentRun:
                 counts[name] = fn(db, cfg, cp, now)
         except Exception as exc:  # noqa: BLE001 - one failing step must not stop the others
             errors.append({"step": name, "error": f"{type(exc).__name__}: {exc}"[:500]})
-            # The savepoint rollback discarded any integration log row; record the failure again.
-            from ..integrations.errors import CredentialError
-            log_integration(db, f"agent:{name}", "step", "auth_error" if isinstance(exc, CredentialError) else "error",
-                            detail=f"{type(exc).__name__}: {exc}")
+            # The savepoint rollback discarded the provider's log rows; write them again, plus the step failure.
+            replay_failures(db)
+            log_integration(db, f"agent:{name}", "step", "error", detail=f"{type(exc).__name__}: {exc}")
             log.warning("agent step failed", extra={"step": name, "error": str(exc)})
+        else:
+            clear_failures(db)
         cp[f"step:{name}"] = now.isoformat()
         st = state(db)
         st.checkpoint = dict(cp)

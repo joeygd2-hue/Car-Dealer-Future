@@ -87,7 +87,7 @@ caller ID you own), `DF_AGENT_PHONE` (the phone Twilio rings first).
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DF_GOOGLE_PLACES_API_KEY` | — | Places API (New). Restrict the key to the Places API and your server IP. |
+| `DF_GOOGLE_PLACES_API_KEY` | — | Not used for lead discovery (Places results may not be stored). Reserved for a later live-lookup feature. |
 | `DF_OVERPASS_URL` | public overpass-api.de | Use your own Overpass instance for heavy use. |
 | `DF_WEBSITE_RESEARCH_ENABLED` | `false` | Allow fetching dealers' own public homepages (robots.txt honoured). |
 | `DF_HTTP_USER_AGENT` | `dealerflow-research/0.1 …` | Identify yourself and give a contact address. |

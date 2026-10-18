@@ -40,8 +40,18 @@ def create_app() -> FastAPI:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
+            "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'")
+        if s.env == "production":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        if request.url.path not in ("/healthz",) and not request.url.path.startswith("/static"):
+            response.headers["Cache-Control"] = "no-store"
         if not request.url.path.startswith("/static"):
-            log.info("request", extra={"rid": rid, "method": request.method, "path": request.url.path,
+            path = request.url.path
+            if path.startswith("/u/"):
+                path = "/u/[token]"  # unsubscribe tokens carry the recipient's email
+            log.info("request", extra={"rid": rid, "method": request.method, "path": path,
                                        "status": response.status_code, "ms": int((time.monotonic() - start) * 1000)})
         return response
 

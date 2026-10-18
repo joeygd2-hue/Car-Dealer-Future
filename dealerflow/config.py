@@ -6,6 +6,7 @@ See docs/architecture/environment.md for every variable.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 from pydantic import Field, SecretStr
@@ -13,7 +14,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="DF_", env_file=".env", extra="ignore")
+    # Secrets can come from files instead of environment variables: one file per setting, named like the
+    # variable in lower case (e.g. /run/secrets/df_smtp_password). Docker/Compose secrets mount there.
+    model_config = SettingsConfigDict(env_prefix="DF_", env_file=".env", extra="ignore",
+                                      secrets_dir=os.environ.get("DF_SECRETS_DIR", "/run/secrets")
+                                      if os.path.isdir(os.environ.get("DF_SECRETS_DIR", "/run/secrets")) else None)
 
     env: str = "development"  # development | test | production
     database_url: str = "sqlite:///./state/dealerflow.db"
@@ -86,7 +91,7 @@ class Settings(BaseSettings):
     calling_sunday_start: int = 12
 
     # Lead discovery
-    google_places_api_key: SecretStr = SecretStr("")
+    google_places_api_key: SecretStr = SecretStr("")  # client exists; results may not be stored as leads
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     website_research_enabled: bool = False
     http_user_agent: str = "dealerflow-research/0.1 (+contact: set DF_SENDER_EMAIL)"
@@ -115,6 +120,13 @@ class Settings(BaseSettings):
 
     # Notifications
     notify_email: str = ""  # optional daily digest recipient; empty disables it
+    # Inboxes you control, comma separated. `live-check` may send real test emails ONLY to these, even
+    # before live operation is authorized. Never put a prospect's address here.
+    test_inboxes: str = ""
+
+    @property
+    def test_inbox_list(self) -> list[str]:
+        return [x.strip().lower() for x in self.test_inboxes.split(",") if x.strip()]
 
 
     session_max_age_seconds: int = Field(default=60 * 60 * 12)

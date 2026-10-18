@@ -49,27 +49,97 @@ def log_integration(
     return row
 
 
+DISABLED_KEY = "integration_disabled:{}"
+
+
+def integration_disabled(db: Session, provider: str) -> dict | None:
+    from .models import AppSetting
+
+    row = db.get(AppSetting, DISABLED_KEY.format(provider))
+    return row.value if row else None
+
+
+def set_integration_disabled(db: Session, provider: str, detail: str | None) -> None:
+    """``detail`` disables the provider (after an auth failure); ``None`` re-enables it (after a passing check)."""
+    from .db import utcnow
+    from .models import AppSetting
+
+    key = DISABLED_KEY.format(provider)
+    row = db.get(AppSetting, key)
+    if detail is None:
+        if row is not None:
+            db.delete(row)
+            audit(db, "integration.enabled", data={"provider": provider})
+        return
+    if row is None:
+        db.add(AppSetting(key=key, value={"at": utcnow().isoformat(), "detail": detail[:500]}))
+        audit(db, "integration.disabled", data={"provider": provider, "detail": detail[:500]})
+
+
+def _gate(db: Session, provider: str, simulated: bool) -> None:
+    """Checked before every provider call, real or simulated."""
+    from .integrations.errors import ExternalActionsHalted, IntegrationDisabled
+    from .models import AgentState
+
+    st = db.get(AgentState, 1)
+    if st is not None and st.status == "emergency_stopped":
+        raise ExternalActionsHalted("Emergency stop is active; no external actions are allowed")
+    off = integration_disabled(db, provider)
+    if off:
+        raise IntegrationDisabled(f"{provider} is disabled after an authentication failure at {off['at']}; "
+                                  "fix the credentials and run Integrations → Verify credentials")
+
+
+def _record_failure(db: Session, provider: str, action: str, status: str, detail: str, simulated: bool,
+                    duration_ms: int) -> None:
+    log_integration(db, provider, action, status, detail=detail, simulated=simulated, duration_ms=duration_ms)
+    if status == "auth_error":
+        set_integration_disabled(db, provider, detail)
+    # Kept on the session so a caller that rolls back (a failing job) can write it again: see replay_failures.
+    db.info.setdefault("integration_failures", []).append(
+        dict(provider=provider, action=action, status=status, detail=detail, simulated=simulated, duration_ms=duration_ms))
+
+
+def replay_failures(db: Session) -> None:
+    """Re-record failures that a rollback discarded, so they stay traceable (and still disable providers)."""
+    pending = db.info.pop("integration_failures", [])
+    for f in pending:
+        log_integration(db, f["provider"], f["action"], f["status"], detail=f["detail"], simulated=f["simulated"],
+                        duration_ms=f["duration_ms"])
+        if f["status"] == "auth_error":
+            set_integration_disabled(db, f["provider"], f["detail"])
+
+
+def clear_failures(db: Session) -> None:
+    db.info.pop("integration_failures", None)
+
+
 @contextmanager
 def track_integration(db: Session, provider: str, action: str, *, simulated: bool = False) -> Iterator[dict]:
-    """Log an external call; the caller may set ``ctx['detail']``. Errors are logged and re-raised."""
-    from .integrations.errors import CredentialError, RateLimitedError
+    """Gate, then log, every external call. The caller may set ``ctx['detail']``. Errors are logged and re-raised."""
+    from .integrations.errors import CredentialError, ExternalActionsHalted, IntegrationDisabled, RateLimitedError
 
+    try:
+        _gate(db, provider, simulated)
+    except (ExternalActionsHalted, IntegrationDisabled) as exc:
+        _record_failure(db, provider, action, "blocked", str(exc), simulated, 0)
+        raise
     ctx: dict[str, Any] = {"detail": ""}
     start = time.monotonic()
+
+    def ms() -> int:
+        return int((time.monotonic() - start) * 1000)
+
     try:
         yield ctx
     except CredentialError as exc:
-        log_integration(db, provider, action, "auth_error", detail=str(exc), simulated=simulated,
-                        duration_ms=int((time.monotonic() - start) * 1000))
+        _record_failure(db, provider, action, "auth_error", str(exc), simulated, ms())
         raise
     except RateLimitedError as exc:
-        log_integration(db, provider, action, "rate_limited", detail=str(exc), simulated=simulated,
-                        duration_ms=int((time.monotonic() - start) * 1000))
+        _record_failure(db, provider, action, "rate_limited", str(exc), simulated, ms())
         raise
     except Exception as exc:
-        log_integration(db, provider, action, "error", detail=f"{type(exc).__name__}: {exc}", simulated=simulated,
-                        duration_ms=int((time.monotonic() - start) * 1000))
+        _record_failure(db, provider, action, "error", f"{type(exc).__name__}: {exc}", simulated, ms())
         raise
     else:
-        log_integration(db, provider, action, "ok", detail=ctx.get("detail", ""), simulated=simulated,
-                        duration_ms=int((time.monotonic() - start) * 1000))
+        log_integration(db, provider, action, "ok", detail=ctx.get("detail", ""), simulated=simulated, duration_ms=ms())

@@ -49,6 +49,9 @@ def create_app() -> FastAPI:
         if problems:
             raise RuntimeError("Refusing to start with DF_ENV=production: " + "; ".join(problems))
     configure_logging(s.log_level)
+    if s.env == "production":
+        for warning in s.production_warnings():
+            log.warning("configuration warning", extra={"warning": warning})
     from .. import handlers  # noqa: F401  (job handlers must be registered for enqueue-and-run paths)
 
     app = FastAPI(title="dealerflow", docs_url="/api/docs" if s.env != "production" else None, redoc_url=None)

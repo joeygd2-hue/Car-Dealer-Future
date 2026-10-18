@@ -128,15 +128,21 @@ class Settings(BaseSettings):
         return [int(d) for d in self.working_days.split(",") if d.strip()]
 
     def production_problems(self) -> list[str]:
-        """Configuration that must be fixed before the app may start with DF_ENV=production."""
+        """Configuration that blocks startup with DF_ENV=production (see production_warnings for advisories)."""
         problems = []
         if len(self.secret_key.get_secret_value()) < 32:
-            problems.append("DF_SECRET_KEY must be a random value of at least 32 characters")
-        if not self.base_url.startswith("https://"):
-            problems.append("DF_BASE_URL must use https:// (secure cookies, unsubscribe links)")
-        if self.database_url.startswith("sqlite"):
-            problems.append("DF_DATABASE_URL should point to PostgreSQL in production")
+            problems.append("DF_SECRET_KEY must be a random value of at least 32 characters (python -c 'import secrets; print(secrets.token_urlsafe(48))')")
+        if (self.outreach_sending_enabled or self.client_email_sending_enabled) and not self.base_url.startswith("https://"):
+            problems.append("DF_BASE_URL must be https:// before real email is enabled (unsubscribe links must work for recipients)")
         return problems
+
+    def production_warnings(self) -> list[str]:
+        warnings = []
+        if not self.base_url.startswith("https://"):
+            warnings.append("DF_BASE_URL is not https://; webhooks and unsubscribe links will not work publicly")
+        if self.database_url.startswith("sqlite"):
+            warnings.append("SQLite is fine for one host; use PostgreSQL for multiple web/worker hosts or managed backups")
+        return warnings
 
     def require_secret_key(self) -> str:
         key = self.secret_key.get_secret_value()

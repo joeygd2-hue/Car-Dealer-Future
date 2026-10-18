@@ -187,8 +187,11 @@ def test_production_refuses_insecure_config(monkeypatch):
     from dealerflow.config import Settings
     from dealerflow.web import app as webapp
 
-    s = Settings(env="production", secret_key=SecretStr("short"), base_url="http://x", database_url="sqlite:///x.db")
-    assert len(s.production_problems()) == 3
+    s = Settings(env="production", secret_key=SecretStr("short"), base_url="http://x", database_url="sqlite:///x.db",
+                 outreach_sending_enabled=True)
+    assert len(s.production_problems()) == 2 and len(s.production_warnings()) == 2
+    ok = Settings(env="production", secret_key=SecretStr("x" * 40), base_url="http://127.0.0.1:8000")  # Docker default still starts
+    assert ok.production_problems() == []
     monkeypatch.setattr(webapp, "get_settings", lambda: s)
     with pytest.raises(RuntimeError):
         webapp.create_app()

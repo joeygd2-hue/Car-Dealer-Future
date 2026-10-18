@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav %}{% block title %}Add vehicle{% endblock %}{% block content %}
+{{ subnav(client, 'inventory', user) }}<h1>Add a vehicle (manual entry)</h1>
+<p class="muted small">Enter only facts you have verified. Leave unknown fields blank; they are never guessed. Separate features and photo URLs with |.</p>
+<form method="post" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><div class="grid">
+{% for f in ['year','make','model','trim','body_style','mileage','price','vin','stock_number','condition','exterior_color','interior_color','transmission','drivetrain','fuel_type','engine','title_status','owner_count','location_address','location_city','location_state','location_postal'] %}
+<div><label for="{{ f }}">{{ f.replace('_',' ') }}</label><input id="{{ f }}" name="{{ f }}"></div>{% endfor %}</div>
+<label for="features">features (separate with |)</label><input id="features" name="features" style="width:100%">
+<label for="photos">photo URLs (separate with |)</label><input id="photos" name="photos" style="width:100%"><p><button>Save vehicle</button></p></form>
+{% endblock %}

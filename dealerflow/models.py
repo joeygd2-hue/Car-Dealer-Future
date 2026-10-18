@@ -73,6 +73,10 @@ class User(TimestampMixin, Base):
     api_key_hash: Mapped[str | None] = mapped_column(String(128), unique=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Phase 2: a dealership (client) user is bound to exactly one client and can only use the
+    # dealership workspace (/dealers/...). Staff users leave both columns NULL.
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", use_alter=True, name="fk_users_client_id"), index=True)
+    client_role: Mapped[str | None] = mapped_column(String(20))  # dealer_admin | dealer_reviewer | dealer_viewer
 
 
 class PipelineStage(Base):
@@ -541,3 +545,7 @@ class KnowledgeItem(TimestampMixin, Base):
     approved: Mapped[bool] = mapped_column(Boolean, default=False)
     approved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+# Phase 2 (dealership inventory, listings, publishing) models live in their own module.
+from .models_dealer import *  # noqa: E402,F401,F403

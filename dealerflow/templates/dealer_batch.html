@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav %}{% block title %}Batch approval{% endblock %}{% block content %}
+{{ subnav(client, 'listings', user) }}<h1>Batch approval: {{ preview.eligible_count }} of {{ preview['items']|length }} eligible</h1>
+<p class="muted small">Each listing is re-checked individually when you confirm. Listings with blockers are skipped; listings with warnings are approved only if you accept the warnings below.</p>
+<div class="tablewrap"><table><tr><th>Listing</th><th>Result</th><th>Details</th></tr>{% for i in preview['items'] %}
+<tr><td>{{ i.title or i.listing_id }}</td><td>{% if i.eligible %}<span class="pill ok">eligible</span>{% else %}<span class="pill bad">skipped</span>{% endif %}</td>
+<td class="small">{{ i.blockers|join('; ') }}{% if i.eligible and i.warnings %}<span style="color:var(--warn)">{{ i.warnings|length }} warning(s): {{ i.warnings|join(', ') }}</span>{% endif %}</td></tr>{% endfor %}</table></div>
+<form method="post" action="/dealers/{{ client.id }}/listings/batch-approve" class="card"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% for id in ids %}<input type="hidden" name="listing_id" value="{{ id }}">{% endfor %}<input type="hidden" name="expected_count" value="{{ preview.eligible_count }}">
+{% if preview.with_warnings %}<label class="row"><input type="checkbox" name="acknowledge_all_warnings" value="yes"> I reviewed and accept the warnings on {{ preview.with_warnings }} listing(s)</label>{% endif %}
+<label class="row"><input type="checkbox" name="confirm" value="yes" required> I confirm approval of the eligible listings above</label>
+<p><button {% if not preview.eligible_count %}disabled{% endif %}>Approve {{ preview.eligible_count }}</button> <a href="/dealers/{{ client.id }}/listings">Cancel</a></p></form>
+{% endblock %}

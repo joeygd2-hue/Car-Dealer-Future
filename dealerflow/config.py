@@ -98,11 +98,30 @@ class Settings(BaseSettings):
     working_hours_end: int = 17
     working_days: str = "0,1,2,3,4"  # Monday=0
 
+    # Phase 2: inventory, listings, publishing
+    max_upload_bytes: int = 10 * 1024 * 1024
+    max_feed_bytes: int = 25 * 1024 * 1024
+    feed_timeout_seconds: float = 30.0
+    publish_max_attempts: int = 5
+    # Listing prose is written by the deterministic template generator unless this is true AND a key is set.
+    listing_ai_enabled: bool = False
+    anthropic_api_key: SecretStr = SecretStr("")
+    ai_model: str = "claude-opus-5-5"
+    ai_effort: str = "medium"
+    # Nothing is sent to Meta unless this is true AND the dealership's connection is authorized for live publishing.
+    meta_live_publishing_allowed: bool = False
+    meta_graph_api_version: str = "v24.0"
+    meta_graph_base_url: str = "https://graph.facebook.com"
+
     # Notifications
     notify_email: str = ""  # optional daily digest recipient; empty disables it
 
 
     session_max_age_seconds: int = Field(default=60 * 60 * 12)
+
+    @property
+    def listing_ai_available(self) -> bool:
+        return self.listing_ai_enabled and bool(self.anthropic_api_key.get_secret_value())
 
     @property
     def target_city_list(self) -> list[str]:

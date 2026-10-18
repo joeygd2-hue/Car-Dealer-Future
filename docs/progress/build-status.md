@@ -1,89 +1,80 @@
 # Build status
 
-Last updated: 2026-10-18 by the Phase 2 chat. Branch: `claude/dealership-inventory-publishing-iq0aqw`.
+| Phase | Scope | Status |
+|---|---|---|
+| **1** | Research, lead generation, CRM, sales operations, persistent outreach agent | **Implemented and tested with simulated providers.** Live integrations not yet verified (no credentials). |
+| 2 | (defined in its own task) | Not started. Must extend this app; see `docs/architecture/shared-stack.md`. |
+| 3 | (defined in its own task) | Not started. |
+| 4 | (defined in its own task) | Not started. |
 
-## Starting point (verified)
-When Phase 2 started, the repository (all branches, no PRs) contained only `README.md`. **No Phase 1 code
-(CRM, outreach, scheduling) existed.** Phase 2 therefore built the shared foundation, then the user asked for
-a persistent outreach agent (Phase 1 scope), which is now also built on that foundation. The user chose
-Python + FastAPI for all phases; see `docs/architecture/stack-and-interfaces.md`.
+Last updated: 2026-10-18 · branch `claude/charming-ritchie-358e1g`
 
-## Test results
-`python -m pytest` → **80 passed** (2026-10-18, Python 3.13, SQLite). No network access in tests: HTTP providers
-use `httpx.MockTransport`, outreach uses sandbox providers and simulated prospects, AI uses a mocked client.
+## Starting point
+
+The repository held only a one-line `README.md` (commit `163a6cd`). There was no earlier code, schema,
+auth, tests or deployment to keep, so Phase 1 set the stack for every phase: Python + FastAPI +
+SQLAlchemy/Alembic + Jinja, matching the owner's other Python/FastAPI project. Details are in
+`docs/architecture/shared-stack.md`.
+
+## Phase 1: what's implemented
+
+| Area | Implemented | Where |
+|---|---|---|
+| Research docs | Feasibility report, source register, integration matrix | `docs/research/`, `docs/architecture/integration-matrix.md` |
+| Lead discovery | Fixture (SIMULATED), OpenStreetMap Overpass, Google Places (New) Text Search, dealer website research (robots.txt-aware, off by default), CSV/XLSX import with dry run, manual entry, JSON API | `integrations/discovery.py`, `integrations/website.py`, `services/importer.py`, `services/discovery.py` |
+| Data quality | Validation (URL, email, US phone→E.164, state, ZIP), missing-field indicators, per-field evidence with source URL and timestamp, conflicts kept as evidence (never overwritten), last-verified date | `services/normalize.py`, `services/prospects.py` |
+| Deduplication | Source ID → domain → phone → email domain → fuzzy name with same ZIP/city/≤0.5 mi; manual merge | `services/prospects.py` |
+| Scoring | 7 weighted factors (configurable weights and threshold), per-factor reason, evidence IDs, unverified list; DNC scores 0; no revenue/volume/demographic estimates | `services/scoring.py` |
+| CRM | 16 configurable stages; workflow-only stages (approved/contacted/replied/booked) can't be set by hand; timeline; tasks with dedupe keys; proposals; calls; notes; verified contacts; filters, search, sort, pagination; bulk actions (≤200, typed confirmation, audit) | `services/crm.py`, `web/routes_crm.py` |
+| Outreach | EN/ES editable templates; whitelisted variables from verified data only; CAN-SPAM footer + RFC 8058 one-click unsubscribe; manager approval; pre-send compliance gate re-checked at send; suppression (email/@domain/phone); cooldown, touch cap, daily cap (deferred), duplicate check; states draft→queued→sending→sent/replied/bounced/failed/cancelled; ambiguous sends never resent | `services/outreach.py`, `services/compliance.py` |
+| Inbox | Mock, SMTP/IMAP (read-only), Gmail API; idempotent import; matching by In-Reply-To/References → thread → recipient → contact → domain; EN/ES rule classifier; opt-outs auto-suppressed; bounces suppressed; stop conditions; follow-up tasks; unmatched queue | `services/inbox.py`, `services/classify.py` |
+| Meetings | Real free/busy → suggested slots → choice → manager approval → Zoom then calendar (checkpointed, idempotent) → `booked` only after both succeed; re-check before booking; reschedule, cancel, complete/no-show; Zoom webhooks | `services/meetings.py`, `integrations/zoom.py`, `integrations/calendar.py` |
+| Calling | Manual tel: link (default) or Twilio agent-first bridge; calling-hours check; DNC/suppression check; outcome logging; opt-out by phone | `integrations/calls.py`, `web/routes_crm.py` |
+| Autonomous agent | Worker + DB job queue, heartbeat, time-bucketed idempotent ticks, 8 bounded steps with checkpoints, run log, stopped/running/paused/emergency-stop, admin live authorization, campaigns with auto/manual approval, auto-answers from approved knowledge only, budgets, operating hours, replenishment | `services/agent.py`, `worker.py`, `jobs.py`, `/agent` |
+| Reporting | Daily dashboard (real vs simulated separated), weekly report (funnel, source performance, meeting conversion, CAC when calculable, recommendations), integration health, failed jobs, optional daily digest email | `services/reports.py`, `services/notifications.py` |
+| Platform | Session login, roles (viewer/rep/manager/admin), CSRF, login rate limit, per-user API keys, JSON API, audit log, integration log, JSON logs, HTTP retries/backoff/rate limits, Alembic migrations, Docker/Compose, health check | `web/`, `audit.py`, `integrations/http.py`, `migrations/` |
+
+## Tests
+
+`pytest` runs 99 tests in about 20 s with no network. The same suite passes on Postgres 16
+(`DF_TEST_PG_URL=postgresql+psycopg://… pytest`).
 
 | File | Tests | Covers |
 |---|---|---|
-| tests/test_inventory.py | 11 | CSV/XLSX import, normalisation, malformed rows, contradictory data, VIN check digit, duplicates in file and across sources, idempotent re-import, price change, sold/removed detection, mass-removal safeguard, authorised feed via worker, stale scan, SSRF guard on feed URLs |
-| tests/test_listings.py | 18 | Bilingual generation from verified facts, worker generation, guardrails (urgency EN/ES, unsupported warranty/accident/title/owner/financing claims, mileage/year/price/drivetrain mismatches, keyword stuffing), supported claims allowed, required fields and disclaimers, warning acknowledgement, stale-facts approval refusal, agency approval gating, batch safeguards, immutable revisions, AI output still guard-railed |
-| tests/test_publishing.py | 9 | Marketplace manual workflow (URL + attestation required), price change → needs update, sold → withdrawal required, API channel submit/confirm, idempotent publish requests, retries with backoff, permanent failure + manual retry, sold → API delete, cannot publish stale/unapproved, Meta adapter global guard + request shape |
-| tests/test_isolation.py | 5 | API cross-dealer reads/writes → 404, list scoping, server-side roles, ORM tenant filter + cross-tenant write refusal + client_id immutability, composite FK enforcement |
-| tests/test_jobs.py | 7 | Idempotent enqueue, backoff → dead, non-retryable, crash recovery via lease expiry, single claim, schedule once-per-slot and restart behaviour, heartbeats |
-| tests/test_outreach.py | 29 | Discovery/enrichment/qualification (franchise disqualified, no duplicates), approval-gated first touch with CAN-SPAM checks, opt-out reply stops sequence, suppression blocks approved send, unsubscribe link, positive reply → slots → auto-booking, booking approval by default, approved-fact answers vs escalation, classifier (13 cases incl. Spanish and conflicting signals), bounce, hourly limit + budget, schedule window, duplicate prevention + interrupted-send handling, provider failure retries/escalation, live provider blocked without authorisation, emergency stop/pause, agent recovery after worker crash, dashboard measured vs estimated |
-| tests/test_api_flow.py | 1 | Full dealership flow over HTTP: settings → upload → worker drafts → batch approve → Marketplace package + manual confirmation → sandbox publish → reports → ES CSV export → audit trail |
+| `test_workflow.py` | 1 | **Step 9 scenario:** fixture import → dedup → score → draft → approve → mock send → reply matched → CRM stage + tasks → availability → approval → Zoom + calendar booking → reschedule → cancel |
+| `test_compliance.py` | 13 | Opt-out by reply (EN/ES) and link (incl. one-click POST), domain suppression, opt-out between approval and send, duplicate jobs send once, cooldown/duplicate/touch limits, stop on reply, missing CAN-SPAM identity, rep can't approve, missing verified values, unverified observations, daily-cap deferral |
+| `test_failures.py` | 15 | Rate-limit retry with backoff, expired credentials fail fast, provider rejection, interrupted send not resent, stale-lock recovery, exclusive claim, Zoom failure leaves meeting unbooked, calendar failure retry reuses Zoom meeting, availability failure offers no times, HTTP 5xx/401/429/400 mapping, Google `invalid_grant`, missing credentials |
+| `test_agent.py` | 16 | Stopped/paused/emergency-stop behaviour, replenish → score → enroll → draft, auto mode in simulation, auto mode needs admin, real provider never sends without live authorization + env flag, budget limit, discovery-per-day limit, campaign daily cap, step isolation, approved-answers-only with sensitive escalation, idempotent tick scheduling, restart recovery, health/heartbeat |
+| `test_web.py` | 13 | Full UI workflow over HTTP (Spanish draft → send → simulated reply → booking) rendering every detail page, anonymous access, login rate limit, every page renders, CSRF, viewer/rep restrictions, workflow-only stages via API, API keys, bulk-action safeguards, Zoom webhook signature, link/redirect safety |
+| `test_prospecting.py` | 8 | Validation, CSV dry run + commit + dedup, XLSX, conflicting values, fuzzy-name dedup, manual merge, explainable/configurable scoring, missing fields |
+| `test_providers_http.py` | 10 | Request/response shape for Gmail, Google Calendar (incl. 409 idempotency), Zoom S2S, Places, Overpass, website research (robots + signals), SMTP, Twilio, against mocked HTTP |
+| `test_classify.py` | 20 | EN/ES classification cases, quoted text ignored, mixed signals, header-based auto-reply/bounce |
+| `test_reports.py` | 2 | Drafts ≠ sent, simulated counted separately, simulated sends don't mark real prospects contacted |
+| `test_migrations.py` | 1 | Migrations match models exactly |
 
-Manual verification (2026-10-18): seeded fixture data (`python -m scripts.seed_fixtures`), ran the real worker
-process (`python -m app.worker`) which generated drafts, ran `uvicorn`, and drove the UI in headless Chromium:
-login, inventory, listing review, approval, Marketplace package, recording publication, reports, imports,
-outreach dashboard, mobile layout. No console errors. Alembic `upgrade head` on an empty database creates all 36 tables.
+Also verified by hand: `migrate` → `create-user` → `demo` → `web` → `run-jobs` → `/healthz` shows a live worker heartbeat.
+Migration upgrade and downgrade were run on SQLite and Postgres 16.
 
-## Implemented
+## Not verified (see known-limitations.md)
 
-### Shared platform (all phases)
-- FastAPI app, bearer-token auth (scrypt passwords, hashed session tokens), roles and per-dealership memberships.
-- Tenant isolation: tenant-bound ORM sessions, composite FKs, client_id immutability, 404 for foreign ids.
-- Append-only audit log with cost field; AES-GCM credential encryption; security headers + CSP; SSRF guard on
-  server-side fetches of user-supplied URLs.
-- Durable DB-backed job queue: idempotency keys, leases, crash recovery, exponential backoff, dead jobs,
-  recurring schedules, worker heartbeats, `/api/health` and `/api/system/status`.
-- Claude wrapper (structured outputs, refusal fallback, measured token cost). Disabled without a key.
-- Alembic migrations; seed script with labelled fixtures; vanilla-JS SPA.
+No live provider calls were made during the build. "Implemented" above means "code exists and passes
+tests with mocks". It does not mean the integration works with a real account.
 
-### Phase 2: inventory, listings, publishing
-- Ingestion: CSV/TSV, XLSX, JSON; DMS exports via column mapping; authorised HTTPS feeds (encrypted credential,
-  authorisation note required); manual entry. Raw rows preserved; run history; per-row outcomes.
-- Normalised vehicle schema incl. dealer-reported title status/owner count (never inferred).
-- Validation: missing/contradictory/implausible data, VIN structure and model-year cross-check, branded titles,
-  photo URL checks, duplicate VINs, stale detection.
-- Sync: change detection (price/details/photos/status), removals for full snapshots with a mass-removal safeguard,
-  reappearance, scheduled feed sync, hourly stale scan, overdue confirmation flags.
-- Listing generation: deterministic EN/ES template generator (default) and optional Claude generator constrained
-  to verified facts; titles, descriptions, features, search terms, CTA, 7 FAQ answers, disclaimers; uncertainty notes.
-- Dealer settings: brand voice, contact, hours, languages, disclaimers, financing statement, title template,
-  character limits, required fields, review rules, enabled channels.
-- Guardrails on every revision (generated or edited); immutable revisions with facts snapshot and hash.
-- Review workspace: browse, preview EN/ES side by side, edit, photos, issues, approve with warning
-  acknowledgement, reject, request regeneration, revision history, batch approval with preview/expected-count/confirm.
-- Channel adapters: Facebook Marketplace manual workflow, Meta catalog API (guarded), sandbox; CSV export.
-- Reporting per dealership (only verifiable metrics).
+## How to test locally
 
-### Outreach agent (requested system-wide feature; Phase 1 scope)
-- CRM models: prospects, contacts with evidence, observations with evidence, campaigns, enrollments, messages,
-  suppressions, meetings, escalations, approved company facts, cost ledger, agent runs.
-- Agent tick (bounded phases with checkpoints): inbox → recover → follow-ups → drafting → sending → replenish.
-- Discovery (sandbox, Google Places, CSV import with attribution), polite website enrichment, qualification + scoring.
-- Policy gate before every send (see `app/outreach/policy.py`): emergency stop, pause, campaign state, email-only,
-  suppression, prospect/enrollment state, approval, schedule window, hourly/daily/mailbox limits, daily budget,
-  integration health, live authorisation (env + integration + campaign), simulated-prospect isolation,
-  CAN-SPAM content checks, banned claims.
-- Reply handling: rules classifier (+ optional AI), opt-out/complaint suppression, bounces, OOO, referrals,
-  sensitive escalation, approved-fact answers, meeting offers from free/busy, slot selection, booking with video link.
-- Controls: global pause, per-campaign pause, emergency stop (cancels queued jobs, holds drafts), live authorisation
-  with typed confirmation. One-click unsubscribe endpoint. Operator dashboard (measured vs estimated).
+```bash
+pip install -e ".[dev]" && pytest
+python -m dealerflow migrate && python -m dealerflow create-user you@example.com admin
+python -m dealerflow demo && python -m dealerflow web    # and `python -m dealerflow worker`
+```
+In the UI: Prospects → open a SIMULATED dealer → Draft email → Approve and send now → Inbox → Simulate a reply
+asking for a Zoom call → Meetings → Check calendar → Choose → Approve and book. Agent page: Start, Run one tick now,
+Pause, Emergency stop.
 
-## Not yet verified end to end
-**Autonomous outreach has not been verified with real integrations.** The persistent worker, scheduler,
-retries, recovery and policy gates are verified with sandbox providers only. Gmail, Google Calendar, Google Places
-and Meta catalog adapters are implemented against documentation and mocked in tests; none has run against the real
-service. See `known-limitations.md`.
+## Next steps for the owner
 
-## Next steps
-1. Phase 1 chat: reconcile with this foundation (reuse `prospects`/campaign models or migrate onto them; do not add a
-   second auth or queue). Obtain a Google Workspace mailbox + OAuth app (Internal) and test Gmail/Calendar live with
-   an internal test recipient, then a supervised pilot campaign with first-touch approval on.
-2. Phase 3 chat: client portal on the existing roles/`client_ctx`; customer messaging must treat Marketplace
-   conversations as manual (no API). Use `dealer_listing_settings` as the approved-facts source.
-3. Phase 4 chat: PostgreSQL deployment (+ optional row-level security), backups, monitoring, security review,
-   SEO/analytics on `audit_log`, `vehicle_changes`, `cost_ledger`.
-4. Obtain Meta App Review + a test catalog to verify `meta_catalog` live; add NHTSA vPIC enrichment; consider Google
-   vehicle ads feed.
+1. Fill in sender identity (`DF_BUSINESS_*`, `DF_SENDER_*`) and edit templates and approved answers so every statement is true.
+2. Pick an email route (Google Workspace via Gmail API or SMTP) and set up SPF, DKIM and DMARC on your sending domain.
+3. Create the Google Calendar and Zoom S2S credentials; run Integrations → Verify credentials.
+4. Decide on lead sources (see feasibility report); import a first real list by CSV.
+5. Send 5–10 human-approved emails, then consider enabling the agent in `manual` approval mode.

@@ -1,55 +1,37 @@
 # Integration matrix
 
-Status labels: **Implemented + tested (sandbox/mock)**: the code exists and is exercised by automated tests against
-simulated providers. **Verified live**: exercised against the real provider. **Manual workflow**: no API; the
-system prepares the work and a person completes and records it. **Not supported**: no permitted route exists.
+Status key: **Mock-tested** = exercised end-to-end with a SIMULATED provider. **HTTP-tested** = request and
+response handling checked against mocked HTTP that follows the provider's documented API. **Live-verified** =
+called against a real account. *Nothing in Phase 1 is live-verified yet.*
 
-No integration has been **verified live** yet: no provider credentials, app reviews or OAuth verifications were
-available during Phase 2. Research behind each row is in `docs/research/` and listed in
-`docs/research/source-register.md` (CONFIRMED / REPORTED / UNVERIFIED labels).
+Policy and legal sources for each row are in `docs/research/source-register.md` (IDs in brackets).
 
-Last updated: 2026-10-18 (Phase 2 chat).
-
-## Listing publishing channels (Phase 2)
-
-| Channel | Mode | Operations | Credentials / approvals | Confirmation | Update / delete | Status |
+| Capability | Provider (setting) | Auth / minimum permissions | Used for | Status | Allowed use / constraints | Cost |
 |---|---|---|---|---|---|---|
-| Facebook Marketplace (organic vehicle listings) | Manual workflow | Prepare package (fields, EN/ES copy, ordered photo URLs, checklist), copy/export, record publication with live URL + attestation, record edit, record removal | None stored. A dealership staff member posts from their own account | `published_confirmed` with `confirmation_type=manual_attested` only after URL + attestation. Never counted as an API publication | Human edits/deletes on Facebook, then records it. Sold vehicles → `withdrawal_required` | **Manual workflow, implemented + tested.** API publishing is **not supported**: partner catalog listings ended 2021-09-13 (CONFIRMED); Page vehicle listings ended 2023-01-30 (REPORTED). Browser automation is not used (Meta Terms) |
-| Meta vehicle catalog (Automotive Inventory Ads, paid; can appear in the Marketplace placement) | API | `items_batch` UPDATE (upsert) / DELETE, `item_type=VEHICLE`; status via `check_batch_request_status` | System-user token with `catalog_management` + `business_management` (App Review; Business Verification for Advanced Access); `catalog_id`; `vdp_url_template`. Live sends also require `META_LIVE_PUBLISHING_ALLOWED=true` + connection `live_publishing` | Async: `submitted` (batch handle) → `published_confirmed` when the batch finishes without item errors. Means "accepted into catalog", not an organic listing | Supported (upsert/delete); sold → delete | **Implemented + tested with mocked HTTP. Not verified live.** Rate limit ~8+ batch calls/min/catalog (CONFIRMED). No API fee found; ads cost money |
-| Sandbox channel | Simulated | create / update / delete / status | None | Async submit → confirm | Supported | Test fixture only; never reaches a platform |
-| CSV export of approved listings | Export | Download EN/ES CSV of approved, available, non-stale listings | Dealer user | n/a (export ≠ publication) | n/a | Implemented. For authorised manual upload (e.g. Commerce Manager, a syndication provider) |
-| Google vehicle ads (Merchant Center) | – | – | Merchant Center + Google Ads + Business Profile | – | – | Not implemented. Program is live for US dealers (CONFIRMED). Candidate for later |
-| Cars.com / Autotrader / CarGurus / TrueCar | – | Full-inventory feeds via providers (FTP CSV) | Dealer subscription + feed setup | – | – | Not implemented (REPORTED feed-based only) |
-| Craigslist bulk posting | – | Bulk posting interface (case-by-case approval, ~$5/listing reported) | Account + approval | – | – | Not implemented |
+| Lead discovery | Fixture (`fixture`) | none | Offline demo and tests | Mock-tested | SIMULATED, fictional data | free |
+| Lead discovery | OpenStreetMap Overpass (`osm`) | none | `shop=car` within radius | HTTP-tested | ODbL: attribution required; derived databases must stay under ODbL terms; light use of the public endpoint [S-OSM] | free |
+| Lead discovery | Google Places API (New) Text Search (`google_places`) | API key restricted to Places API + server IP | Name, address, phone, website, location, place ID | HTTP-tested | Caching of most Places content is restricted; place IDs may be stored. Raw payloads purged after 30 days. Show Google attribution where Places data is displayed [S-GPT] | Pay-per-request; see report |
+| Lead discovery | Dealer websites (`DF_WEBSITE_RESEARCH_ENABLED`) | none | Public homepage + one inventory page | HTTP-tested | robots.txt honoured, identifying user agent, ≤2 pages per site, no logins or forms, no CAPTCHA bypass [S-ROBOTS] | free |
+| Lead discovery | CSV / XLSX import | n/a | Lists you're entitled to use (e.g. a public license list) | Mock-tested | Must record source; operator is responsible for list rights | — |
+| Send email | Mock (`mock`) | n/a | Default | Mock-tested | SIMULATED | free |
+| Send + read email | SMTP + IMAP (`smtp`) | Mailbox credentials (app password / relay); IMAP read-only | Outreach, replies | HTTP-tested (fake SMTP); IMAP untested | Mailbox provider's sending limits and anti-spam rules; SPF/DKIM/DMARC [S-GBULK] | mailbox plan |
+| Send + read email | Gmail API (`gmail`) | OAuth: `gmail.send`, `gmail.readonly` (restricted scope) | Outreach, replies, threading | HTTP-tested | Workspace/consumer daily sending limits; restricted-scope verification for External apps [S-GMAIL] | Workspace plan |
+| Email (rejected) | SendGrid / Postmark / Mailgun etc. | — | Not used for cold outreach | — | AUPs restrict unsolicited/purchased-list email [S-ESP] | — |
+| Availability | Google Calendar (`google`) | OAuth: `calendar.freebusy` | Free/busy before suggesting times | HTTP-tested | — [S-GCAL] | free with account |
+| Calendar events | Google Calendar (`google`) | OAuth: `calendar.events` | Create/update/delete the booked event, invite attendee | HTTP-tested | Deterministic event IDs prevent duplicates | free with account |
+| Video meetings | Zoom Server-to-Server OAuth (`zoom`) | Account credentials grant; meeting read/write scopes for one user; `user:read` for the check | Create/update/delete meetings | HTTP-tested | Rate limits by plan; JWT apps are deprecated [S-ZOOM] | Zoom plan |
+| Meeting events | Zoom webhooks | Secret token (HMAC-SHA256 signature) | meeting.ended / meeting.deleted | Signature tested | Public HTTPS endpoint needed | — |
+| Calls | Manual (`manual`) | none | tel: link + outcome log | Mock-tested | Human dials; calling-hours check | — |
+| Calls | Twilio (`twilio`) | Account SID + auth token; owned/verified caller ID | Agent-first click-to-call bridge | HTTP-tested | No autodialer, no prerecorded/AI voice, no recording, accurate caller ID [S-TCPA][S-TX304] | per-minute |
+| Notifications | Configured email provider | as above | Daily digest to `DF_NOTIFY_EMAIL` | Mock-tested | Internal email | — |
 
-## Inventory sources (Phase 2)
+## Explicitly not built
 
-| Source | Mode | Notes | Status |
-|---|---|---|---|
-| Dealer CSV / TSV upload | Upload | Header aliases + optional `column_map`; raw rows preserved | Implemented + tested |
-| Spreadsheet (.xlsx) upload | Upload | First sheet (or named sheet) via openpyxl; `.xls` rejected with guidance | Implemented + tested |
-| DMS export (Frazer, DealerCenter, Wayne Reaves, Dealertrack …) | Upload or authorised feed URL | Treated as CSV/XLSX with a per-source `column_map`. No public DMS APIs (Frazer REPORTED none; Dealertrack via Opentrack partner agreement, REPORTED). Vendor layouts need a real sample file before a preset is added | Generic path implemented + tested; no vendor presets (UNVERIFIED layouts) |
-| Authorised inventory feed / API (feed_api) | Scheduled HTTPS pull | CSV/JSON/XLSX; bearer/header/basic credential encrypted; `authorization_note` required; size + timeout limits | Implemented + tested with mocked HTTP. No real feed connected |
-| Authorised website integration (website_feed) | Scheduled HTTPS pull | Only a structured feed the dealer/website provider exposes. **HTML scraping is not implemented** | Implemented (same code as feed_api) |
-| HomeNet / vAuto syndication (Cox) | FTP/SFTP drop | REPORTED dealer-requested FTP exports | Not implemented (no SFTP receiver yet) |
-| Manual entry | UI/API | Same normalise/validate/diff pipeline | Implemented + tested |
-| NHTSA vPIC VIN decode | – | Free public API (CONFIRMED) | Not implemented; offline VIN check-digit and model-year validation only |
-
-## Outreach agent providers (agency level)
-
-| Provider | Kind | Operations | Auth / approval | Cost | Status |
-|---|---|---|---|---|---|
-| Sandbox mailbox | Email + inbox | Send, receive injected replies | None | 0 | Implemented + tested |
-| Gmail API | Email + inbox | `users.messages.send` (List-Unsubscribe headers), inbox polling via `messages.list`/`get` | OAuth refresh token. `gmail.send` is Sensitive; `gmail.readonly` is Restricted (verification + annual security assessment unless the app is Internal to the agency Workspace). CONFIRMED | API free | Implemented against docs; **not verified live**. Push (`users.watch` + Pub/Sub) not implemented; polling only |
-| Microsoft Graph mail | Email + inbox | – | `Mail.Send`, `Mail.Read` | – | Not implemented |
-| ESPs (SendGrid, Postmark, Resend, SES) | Email | – | – | – | **Not used for cold outreach**: their policies forbid unsolicited/purchased-list email (CONFIRMED) |
-| Sandbox calendar | Calendar | Free/busy, create event + fake video link | None | 0 | Implemented + tested |
-| Google Calendar API | Calendar + Meet | `freeBusy`, `events.insert` with `conferenceData` (idempotent client event id), `sendUpdates=all` | OAuth (`calendar.events`, `calendar.freebusy`) | Free | Implemented against docs; not verified live |
-| Zoom / Teams | Video | – | Server-to-Server OAuth / tenant policy | – | Not implemented |
-| Sandbox discovery | Discovery | Simulated dealers on `.example` domains | None | 0 | Implemented + tested |
-| Google Places API (New) Text Search | Discovery | `places:searchText`, `includedType=car_dealer` | API key. Requesting website/phone bills Enterprise SKU (~$35/1k, 1k free/month, CONFIRMED). Only `place_id` may be stored indefinitely; other content purged after 30 days | Estimated per call in `cost_ledger` | Implemented against docs; not verified live |
-| TxDMV licensed dealer lookup | Discovery (manual) | Operator exports the official list and uploads CSV with source attribution | Public lookup (CONFIRMED); no stated terms of use | 0 | CSV import implemented + tested |
-| Dealer's own public website | Enrichment | Home + contact/about pages; robots.txt honoured; observations stored with URL + excerpt | None | 0 | Implemented; tested with fixture sites (no live crawl in tests) |
-| SMS / voice (Twilio etc.) | – | – | Needs documented prior express written consent; Texas ch. 302 registration or a legal opinion | – | **Disabled by policy** (only `email` channel allowed) |
-| LinkedIn | – | – | User Agreement §8.2 bans automation (CONFIRMED) | – | **Not supported** |
-| Anthropic Claude | AI | Listing prose; reply classification and drafts (optional) | `ANTHROPIC_API_KEY` + feature flags | Measured from token usage | Implemented; tested with a mocked client. Disabled by default |
+| Option | Reason |
+|---|---|
+| Automated or prerecorded/AI-voice calling, voice drops | TCPA restrictions on artificial or prerecorded voice; risk with business cell phones [S-TCPA][S-FCC-AI] |
+| SMS / text outreach | Texas SB 140 (2025) brought texts into the telephone-solicitation rules; consent and registration questions unresolved [S-TXSB140] |
+| Scraping Google Maps, Yelp or social sites | Their terms prohibit it; official APIs only |
+| Buying email lists | ESP and mailbox-provider policies; deliverability and legal risk |
+| Microsoft Graph | Not needed for a Google Workspace setup; SMTP/IMAP covers M365 where allowed. Candidate for a later phase |
+| Open/click tracking | Not needed; avoids tracking pixels |

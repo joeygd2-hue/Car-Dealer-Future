@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% from "macros.html" import sim, status_pill %}{% block content %}
+<h1>Meeting #{{ m.id }} {{ status_pill(m.status) }} {{ sim(m.simulated) }}</h1>
+<div class="two"><div class="card"><table class="kv"><tr><td>Prospect</td><td><a href="/prospects/{{ m.prospect_id }}">{{ m.prospect.name }}</a></td></tr>
+<tr><td>Attendee</td><td>{{ m.attendee_email or '—' }}</td></tr><tr><td>Time</td><td>{{ m.start_at|local or 'not chosen' }}</td></tr>
+<tr><td>Zoom</td><td>{% if m.zoom_join_url %}{{ m.zoom_meeting_id }} <a href="{{ m.zoom_join_url|safe_url }}" rel="noopener noreferrer" target="_blank">join link</a>{% else %}—{% endif %}</td></tr>
+<tr><td>Calendar event</td><td>{{ m.calendar_event_id or '—' }}</td></tr><tr><td>Availability checked</td><td>{{ m.availability_checked_at|local or 'never' }} {{ m.availability_source or '' }}</td></tr></table>
+{% if m.error %}<p style="color:var(--bad)">{{ m.error }}</p>{% endif %}
+{% if m.provider_response %}<details><summary class="small">Provider responses</summary><pre>{{ m.provider_response|tojson(indent=2) }}</pre></details>{% endif %}
+<form method="post" action="/meetings/{{ m.id }}/prep"><input type="hidden" name="csrf" value="{{ csrf }}"><label>Prep notes</label><textarea name="prep_notes">{{ m.prep_notes }}</textarea><button class="secondary">Save</button></form></div>
+<div>
+{% if m.status in ('requested','pending_approval','booked','rescheduled') %}<div class="card"><h3>1. Check real availability</h3><form method="post" action="/meetings/{{ m.id }}/availability"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="days" value="7" size="3"> days <button>Check calendar</button></form>
+{% if m.proposed_slots %}<h3>2. {{ 'Reschedule to' if m.status in ('booked','rescheduled') else 'Pick the time the prospect agreed to' }}</h3>
+<form method="post" action="/meetings/{{ m.id }}/{{ 'reschedule' if m.status in ('booked','rescheduled') else 'choose' }}"><input type="hidden" name="csrf" value="{{ csrf }}">{% for s in m.proposed_slots %}<label style="color:inherit"><input type="radio" name="start" value="{{ s.start }}" required> {{ s.label }}</label>{% endfor %}<button>{{ 'Reschedule' if m.status in ('booked','rescheduled') else 'Choose' }}</button></form>
+<p class="small muted">Copy these times into your reply; they come from the {{ m.availability_source }} calendar at {{ m.availability_checked_at|local }}.</p>{% endif %}</div>{% endif %}
+{% if m.status=='pending_approval' %}<div class="card"><h3>3. Approve booking</h3><p>Creates the Zoom meeting and calendar event for {{ m.start_at|local }}. Marked booked only when both providers confirm.</p>
+{% if role_at_least(user.role,'manager') %}<form method="post" action="/meetings/{{ m.id }}/approve"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Approve and book</button></form>{% else %}<p class="muted">Needs a manager.</p>{% endif %}</div>{% endif %}
+{% if m.status in ('booked','rescheduled') %}<div class="card"><h3>After the meeting</h3><form method="post" action="/meetings/{{ m.id }}/complete"><input type="hidden" name="csrf" value="{{ csrf }}"><select name="outcome"><option value="completed">held</option><option value="no_show">no-show</option></select><input name="notes" placeholder="notes"><button>Record</button></form></div>{% endif %}
+{% if m.status not in ('cancelled','completed','no_show') %}<div class="card"><form method="post" action="/meetings/{{ m.id }}/cancel" onsubmit="return confirm('Cancel this meeting with the providers?')"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="reason" placeholder="reason"><button class="danger">Cancel meeting</button></form></div>{% endif %}
+</div></div>{% endblock %}

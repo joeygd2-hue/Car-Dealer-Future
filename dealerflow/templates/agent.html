@@ -1,0 +1,57 @@
+{% extends "base.html" %}{% from "macros.html" import status_pill %}{% block title %}Agent{% endblock %}{% block content %}
+<h1>Autonomous outreach agent {{ status_pill(st.status) }}</h1>
+<div class="two"><div>
+<div class="card"><div class="row">
+<div>Worker: {% if health.worker_alive %}<span class="pill ok">alive</span> heartbeat {{ health.worker_heartbeat_age_seconds|int }}s ago{% else %}<span class="pill bad">not running</span> — start <code>python -m dealerflow worker</code>{% endif %}</div>
+<div>Last tick: {{ st.last_tick_finished_at|local or 'never' }}</div>
+<div>Operating window now: {{ 'yes' if in_window else 'no' }}</div></div>
+<p class="small">Status reason: {{ st.status_reason or '—' }}</p>
+{% if role_at_least(user.role,'manager') %}<div class="row">
+{% for s,label in [('running','Start / resume'),('paused','Pause'),('stopped','Stop')] %}<form class="inline" method="post" action="/agent/status"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="{{ s }}"><button class="secondary">{{ label }}</button></form>{% endfor %}
+<form class="inline" method="post" action="/agent/status" onsubmit="return confirm('Emergency stop: halt all sending and return queued messages to draft?')"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="emergency_stopped"><input name="reason" placeholder="reason"><button class="danger">EMERGENCY STOP</button></form>
+<form class="inline" method="post" action="/agent/tick"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Run one tick now</button></form>
+</div>{% endif %}
+<p class="small muted">Paused: reads the inbox and processes opt-outs only. Stopped / emergency stop: does nothing; emergency stop also blocks sends that were already approved.</p></div>
+
+<div class="card"><h3>Live operation</h3>
+<p>Real sending requires both: <code>DF_OUTREACH_SENDING_ENABLED=true</code> ({{ 'on' if sending_env else 'off' }}) and admin authorization ({{ 'authorized by user #' ~ st.live_authorized_by_id ~ ' at ' ~ (st.live_authorized_at|local) if st.live_authorized else 'not authorized' }}).
+Current: {% if live_ok %}<span class="pill ok">live sending allowed</span>{% else %}<span class="pill warn">{{ live_why }}</span>{% endif %}</p>
+{% if user.role == 'admin' %}{% if st.live_authorized %}<form method="post" action="/agent/live"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="authorize" value="0"><button class="danger">Revoke live authorization</button></form>
+{% else %}<form method="post" action="/agent/live" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="authorize" value="1"><input name="confirm" placeholder="type AUTHORIZE LIVE"><button>Authorize live operation</button></form>{% endif %}{% endif %}</div>
+
+<h2>Results <span class="small muted">(measured from stored records; simulated excluded)</span></h2>
+<div class="grid">
+<div class="stat"><div class="n">{{ m.eligible_queue }}</div><div class="l">Eligible prospects waiting</div></div>
+<div class="stat"><div class="n">{{ m.researched }}</div><div class="l">Prospects researched/scored</div></div>
+<div class="stat"><div class="n">{{ m.sent }}</div><div class="l">Outreach actually sent{% if m.sent_simulated %} (+{{ m.sent_simulated }} sim){% endif %}</div></div>
+<div class="stat"><div class="n">{{ m.replies }}</div><div class="l">Prospects replied ({{ m.reply_rate if m.reply_rate is not none else '—' }}%)</div></div>
+<div class="stat"><div class="n">{{ m.positive }}</div><div class="l">Positive ({{ m.positive_rate if m.positive_rate is not none else '—' }}%)</div></div>
+<div class="stat"><div class="n">{{ m.opt_outs }}</div><div class="l">Opt-outs</div></div>
+<div class="stat"><div class="n">{{ m.follow_ups_due }}</div><div class="l">Follow-ups due</div></div>
+<div class="stat"><div class="n">{{ m.meetings_booked }}</div><div class="l">Meetings booked ({{ m.meeting_rate if m.meeting_rate is not none else '—' }}% of positive)</div></div>
+<div class="stat"><div class="n">${{ '%.2f'|format(m.cost_today) }}</div><div class="l">Cost today (includes estimates)</div></div>
+<div class="stat"><div class="n">${{ '%.2f'|format(m.cost_month) }}</div><div class="l">Cost this month (includes estimates)</div></div>
+</div>
+
+<h2>Recent ticks</h2><div class="tablewrap"><table><tr><th>#</th><th>Started</th><th>Status</th><th>Summary</th></tr>
+{% for r in runs %}<tr><td><a href="/agent/runs/{{ r.id }}">{{ r.id }}</a></td><td>{{ r.started_at|local }}</td><td>{{ status_pill(r.status) }}</td>
+<td class="small">{% if r.skipped_reason %}{{ r.skipped_reason }}{% else %}{% for k,v in (r.counts or {}).items() %}{% if v is mapping and not v.skipped %}{{ k }}: {{ v|tojson }} {% endif %}{% endfor %}{% endif %}{% for e in r.errors or [] %}<div style="color:var(--bad)">{{ e.step }}: {{ e.error }}</div>{% endfor %}</td></tr>
+{% else %}<tr><td colspan="4" class="muted">No ticks yet.</td></tr>{% endfor %}</table></div>
+</div><div>
+<h2>Queue</h2><div class="tablewrap"><table><tr><th>Job</th><th>Status</th><th>#</th></tr>{% for k,s,n in queue %}<tr><td>{{ k }}</td><td>{{ status_pill(s) }}</td><td>{{ n }}</td></tr>{% else %}<tr><td colspan="3" class="muted">Empty.</td></tr>{% endfor %}</table></div>
+<h2>Campaigns</h2>
+{% for c in campaigns %}<div class="card"><b>{{ c.name }}</b> {{ status_pill(c.status) }} <span class="pill">{{ c.approval_mode }} approval</span>{% if c.auto_reply_enabled %} <span class="pill">auto-answers</span>{% endif %}
+<div class="small muted">{{ enroll_counts.get(c.id, 0) }} active enrollments · min score {{ c.min_score }} · cap {{ c.daily_cap }}/day · steps: {% for s in c.steps %}{{ s.template }}{% if not loop.last %} → {% endif %}{% endfor %}</div>
+{% if role_at_least(user.role,'manager') %}<div class="row" style="margin-top:6px">
+<form class="inline" method="post" action="/campaigns/{{ c.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="{{ 'paused' if c.status=='active' else 'active' }}"><button class="secondary">{{ 'Pause' if c.status=='active' else 'Activate' }}</button></form>
+{% if user.role=='admin' %}<form class="inline" method="post" action="/campaigns/{{ c.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="approval_mode" value="{{ 'manual' if c.approval_mode=='auto' else 'auto' }}"><button class="secondary">{{ 'Require per-message approval' if c.approval_mode=='auto' else 'Allow sending without per-message approval' }}</button></form>
+<form class="inline" method="post" action="/campaigns/{{ c.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="auto_reply" value="{{ '0' if c.auto_reply_enabled else '1' }}"><button class="secondary">{{ 'Disable' if c.auto_reply_enabled else 'Enable' }} answers from approved info</button></form>{% endif %}
+</div>{% endif %}</div>{% else %}<p class="muted">No campaigns. Create one in Settings.</p>{% endfor %}
+
+<h2>Integration health</h2>{% for h in integrations %}<div class="small">{{ status_pill(h.last_status) }} {{ h.provider }}{% if h.simulated %} (sim){% endif %} — {{ h.errors_24h }} errors/24h</div>{% else %}<p class="muted small">No calls yet.</p>{% endfor %}
+
+<h2>Limits</h2>
+<form method="post" action="/agent/config" class="card small"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% for k,v in cfg.items() %}<label>{{ k }}</label><input name="{{ k }}" value="{{ v|join(',') if v is iterable and v is not string else v }}" {% if user.role != 'admin' %}disabled{% endif %} style="width:100%">{% endfor %}
+{% if user.role == 'admin' %}<p><button>Save limits</button></p>{% endif %}</form>
+</div></div>{% endblock %}

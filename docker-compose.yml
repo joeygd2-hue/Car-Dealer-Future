@@ -1,0 +1,22 @@
+services:
+  migrate:
+    build: .
+    env_file: .env
+    volumes: ["./state:/data"]
+    command: ["python", "-m", "dealerflow", "migrate"]
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes: ["./state:/data"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    ports: ["127.0.0.1:8000:8000"]   # put a TLS reverse proxy in front for public webhooks/unsubscribe
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes: ["./state:/data"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    command: ["python", "-m", "dealerflow", "worker"]

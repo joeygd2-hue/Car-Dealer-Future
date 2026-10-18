@@ -1,110 +1,152 @@
-"""Test fixtures. Every test gets a fresh SQLite file database (file-based so the
-worker's separate connections see the same data). No network: HTTP calls go to
-httpx MockTransports; outreach uses sandbox providers and simulated prospects."""
+"""Test setup: each test gets a fresh SQLite database built by the real Alembic migrations.
+
+All providers are the SIMULATED mocks. No network access is needed or attempted.
+"""
+
 from __future__ import annotations
 
-import base64
 import os
-from datetime import datetime, timezone
+import shutil
+import tempfile
 
 import pytest
 
-os.environ.setdefault("APP_ENCRYPTION_KEY", base64.b64encode(b"k" * 32).decode())
-os.environ["DATABASE_URL"] = "sqlite:///./data/test-placeholder.db"
-os.environ.pop("ANTHROPIC_API_KEY", None)
+_TMP = tempfile.mkdtemp(prefix="dealerflow-tests-")
+_TEMPLATE_DB = os.path.join(_TMP, "template.db")
 
-from app import db as dbmod  # noqa: E402
-from app.config import settings  # noqa: E402
+PG_URL = os.environ.get("DF_TEST_PG_URL")  # optional: run the suite against Postgres instead of SQLite
+
+BASE_ENV = {
+    "DF_ENV": "test",
+    "DF_SECRET_KEY": "test-secret-key",
+    "DF_BUSINESS_NAME": "Test Marketing Co (TEST)",
+    "DF_BUSINESS_POSTAL_ADDRESS": "123 Test St, Sugar Land, TX 77478",
+    "DF_SENDER_NAME": "Test Sender",
+    "DF_SENDER_EMAIL": "sender@testco.example",
+    "DF_EMAIL_PROVIDER": "mock",
+    "DF_CALENDAR_PROVIDER": "mock",
+    "DF_ZOOM_PROVIDER": "mock",
+    "DF_CALL_PROVIDER": "mock",
+    "DF_OUTREACH_SENDING_ENABLED": "false",
+    "DF_WEBSITE_RESEARCH_ENABLED": "false",
+    "DF_LOG_LEVEL": "WARNING",
+}
+for k, v in BASE_ENV.items():
+    os.environ[k] = v
+for k in list(os.environ):
+    if k.startswith("DF_") and k not in BASE_ENV:
+        del os.environ[k]
+
+
+def _build_template() -> None:
+    from dealerflow.config import get_settings
+    from dealerflow.db import reset_engine, session_scope
+    from dealerflow.migrate import upgrade
+    from dealerflow.seed import seed
+
+    os.environ["DF_DATABASE_URL"] = f"sqlite:///{_TEMPLATE_DB}"
+    get_settings.cache_clear()
+    reset_engine()
+    upgrade()
+    with session_scope() as db:
+        seed(db)
+    reset_engine()
+
+
+if not PG_URL:
+    _build_template()
+
+
+def _reset_pg() -> None:
+    from sqlalchemy import create_engine, text
+
+    from dealerflow.db import reset_engine, session_scope
+    from dealerflow.migrate import upgrade
+    from dealerflow.seed import seed
+
+    eng = create_engine(PG_URL)
+    with eng.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
+    eng.dispose()
+    reset_engine()
+    upgrade(PG_URL)
+    with session_scope() as db:
+        seed(db)
 
 
 @pytest.fixture(autouse=True)
-def database(tmp_path, monkeypatch):
-    dbmod.configure(f"sqlite:///{tmp_path}/test.db")
-    dbmod.init_db()
-    monkeypatch.setattr(settings, "encryption_key", os.environ["APP_ENCRYPTION_KEY"])
-    monkeypatch.setattr(settings, "listing_ai_enabled", False)
-    monkeypatch.setattr(settings, "outreach_ai_enabled", False)
-    monkeypatch.setattr(settings, "meta_live_publishing_allowed", False)
-    monkeypatch.setattr(settings, "outreach_live_allowed", False)
-    from app.publishing.adapters.sandbox import SandboxAdapter
-    SandboxAdapter._state.clear()
+def fresh_db(tmp_path, monkeypatch):
+    from dealerflow.config import get_settings
+    from dealerflow.db import reset_engine
+    from dealerflow.integrations.calendar import MockCalendarProvider
+    from dealerflow.integrations.email import MockEmailProvider
+    from dealerflow.integrations.zoom import MockZoomProvider
+    from dealerflow.web.deps import login_limiter
+
+    if PG_URL:
+        monkeypatch.setenv("DF_DATABASE_URL", PG_URL)
+        get_settings.cache_clear()
+        _reset_pg()
+    else:
+        path = tmp_path / "test.db"
+        shutil.copy(_TEMPLATE_DB, path)
+        monkeypatch.setenv("DF_DATABASE_URL", f"sqlite:///{path}")
+        get_settings.cache_clear()
+    reset_engine()
+    MockEmailProvider.reset()
+    MockCalendarProvider.reset()
+    MockZoomProvider.reset()
+    login_limiter.fails.clear()
+    import dealerflow.integrations.http as http
+    monkeypatch.setattr(http.time, "sleep", lambda s: None)
     yield
-    dbmod.engine.dispose()
+    reset_engine()
+    get_settings.cache_clear()
 
 
 @pytest.fixture
-def session():
-    s = dbmod.SessionLocal()
+def db():
+    from dealerflow import handlers  # noqa: F401
+    from dealerflow.db import session_factory
+
+    s = session_factory()()
     yield s
+    s.rollback()
     s.close()
 
 
+def make_user(db, email="admin@test.example", role="admin", password="correct horse battery"):
+    from dealerflow.models import User
+    from dealerflow.security import hash_password
+
+    u = User(email=email, name=email.split("@")[0], role=role, password_hash=hash_password(password))
+    db.add(u)
+    db.commit()
+    return u
+
+
 @pytest.fixture
-def world(session):
-    """Two dealerships, users with various roles, and one platform admin."""
-    from app.core.security import create_user
-    from app.models import Client, ClientMembership
-    a = Client(name="Alpha Auto", slug="alpha", city="Sugar Land", state="TX")
-    b = Client(name="Bravo Motors", slug="bravo", city="Stafford", state="TX")
-    session.add_all([a, b])
-    session.flush()
-    pw = "correct-horse-battery"
-    users = {
-        "admin": create_user(session, email="admin@agency.test", name="Admin", password=pw, platform_role="platform_admin"),
-        "staff": create_user(session, email="staff@agency.test", name="Staff", password=pw, platform_role="platform_staff"),
-        "a_admin": create_user(session, email="owner@alpha.test", name="Alpha Owner", password=pw),
-        "a_viewer": create_user(session, email="viewer@alpha.test", name="Alpha Viewer", password=pw),
-        "a_agency": create_user(session, email="op@agency.test", name="Operator", password=pw),
-        "b_admin": create_user(session, email="owner@bravo.test", name="Bravo Owner", password=pw),
-    }
-    session.add_all([
-        ClientMembership(client_id=a.id, user_id=users["a_admin"].id, role="dealer_admin"),
-        ClientMembership(client_id=a.id, user_id=users["a_viewer"].id, role="dealer_viewer"),
-        ClientMembership(client_id=a.id, user_id=users["a_agency"].id, role="agency_operator"),
-        ClientMembership(client_id=b.id, user_id=users["b_admin"].id, role="dealer_admin"),
-    ])
-    session.commit()
-    return {"a": a, "b": b, "users": users, "password": pw}
+def admin(db):
+    return make_user(db)
 
 
 @pytest.fixture
 def client():
     from fastapi.testclient import TestClient
-    from app.main import create_app
+
+    from dealerflow.web.app import create_app
+
     return TestClient(create_app())
 
 
-def login(client, email, password="correct-horse-battery") -> dict:
-    r = client.post("/api/auth/login", json={"email": email, "password": password})
-    assert r.status_code == 200, r.text
-    return {"Authorization": f"Bearer {r.json()['token']}"}
+def login(client, email, password="correct horse battery"):
+    r = client.get("/login")
+    csrf = r.text.split('name="csrf" value="')[1].split('"')[0]
+    r = client.post("/login", data={"email": email, "password": password, "csrf": csrf, "next": "/"}, follow_redirects=False)
+    assert r.status_code == 303, r.text[:500]
+    return csrf_of(client)  # the session (and its CSRF token) is replaced at login
 
 
-def ctx_for(client_id: str, name: str = "test"):
-    from app.core.tenancy import job_context
-    return job_context(client_id, name)
-
-
-def run_worker(max_rounds: int = 10, now: datetime | None = None) -> int:
-    """Drain due jobs with the real worker (bounded)."""
-    from app.worker import build_handlers
-    from app.core.worker import Worker
-    w = Worker(build_handlers(), worker_id="test-worker")
-    total = 0
-    for _ in range(max_rounds):
-        n = w.tick(now=now)
-        total += n
-        if not n:
-            break
-    return total
-
-
-SAMPLE_CSV = """Stock #,VIN,Year,Make,Model,Trim,Body,Miles,Price,Ext Color,Int Color,Trans,Drive,Fuel,Options,Photo URLs,Address,City,State,Zip,Condition
-A100,1HGCM82633A004352,2003,Honda,Accord,EX,Sedan,145000,"$5,995",Silver,Gray,Automatic,FWD,Gas,Bluetooth|Sunroof|Heated Seats,https://img.example/a100-1.jpg|https://img.example/a100-2.jpg,123 Main St,Sugar Land,TX,77478,Used
-B200,,2019,toyota,camry,SE,Sedan,45000,18995,Black,Black,auto,fwd,gasoline,Backup Camera|Apple CarPlay,https://img.example/b200.jpg,123 Main St,Sugar Land,TX,77478,Used
-C300,,2018,Ford,F-150,XLT,Truck,82000,26500,White,Gray,Automatic,4x4,Gasoline,Tow Package|Bed Liner,https://img.example/c300.jpg,123 Main St,Sugar Land,TX,77478,Used
-"""
-
-
-def utc(*a) -> datetime:
-    return datetime(*a, tzinfo=timezone.utc)
+def csrf_of(client) -> str:
+    r = client.get("/settings")
+    return r.text.split('name="csrf" value="')[1].split('"')[0]

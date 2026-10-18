@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block title %}Suppression list{% endblock %}{% block content %}<h1>Suppression list</h1>
+<form class="card row" method="post" action="/suppression"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="value" placeholder="email, @domain.com or phone" required><input name="reason" value="manual"><button>Add</button></form>
+<p class="small muted">Entries are permanent from the app; nothing is sent, called or drafted to them. Removal requires a database change by an admin, with a documented reason.</p>
+<div class="tablewrap"><table><tr><th>Value</th><th>Kind</th><th>Reason</th><th>Source</th><th>Added</th></tr>{% for r in rows %}<tr><td>{{ r.value }}</td><td>{{ r.kind }}</td><td>{{ r.reason }}</td><td class="small">{{ r.source }}</td><td class="small">{{ r.created_at|local }}</td></tr>{% else %}<tr><td colspan="5" class="muted">Empty.</td></tr>{% endfor %}</table></div>{% endblock %}

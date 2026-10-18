@@ -1,33 +1,45 @@
-# Car Dealer Future
+# Car-Dealer-Future: dealerflow
 
-AI-assisted marketing and operations platform for independent used-car dealerships (initial market: Sugar Land /
-Houston, TX). One FastAPI application and one database for all four project phases.
+Prospecting, CRM, outreach and a persistent outreach agent, for a business that sells marketing
+automation to independent used-car dealerships around Sugar Land and Houston, Texas.
 
-- **Phase 2 (implemented):** dealership inventory ingestion, validation and sync; bilingual (English/Spanish)
-  listing generation with guardrails; review and approval workspace; publishing channels (Facebook Marketplace manual
-  workflow, Meta vehicle catalog API, CSV export); per-dealership reporting.
-- **Outreach agent (implemented, sandbox-verified):** persistent agent that discovers and qualifies dealership
-  prospects, drafts evidence-based emails, enforces consent/suppression/limits, classifies replies and books meetings.
-- Shared foundation: auth and roles, tenant isolation, audit log, encrypted credentials, durable job queue + worker.
+**Phase 1 (this code):** lead discovery and import, deduplication, explainable scoring, CRM pipeline,
+human-approved email outreach (English/Spanish), reply import and classification, opt-out and
+suppression enforcement, Zoom and calendar scheduling, click-to-call, daily and weekly reports, and
+a persistent autonomous agent with pause and emergency stop.
 
-## Quick start
+> Out of the box every provider is **SIMULATED** (mock). Nothing reaches a real person until you
+> configure real credentials, set `DF_OUTREACH_SENDING_ENABLED=true`, **and** an admin authorizes live
+> operation on the Agent page. See [known limitations](docs/progress/known-limitations.md).
+
+## Quick start (local)
+
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
-cp .env.example .env    # set APP_ENCRYPTION_KEY (see the comment in the file)
-alembic upgrade head
-SEED_ADMIN_PASSWORD=change-me-admin SEED_DEALER_PASSWORD=change-me-dealer python -m scripts.seed_fixtures
-uvicorn app.main:app --reload     # http://localhost:8000  (API docs: /api/docs)
-python -m app.worker              # in a second terminal
-python -m pytest
+cp .env.example .env              # fill in DF_BUSINESS_* and DF_SENDER_* at least
+python -m dealerflow migrate      # creates state/dealerflow.db and seeds stages/templates
+python -m dealerflow create-user you@example.com admin
+python -m dealerflow demo         # optional: 8 SIMULATED fixture dealerships, no network
+python -m dealerflow web          # http://127.0.0.1:8000
+python -m dealerflow worker       # second terminal: agent ticks, sending, inbox polling
+pytest                            # 99 tests, no network
 ```
-The seed data is clearly labelled fixture data ("DEMO - Fixture Motors (test data)"). Nothing publishes listings or
-contacts anyone unless live integrations are configured **and** explicitly authorised.
 
-## Documentation
-- `docs/architecture/stack-and-interfaces.md`: agreed stack and shared interfaces for all phases (read first)
-- `docs/architecture/integration-matrix.md`: what each integration does and its verified status
-- `docs/progress/build-status.md`: implemented features and test results
-- `docs/progress/known-limitations.md`: blockers, missing credentials, unfinished work
-- `docs/operations/deployment.md`: running, migrations, monitoring, runbooks
-- `docs/research/`: Meta/inventory and outreach/compliance research briefs + source register
+Docker: `docker compose up --build` runs `migrate`, then `web` and `worker`.
+
+## Documents
+
+| Document | What it covers |
+|---|---|
+| [docs/architecture/shared-stack.md](docs/architecture/shared-stack.md) | Agreed stack, shared models, API contract and provider interfaces for all phases |
+| [docs/architecture/integration-matrix.md](docs/architecture/integration-matrix.md) | Every provider: purpose, auth, scopes, status, tested how |
+| [docs/architecture/integration-setup.md](docs/architecture/integration-setup.md) | Step-by-step setup for Gmail/SMTP, Google Calendar, Zoom, Twilio, Places |
+| [docs/architecture/environment.md](docs/architecture/environment.md) | Every environment variable |
+| [docs/architecture/autonomous-agent.md](docs/architecture/autonomous-agent.md) | Agent states, tick steps, safety gates, how to go live |
+| [docs/research/feasibility-report.md](docs/research/feasibility-report.md) | Data sources, providers, law: what's allowed |
+| [docs/research/source-register.md](docs/research/source-register.md) | Sources, access dates, confidence |
+| [docs/progress/build-status.md](docs/progress/build-status.md) | What's implemented and tested |
+| [docs/progress/known-limitations.md](docs/progress/known-limitations.md) | What's missing, untested or needs credentials |
+
+This is not legal advice. Have a lawyer review your outreach program before going live.

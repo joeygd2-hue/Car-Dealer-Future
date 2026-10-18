@@ -32,8 +32,11 @@ def _channel_out(db):
 
 
 def _expire_leases(db):
+    """Simulate the lease period passing: job leases expire and in-flight attempts age past the lease."""
     db.execute(update(Job).where(Job.status.in_(["RUNNING", "QUEUED"]))
                .values(locked_until=utcnow() - timedelta(seconds=1), run_at=utcnow()))
+    db.execute(update(SendAttempt).where(SendAttempt.status == "IN_FLIGHT")
+               .values(created_at=utcnow() - timedelta(seconds=600)))
     db.commit()
 
 
@@ -109,10 +112,14 @@ def test_two_workers_cannot_send_the_same_outreach_message(db, world):
     errors = []
 
     def work(n):
-        try:
-            Worker(worker_id=f"racer-{n}", poll_seconds=0).run_once()
-        except Exception as exc:  # noqa: BLE001
-            errors.append(exc)
+        # Like run_forever: a transient DB error ("database is locked") ends the iteration, the loop tries again.
+        w = Worker(worker_id=f"racer-{n}", poll_seconds=0)
+        for _ in range(20):
+            try:
+                w.run_once()
+                return
+            except OperationalError as exc:
+                errors.append(exc)
 
     threads = [threading.Thread(target=work, args=(n,)) for n in range(4)]
     [t.start() for t in threads]
@@ -125,26 +132,34 @@ def test_two_workers_cannot_send_the_same_outreach_message(db, world):
 
 
 def test_distributed_counter_never_exceeds_limit_under_concurrency(db):
-    wins = []
+    import time
+
+    wins, failures = [], []
 
     def grab():
         s = dbmod.SessionLocal()
+        deadline = time.monotonic() + 20
         try:
-            for _ in range(5):
+            while True:
                 try:
                     ok = rate_limits.try_acquire(s, "race:key", 7, 3600)
                     s.commit()
-                    break
-                except OperationalError:  # SQLite "database is locked" under contention → retry
+                    wins.append(ok)
+                    return
+                except OperationalError as exc:  # SQLite "database is locked" under contention → retry
                     s.rollback()
-            wins.append(ok)
+                    if time.monotonic() > deadline:
+                        failures.append(repr(exc))
+                        return
+                    time.sleep(0.01)
         finally:
             s.close()
 
     threads = [threading.Thread(target=grab) for _ in range(20)]
     [t.start() for t in threads]
     [t.join() for t in threads]
-    assert sum(wins) == 7 and rate_limits.current(db, "race:key", 3600) == 7
+    assert not failures, failures
+    assert len(wins) == 20 and sum(wins) == 7 and rate_limits.current(db, "race:key", 3600) == 7
 
 
 def test_worker_survives_database_outage(db, monkeypatch):
@@ -213,3 +228,24 @@ def test_outreach_pause_holds_messages_across_restart(db, world):
     db.expire_all()
     assert db.get(OutreachMessage, msg.id).status == "APPROVED"
     assert db.scalar(select(Job).where(Job.idempotency_key == "paused-send")).status == "QUEUED"  # deferred, not lost
+
+
+def test_duplicate_job_does_not_mark_a_live_send_uncertain(db, world):
+    """Regression (found by repeated clean-clone runs): a second job that finds a message SENDING must not
+    declare it UNCERTAIN while the claiming worker is still within its lease (it may be mid-send)."""
+    conv = _conv(db, world, "live-owner-1")
+    msg = queue_outbound(db, conv, "Hi", sender_type="STAFF", user_id=world["a"]["staff"].id)
+    db.commit()
+    # Worker A has claimed and opened an attempt moments ago (still mid-send).
+    db.execute(update(Message).where(Message.id == msg.id).values(delivery_status="SENDING"))
+    db.add(SendAttempt(kind="CUSTOMER_MESSAGE", ref_id=msg.id, channel="WEBSITE_CHAT", recipient="web:x",
+                       live=False, status="IN_FLIGHT", reasons=[]))
+    db.commit()
+    jobs.enqueue(db, "outbound.send", {"message_id": msg.id}, idempotency_key="duplicate-job")
+    db.execute(update(Job).where(Job.status == "QUEUED").values(run_at=utcnow()))
+    db.commit()
+    Worker(worker_id="worker-b", poll_seconds=0).run_once()
+    db.expire_all()
+    assert db.get(Message, msg.id).delivery_status == "SENDING"  # untouched: worker A owns it
+    deferred = db.scalar(select(Job).where(Job.idempotency_key == "duplicate-job"))
+    assert deferred.status == "QUEUED" and deferred.attempts == 0 and "another worker" in deferred.last_error

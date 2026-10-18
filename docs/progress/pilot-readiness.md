@@ -83,7 +83,7 @@ The app records provider usage estimates in `cost_entries` (outreach dashboard).
 7. **Daily pilot loop**: staff log real Marketplace messages via *Log a Facebook Marketplace message* (human-assisted) or use the chat test page with synthetic questions; review drafts; "send" (recorded as SIMULATED, or "Record as sent" after pasting into Marketplace); confirm appointments; resolve escalations.
 8. **Operator checks** (Pilot console, daily): drafts awaiting staff, open escalations, failed jobs, deliveries needing reconciliation, send ledger (should contain **no live SENT rows**), audit integrity OK.
 9. **Drills** (weekly): press *EMERGENCY STOP ALL SENDS*, confirm banner + a blocked attempt in the ledger, lift with a reason; restart the worker and confirm health returns.
-10. **Smoke test** after every deploy: `SMOKE_BASE_URL=… uv run python -m scripts.smoke_e2e` (24 checks; exits non-zero on failure).
+10. **Smoke test** after every deploy: `SMOKE_BASE_URL=… uv run python -m scripts.smoke_e2e` (32 checks; exits non-zero on failure).
 
 ## Switching back to sandbox (any time)
 1. Pilot console → **EMERGENCY STOP ALL SENDS** (immediate, all processes).

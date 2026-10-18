@@ -3,9 +3,10 @@
 _Last updated: 2026-10-18 (Phase 3.5)._
 
 ## Architecture / coordination
-- **Two competing application foundations.** This branch (`app/`, multi-tenant, Phase 3) and
-  `claude/dealership-inventory-publishing-iq0aqw` (`dealerflow/`, single-business, Phase 1+2). Neither is on `main`.
-  Owner decision (Phase 3.5): harden here, port later. Reconciliation plan: `docs/architecture/shared-stack.md`.
+- **Competing foundations — decision pending.** `dealerflow/` (Phases 1, 2, 4 on three diverging branches, with
+  conflicting `clients`/`vehicles`/`listings` schemas and two different `0002` migrations) vs this branch's `app/`
+  (Phase 3/3.5). Recommendation and integration plan (≈15–24 engineering days): `docs/architecture/foundation-decision.md`.
+- Docker image and PostgreSQL have not been verified in this environment (see `docs/progress/reproducibility-report.md`).
 
 ## Blocked on credentials / approvals (nothing live has been exercised)
 - **No provider has been tested with a real account.** All provider tests use mocked HTTP or sandbox adapters.

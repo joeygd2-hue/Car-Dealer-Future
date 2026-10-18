@@ -1,9 +1,10 @@
 # Shared stack & contracts (all phases MUST follow)
 
-> **Open cross-chat conflict (2026-10-18).** Branch `claude/dealership-inventory-publishing-iq0aqw` contains a separate
-> application, `dealerflow/` (Phase 1 + Phase 2), whose own shared-stack doc also claims to be the single foundation.
-> Neither app is on `main`. The owner chose (Phase 3.5): keep hardening this `app/` for the dealership pilot and **port
-> later**. See "Reconciliation plan" at the end of this file. Do not merge either branch into `main` until that is decided.
+> **Open cross-chat conflict — decision pending.** `dealerflow/` now underpins three branches (Phase 1
+> `claude/charming-ritchie-358e1g`, Phase 2 `claude/dealership-inventory-publishing-iq0aqw`, Phase 4
+> `claude/blissful-davinci-82py6w`); this branch's `app/` is the outlier. The full comparison and the recommendation
+> (**dealerflow canonical; port Phase 3/3.5 into it**) are in [`foundation-decision.md`](foundation-decision.md).
+> Nothing is merged or deleted until the owner approves. The contracts below describe `app/` as it is today.
 
 Agreed with the project owner on 2026-10-18: **Python FastAPI is the backend for all four phases.** When Phase 3 started, the
 repository contained only a README (no Phase 1/2 code on any branch), so Phase 3 created this shared base. Phases 1, 2 and 4

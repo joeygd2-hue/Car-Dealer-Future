@@ -124,6 +124,9 @@ def send_email_job(db: Session, payload: dict, job) -> dict:
     if n is None:
         return {"skipped": True}
     if n.status == "SENDING":
+        wait = send_gate.in_flight_owner_may_be_alive(db, "NOTIFICATION_EMAIL", n.id)
+        if wait is not None:
+            raise jobs.RetryLater(wait, "another worker is sending this notification")
         send_gate.resolve_in_flight(db, "NOTIFICATION_EMAIL", n.id)
         n.status, n.status_detail = "UNCERTAIN", "worker stopped mid-send; not re-sent automatically"
         return {"uncertain": True}

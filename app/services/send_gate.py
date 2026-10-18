@@ -97,6 +97,22 @@ def in_flight_attempt(db: Session, kind: str, ref_id: int) -> SendAttempt | None
                                                SendAttempt.status == "IN_FLIGHT").order_by(SendAttempt.id.desc()))
 
 
+def in_flight_owner_may_be_alive(db: Session, kind: str, ref_id: int) -> float | None:
+    """If a recent IN_FLIGHT attempt exists, another worker may still be sending it right now.
+
+    Returns seconds to wait before re-checking, or None when the attempt is older than the worker lease
+    (its owner's job lease has expired, so the owner is gone and the outcome is genuinely unknown).
+    """
+    from app.db import utcnow
+
+    att = in_flight_attempt(db, kind, ref_id)
+    if att is None:
+        return None
+    lease = get_settings().worker_lease_seconds
+    age = (utcnow() - att.created_at).total_seconds()
+    return (lease - age + 5) if age < lease else None
+
+
 def resolve_in_flight(db: Session, kind: str, ref_id: int) -> SendAttempt | None:
     """Called when a send job finds its message already claimed (worker crashed mid-send)."""
     att = in_flight_attempt(db, kind, ref_id)

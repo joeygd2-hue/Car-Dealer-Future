@@ -200,7 +200,10 @@ def send_job(db: Session, payload: dict, job) -> dict:
     if msg is None:
         return {"skipped": "missing"}
     if msg.delivery_status == "SENDING":
-        # A previous worker claimed this message and died before recording the outcome.
+        wait = send_gate.in_flight_owner_may_be_alive(db, KIND, msg.id)
+        if wait is not None:  # another live worker is mid-send (e.g. duplicate job): don't touch it, re-check later
+            raise jobs.RetryLater(wait, "another worker is sending this message")
+        # The claiming worker's lease expired without recording an outcome: it died mid-send.
         send_gate.resolve_in_flight(db, KIND, msg.id)
         msg.delivery_status = "UNCERTAIN"
         msg.delivery_error = "worker stopped mid-send; delivery unknown — not re-sent automatically"

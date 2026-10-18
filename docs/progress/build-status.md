@@ -1,5 +1,17 @@
 # Build status
 
+## Milestone: architecture decision & reproducibility (2026-10-18)
+- Checkpoint `e2d3030` verified (clean tree, 177 passed, ruff clean) before changes.
+- Four foundations/branches built and tested in isolation; comparison + recommendation in
+  `docs/architecture/foundation-decision.md` (**awaiting owner approval — nothing merged or deleted**).
+- Clean-clone reproduction found and fixed 4 setup defects (blank `.env` boolean broke migrate/seed/121 tests;
+  non-hermetic tests; missing `data/` dir broke `alembic upgrade`; seed could create an unversioned schema).
+  Details and results: `docs/progress/reproducibility-report.md`.
+- Repeated clean-clone runs exposed a real concurrency bug (R5: a duplicate job could mark a live send UNCERTAIN)
+  — fixed in all three senders with a regression test proven to fail on the old code.
+- Smoke script extended to 32 checks (roles, cross-client 404, stale-vehicle handling, final worker health);
+  32/32 passed from the clean clone with web and worker as separate processes and a worker `kill -9` mid-run.
+
 _Last updated: 2026-10-18 — Phase 3.5 (production readiness & dealership pilot). Phase 3 sections below are kept for history._
 
 ## Phase 3.5 summary (verified)

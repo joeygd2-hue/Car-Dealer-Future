@@ -60,7 +60,7 @@ class CalendarProvider:
 
 
 class MockCalendarProvider(CalendarProvider):
-    name = "mock"
+    name = "mock_calendar"
     simulated = True
     busy_blocks: list[BusyBlock] = []
     events: dict[str, dict] = {}
@@ -109,7 +109,7 @@ class MockCalendarProvider(CalendarProvider):
 
 
 class GoogleCalendarProvider(CalendarProvider):
-    name = "google"
+    name = "google_calendar"
     BASE = "https://www.googleapis.com/calendar/v3"
 
     def __init__(self) -> None:

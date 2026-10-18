@@ -216,3 +216,35 @@ def test_missing_credentials_are_reported(monkeypatch):
         get_zoom_provider()
 
 
+
+
+def test_lost_zoom_response_does_not_create_a_second_meeting(db, admin):
+    """Zoom created the meeting but the response was lost: the retry finds it instead of creating another."""
+    p = _prospect(db)
+    m = meetings.open_request(db, p, attendee_email=p.email, source="test")
+    slots = meetings.suggest_slots(db, m)
+    meetings.choose_slot(db, m, slots[0]["start"], actor=admin)
+    meetings.approve_booking(db, m, actor=admin)
+    db.commit()
+    orig = MockZoomProvider.create_meeting
+
+    def create_then_timeout(self, **kw):
+        orig(self, **kw)
+        raise IntegrationError("read timeout")
+
+    MockZoomProvider.create_meeting = create_then_timeout
+    try:
+        run_pending()
+    finally:
+        MockZoomProvider.create_meeting = orig
+    assert len(MockZoomProvider.meetings) == 1
+    db.expire_all()
+    job = db.scalar(select(Job).where(Job.kind == "book_meeting"))
+    assert job.status == "pending"
+    job.run_after = utcnow()
+    db.commit()
+    run_pending()
+    db.expire_all()
+    m = db.get(Meeting, m.id)
+    assert m.status == "booked" and len(MockZoomProvider.meetings) == 1
+    assert m.provider_response["zoom"]["recovered"] is True

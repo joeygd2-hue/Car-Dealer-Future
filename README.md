@@ -30,6 +30,7 @@ python -m dealerflow demo         # optional: 8 SIMULATED fixture dealerships, n
 python -m dealerflow demo-dealer  # optional: a SIMULATED dealership client with fixture inventory (Phase 2)
 python -m dealerflow web          # http://127.0.0.1:8000
 python -m dealerflow worker       # second terminal: agent ticks, sending, inbox polling
+python -m dealerflow backup ./backups   # verified backup; `restore FILE --yes` to restore
 pytest                            # 146 tests, no network
 ```
 
@@ -46,6 +47,7 @@ Docker: `docker compose up --build` runs `migrate`, then `web` and `worker`.
 | [docs/architecture/autonomous-agent.md](docs/architecture/autonomous-agent.md) | Agent states, tick steps, safety gates, how to go live |
 | [docs/research/feasibility-report.md](docs/research/feasibility-report.md) | Data sources, providers, law: what's allowed |
 | [docs/research/source-register.md](docs/research/source-register.md) | Sources, access dates, confidence |
+| [docs/audit/launch-readiness-audit.md](docs/audit/launch-readiness-audit.md) | **Phase 1.5 audit: verdict, blockers, priorities** (plus deployment, security, integration, compliance, lead-sourcing and pilot docs in `docs/audit/`) |
 | [docs/progress/build-status.md](docs/progress/build-status.md) | What's implemented and tested |
 | [docs/progress/known-limitations.md](docs/progress/known-limitations.md) | What's missing, untested or needs credentials |
 

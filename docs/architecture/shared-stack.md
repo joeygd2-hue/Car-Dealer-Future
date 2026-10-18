@@ -4,6 +4,11 @@
 before Phase 1, so no earlier stack existed to keep. Every later phase (2–4) extends this one
 application. **Do not create a second app, database, login system or navigation.**
 
+> **Branch status (2026-10-18 audit):** Phase 2 (`claude/dealership-inventory-publishing-iq0aqw`) merged onto
+> `dealerflow`. Phase 3 (`claude/magical-darwin-nncp64`) and Phase 4 (`claude/blissful-davinci-82py6w`) built separate
+> `app/` packages with their own models, auth and agents, and must be ported onto `dealerflow` before merging.
+> See `docs/audit/launch-readiness-audit.md` §7.
+
 ## Stack
 
 | Layer | Choice | Notes |
@@ -39,7 +44,9 @@ Python package name: `dealerflow`. Run `python -m dealerflow` for the CLI.
 6. **Audit**: call `audit.audit(db, "area.action", actor_id=…, entity_type=…, entity_id=…)` for every state change
    a person or the agent makes. Add timeline entries with `services.crm.add_activity`.
 7. **Simulated data** carries `simulated=True` and is shown with a SIMULATED badge. Reports count it separately.
-8. **Never** add an outbound channel (SMS, social DMs, voice) without a compliance gate like
+8. Every provider call goes through `audit.track_integration`: that is where the emergency stop and the
+   disabled-provider gate are enforced. Don't call a provider outside it.
+9. **Never** add an outbound channel (SMS, social DMs, voice) without a compliance gate like
    `services/compliance.py` and an admin authorization switch like `AgentState.live_authorized`.
 
 ## Shared entities (owned by Phase 1)
@@ -88,7 +95,7 @@ Public, unauthenticated endpoints: `GET /healthz`, `GET|POST /u/{token}` (unsubs
 | `CalendarProvider` | `integrations/calendar.py` | `busy`, `create_event`, `update_event`, `delete_event`, `check` | `mock`, `google` |
 | `ZoomProvider` | `integrations/zoom.py` | `create_meeting`, `update_meeting`, `delete_meeting`, `check` | `mock`, `zoom` (Server-to-Server OAuth) |
 | `CallProvider` | `integrations/calls.py` | `start_call` | `manual` (tel: link), `twilio` (agent-first bridge), `mock` |
-| Discovery sources | `integrations/discovery.py` | functions returning `LeadRecord` | `fixture` (SIMULATED), `osm`, `google_places` |
+| Discovery sources | `integrations/discovery.py` | functions returning `LeadRecord` | `fixture` (SIMULATED), `osm` (Google Places client exists but may not be used for stored leads) |
 
 Errors: raise `CredentialError` (not retried), `RateLimitedError` (retried, honours Retry-After),
 `PermanentError` (not retried), or `IntegrationError` (retried).

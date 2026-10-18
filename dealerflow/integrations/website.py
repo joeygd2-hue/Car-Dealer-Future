@@ -84,18 +84,55 @@ class SiteObservation:
     blocked_by_robots: bool = False
 
 
+class UnsafeURL(PermanentError):
+    """The URL points at a non-public address (SSRF protection)."""
+
+
+def assert_public_url(url: str) -> None:
+    """Allow only http(s) URLs whose host resolves exclusively to public IP addresses."""
+    import ipaddress
+    import socket
+
+    parts = urlparse(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise UnsafeURL(f"not an http(s) URL: {url!r}")
+    try:
+        infos = socket.getaddrinfo(parts.hostname, parts.port or (443 if parts.scheme == "https" else 80),
+                                   type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise IntegrationError(f"DNS lookup failed for {parts.hostname}: {exc}") from exc
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global or ip.is_multicast:
+            raise UnsafeURL(f"{parts.hostname} resolves to a non-public address ({ip})")
+
+
+def _get(url: str, client: httpx.Client, *, max_redirects: int = 3) -> httpx.Response:
+    """GET with manual redirects so every hop is checked against private addresses."""
+    for _ in range(max_redirects + 1):
+        assert_public_url(url)
+        resp = request("GET", url, provider="website", client=client, retries=1, rate=(1, 2.0),
+                       follow_redirects=False)
+        if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location"):
+            url = urljoin(str(resp.url), resp.headers["location"])
+            continue
+        return resp
+    raise PermanentError("too many redirects")
+
+
 def _allowed(url: str, ua: str, client: httpx.Client) -> bool:
     parts = urlparse(url)
     robots = f"{parts.scheme}://{parts.netloc}/robots.txt"
     rp = RobotFileParser()
     try:
-        r = client.get(robots, headers={"User-Agent": ua}, timeout=10)
-    except httpx.HTTPError:
-        return True  # unreachable robots.txt: treat as no restrictions (RFC 9309 §2.3.1.4)
-    if r.status_code in (401, 403):
-        return False
+        assert_public_url(robots)
+        r = client.get(robots, headers={"User-Agent": ua}, timeout=10, follow_redirects=False)
+    except (httpx.HTTPError, IntegrationError):
+        return False  # unreachable: RFC 9309 §2.3.1.4 says assume complete disallow
+    if r.status_code >= 500 or r.status_code in (401, 403):
+        return False  # 5xx = unreachable (disallow); 401/403 treated conservatively as a refusal
     if r.status_code >= 400:
-        return True
+        return True  # 4xx "unavailable": RFC 9309 §2.3.1.3 allows crawling
     rp.parse(r.text.splitlines())
     return rp.can_fetch(ua, url)
 
@@ -106,14 +143,14 @@ def research_site(url: str, *, client: httpx.Client | None = None, max_pages: in
         raise NotConfiguredError("Website research is disabled (DF_WEBSITE_RESEARCH_ENABLED=false)")
     ua = s.http_user_agent
     own = client is None
-    client = client or httpx.Client(follow_redirects=True, timeout=20)
+    client = client or httpx.Client(follow_redirects=False, timeout=20)
     obs = SiteObservation(url=url, final_url=url)
     try:
         if not _allowed(url, ua, client):
             obs.blocked_by_robots = True
             return obs
         try:
-            resp = request("GET", url, provider="website", client=client, retries=1, rate=(1, 2.0))
+            resp = _get(url, client)
         except PermanentError as exc:
             raise IntegrationError(f"website returned an error: {exc}") from exc
         final = str(resp.url)
@@ -141,7 +178,7 @@ def research_site(url: str, *, client: httpx.Client | None = None, max_pages: in
             obs.inventory_url = inv
             if max_pages > 1 and _allowed(inv, ua, client):
                 try:
-                    ir = request("GET", inv, provider="website", client=client, retries=1, rate=(1, 2.0))
+                    ir = _get(inv, client)
                     obs.pages_fetched.append(str(ir.url))
                     count = len(set(m.group(0).lower() for m in VEHICLE_CARD.finditer(re.sub(r"<[^>]+>", " ", ir.text))))
                     if count:

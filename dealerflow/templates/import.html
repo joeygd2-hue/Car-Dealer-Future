@@ -4,17 +4,27 @@
 <form method="post" action="/import" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}">
 {% if payload %}<input type="hidden" name="payload" value="{{ payload }}"><input type="hidden" name="commit" value="1">
 <input type="hidden" name="source_label" value="{{ source_label }}"><input type="hidden" name="source_url" value="{{ source_url }}">
+<input type="hidden" name="counties" value="{{ counties }}"><input type="hidden" name="cities" value="{{ cities }}">
+<input type="hidden" name="include_franchise" value="{{ include_franchise }}"><input type="hidden" name="data_date" value="{{ data_date }}">
 <p>Dry run complete. Nothing has been saved yet.</p><input type="file" name="file" hidden><button>Import these rows</button> <a href="/import">Start over</a>
-{% else %}<label>File (.csv or .xlsx, max 5,000 rows)</label><input type="file" name="file" accept=".csv,.xlsx" required>
-<label>Where did this list come from? *</label><input name="source_label" required placeholder="e.g. TxDMV dealer list 2026-10" style="width:100%">
+{% else %}<label>File (.csv, .xlsx or the TxDMV .xls, max 5,000 imported rows)</label><input type="file" name="file" accept=".csv,.xlsx,.xls" required>
+<fieldset style="border:1px solid var(--line);border-radius:6px;margin-top:8px"><legend class="small">TxDMV dealer list (detected automatically)</legend>
+<label>Counties (comma separated)</label><input name="counties" placeholder="Fort Bend" style="width:100%">
+<label>…or cities</label><input name="cities" placeholder="Sugar Land, Stafford, Missouri City, Richmond, Rosenberg" style="width:100%">
+<label>Data as of (shown on the download page)</label><input name="data_date" placeholder="2026-10-18">
+<label style="color:inherit"><input type="checkbox" name="include_franchise" value="1"> include franchise dealers</label></fieldset>
+<label>Other lists: where did this list come from? *</label><input name="source_label" placeholder="e.g. Chamber of commerce member list 2026" style="width:100%">
 <label>Source URL</label><input name="source_url" style="width:100%"><p><button>Preview (dry run)</button></p>{% endif %}</form>
+<p class="small muted">TxDMV list: open <a href="https://texasdmv.my.salesforce-sites.com/dealers" rel="noopener noreferrer" target="_blank">texasdmv.my.salesforce-sites.com/dealers</a> → Motor Vehicle Dealers List → "Download Independent(GDN) Motor Vehicle Dealers List". Only active Motor Vehicle licenses at physical addresses are imported; license emails on free-mail domains are kept as unverified evidence, not used for outreach.</p>
 <p class="small muted">Recognised columns: {{ aliases|join(', ') }}. Only import lists you are permitted to use.</p></div>
 {% if report %}<div class="card"><h3>{{ 'Preview' if report.dry_run else 'Imported' }}: {{ report.created }} new, {{ report.merged }} matched existing, {{ report.skipped }} skipped (of {{ report.total }})</h3>
+{% if report.excluded %}<p class="small">Filtered out before import: {% for k, v in report.excluded.items() %}{{ k }} ({{ v }}){% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
 <div class="tablewrap"><table><tr><th>Line</th><th>Name</th><th>Result</th><th>Problems</th></tr>{% for r in report.rows %}<tr><td>{{ r.line }}</td><td>{% if r.prospect_id %}<a href="/prospects/{{ r.prospect_id }}">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td><td>{{ r.status }}</td><td class="small">{{ (r.errors + r.conflicts)|join('; ') }}</td></tr>{% endfor %}</table></div></div>{% endif %}
 </div><div>
 {% if role_at_least(user.role,'manager') %}<div class="card"><h3>Discover from a data source</h3>
 <form method="post" action="/discover"><input type="hidden" name="csrf" value="{{ csrf }}">
-<select name="source"><option value="fixture">Synthetic fixtures (SIMULATED, offline)</option><option value="osm">OpenStreetMap (Overpass, free, ODbL)</option><option value="google_places">Google Places API (paid, key required)</option></select>
-<label>Search text (Google Places only)</label><input name="query" value="used car dealer" style="width:100%"><p><button>Run</button></p></form>
+<select name="source"><option value="fixture">Synthetic fixtures (SIMULATED, offline)</option><option value="osm">OpenStreetMap (Overpass, free, ODbL)</option></select><p><button>Run</button></p></form>
+<p class="small muted">Google Places is not offered here: its policies allow storing only place IDs, not business details.
+Recommended: download the TxDMV "Motor Vehicle Dealers List" (texasdmv.my.salesforce-sites.com/dealers) and import it on the left.</p>
 <p class="small muted">Searches centre on {{ settings.target_lat }}, {{ settings.target_lng }} within {{ settings.target_radius_miles }} miles. Results are deduplicated against existing records.</p></div>{% endif %}
 </div></div>{% endblock %}

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,26 +10,30 @@ from ..db import utcnow
 from ..integrations import discovery as sources
 from ..integrations.website import research_site
 from ..jobs import handler
-from ..models import Contact, Evidence, Prospect, ProspectSource
+from ..models import Contact, Evidence, Prospect
 from . import costs
 from .crm import add_activity, set_stage
 from .normalize import domain_of, normalize_email
 from .prospects import intake
 
 
+STORABLE_SOURCES = ("fixture", "osm")
+PLACES_REFUSAL = ("Google Places results can't be stored as leads: Google's Places API policies allow storing only "
+                  "place IDs, not names, addresses or phone numbers. Use the TxDMV dealer list (CSV import) or "
+                  "OpenStreetMap instead. See docs/research/feasibility-report.md.")
+
+
 def run_source(db: Session, source: str, *, query: str | None = None, actor_id: int | None = None) -> dict:
-    if source not in sources.SOURCES:
+    if source == "google_places":
+        raise ValueError(PLACES_REFUSAL)
+    if source not in STORABLE_SOURCES:
         raise ValueError(f"Unknown source {source!r}")
     simulated = source == "fixture"
     with track_integration(db, source, "search", simulated=simulated) as ctx:
-        if source == "google_places":
-            records = sources.google_places_search(query or "used car dealer")
-        else:
-            records = sources.SOURCES[source]()
-        ctx["detail"] = f"{len(records)} result(s) for {query or source}"
-    if source == "google_places":
-        costs.record(db, "google_places", costs.estimate(db, "google_places_text_search"), estimate=True,
-                     lead_source="google_places", note=f"Text Search: {query}")
+        records = sources.SOURCES[source]()
+        ctx["detail"] = f"{len(records)} result(s) for {source}"
+    costs.record(db, f"discovery:{source}", costs.estimate(db, f"discovery:{source}"), estimate=True,
+                 lead_source=source, note="estimated cost per discovery run")
     created = merged = skipped = 0
     for rec in records:
         res = intake(db, rec, actor_id=actor_id)
@@ -108,15 +110,3 @@ def add_verified_contact(db: Session, p: Prospect, *, name: str, role: str, emai
     if p.stage == "new":
         set_stage(db, p, "researching", reason="Contact research", workflow=True)
     return c
-
-
-def purge_stale_places(db: Session, *, max_age_days: int = 30) -> int:
-    """Drop Google Places raw payloads older than ``max_age_days`` (place IDs are kept; see terms)."""
-    n = 0
-    cutoff = utcnow() - timedelta(days=max_age_days)
-    for link in db.scalars(select(ProspectSource).where(ProspectSource.source == "google_places",
-                                                        ProspectSource.fetched_at < cutoff,
-                                                        ProspectSource.raw.is_not(None))):
-        link.raw = None
-        n += 1
-    return n

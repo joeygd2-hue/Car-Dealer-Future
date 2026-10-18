@@ -1,8 +1,8 @@
 """Lead discovery sources. Each returns ``LeadRecord``s with source URLs; none invents data.
 
-- ``google_places``: Places API (New) Text Search with a field mask. Google's terms restrict
-  caching of most Places content (place IDs may be stored). See docs/research/feasibility-report.md;
-  the stored copy is refreshed or removed per those terms (``services.discovery.purge_stale_places``).
+- ``google_places``: Places API (New) Text Search client. **Not used for stored leads**: Google's
+  Places policies allow storing place IDs only, so ``services.discovery.run_source`` refuses it.
+  Kept for a possible live (non-stored) lookup in a later phase.
 - ``osm``: OpenStreetMap via the Overpass API (ODbL, attribution required), shop=car.
 - ``fixture``: SIMULATED synthetic dealerships from dealerflow/fixtures for local use and tests.
 """

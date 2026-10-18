@@ -23,7 +23,18 @@ HEADER_ALIASES = {
     "email": "email", "business email": "email", "type": "dealership_type", "dealership type": "dealership_type",
     "dealership_type": "dealership_type", "notes": "notes", "source url": "source_url", "source_url": "source_url",
     "latitude": "lat", "lat": "lat", "longitude": "lng", "lng": "lng", "lon": "lng",
+    # Spellings seen in licensing lists (e.g. the TxDMV dealer list); check your file's headers in the dry run.
+    "license holder": "name", "licensee name": "name", "legal name": "name",
+    "physical address": "address_line", "street address": "address_line", "address 1": "address_line",
+    "physical city": "city", "physical state": "state", "physical zip": "postal_code", "zip code 5": "postal_code",
+    "telephone": "phone", "phone #": "phone",
+    "license number": "license_number", "license #": "license_number", "gdn": "license_number",
+    "license type": "license_type", "license status": "license_status", "county": "county",
+    "dba": "dba", "assumed name": "dba", "assumed name/dba": "dba", "doing business as": "dba",
 }
+# Columns stored as evidence (not prospect fields).
+EVIDENCE_FIELDS = {"license_number": "license:number", "license_type": "license:type",
+                   "license_status": "license:status", "county": "county", "dba": "dba"}
 MAX_ROWS = 5000
 
 
@@ -62,7 +73,7 @@ def import_rows(db: Session, rows: list[dict[str, str]], *, source_label: str, s
     if len(rows) > MAX_ROWS:
         raise ValueError(f"File has {len(rows)} rows; the limit per import is {MAX_ROWS}")
     mapping = map_headers(rows[0].keys()) if rows else {}
-    if rows and "name" not in mapping.values():
+    if rows and not ({"name", "dba"} & set(mapping.values())):
         raise ValueError("No dealership name column found (expected a header like 'name' or 'dealership name')")
     savepoint = db.begin_nested() if dry_run else None
     for i, row in enumerate(rows, start=2):  # line 1 is the header
@@ -73,10 +84,14 @@ def import_rows(db: Session, rows: list[dict[str, str]], *, source_label: str, s
                 vals[fld] = v
         if vals.get("dealership_type"):
             vals["dealership_type"] = vals["dealership_type"].lower().replace(" ", "_").replace("-", "_")
+        signals = [(EVIDENCE_FIELDS[k], vals.pop(k), f"From imported list '{source_label}'")
+                   for k in list(vals) if k in EVIDENCE_FIELDS]
+        if not vals.get("name") and any(f == "dba" for f, _, _ in signals):
+            vals["name"] = next(v for f, v, _ in signals if f == "dba")
         rec = LeadRecord(
             name=vals.get("name", ""), source=f"csv:{source_label}"[:60],
             source_url=vals.pop("source_url", None) or source_url, simulated=simulated,
-            notes=vals.pop("notes", ""), **{k: v for k, v in vals.items() if k not in ("name",)},
+            notes=vals.pop("notes", ""), signals=signals, **{k: v for k, v in vals.items() if k not in ("name",)},
         )
         res = intake(db, rec, actor_id=actor_id)
         if res.prospect is None:

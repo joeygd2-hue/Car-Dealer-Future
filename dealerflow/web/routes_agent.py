@@ -12,7 +12,7 @@ from ..db import get_db, utcnow
 from ..models import AgentRun, Campaign, Enrollment, InboundMessage, Job, OutreachMessage, Prospect, User
 from ..services import agent, costs, reports
 from ..services.outreach import live_sending_allowed
-from .deps import check_csrf, current_user, flash, render, require
+from .deps import check_csrf, current_user, flash, render, require, back_to
 
 router = APIRouter(dependencies=[Depends(check_csrf)])
 
@@ -137,6 +137,6 @@ def campaign_update(cid: int, request: Request, status: str = Form(None), approv
                                 auto_reply=None if auto_reply is None else auto_reply == "1")
     except agent.ControlError as exc:
         flash(request, str(exc), "error")
-    return RedirectResponse(request.headers.get("referer") or "/agent", status_code=303)
+    return RedirectResponse(back_to(request, "/agent"), status_code=303)
 
 

@@ -8,6 +8,7 @@ from collections import defaultdict
 from datetime import timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, HTTPException, Request
@@ -30,7 +31,34 @@ def _local(dt, fmt: str = "%Y-%m-%d %H:%M"):
     return dt.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(get_settings().timezone)).strftime(fmt)
 
 
+def _safe_url(url: str | None) -> str:
+    """Only http(s) URLs become links; anything else (javascript:, data:) renders as '#'."""
+    if url and urlparse(url.strip()).scheme in ("http", "https"):
+        return url.strip()
+    return "#"
+
+
+def safe_next(target: str | None, default: str = "/") -> str:
+    """Same-site relative path only (blocks //evil.com and /\\evil.com)."""
+    if not target:
+        return default
+    parsed = urlparse(target)
+    path = parsed.path or "/"
+    if parsed.scheme or parsed.netloc or not path.startswith("/") or path.startswith("//") or "\\" in target:
+        return default
+    return path + (f"?{parsed.query}" if parsed.query else "") + (f"#{parsed.fragment}" if parsed.fragment else "")
+
+
+def back_to(request: Request, default: str = "/") -> str:
+    """Path from the Referer header when it points at this same host; otherwise ``default``."""
+    ref = urlparse(request.headers.get("referer") or "")
+    if ref.netloc and ref.netloc == request.url.netloc:
+        return safe_next(ref.path + (f"?{ref.query}" if ref.query else ""), default)
+    return default
+
+
 templates.env.filters["local"] = _local
+templates.env.filters["safe_url"] = _safe_url
 templates.env.filters["phone"] = format_phone
 
 

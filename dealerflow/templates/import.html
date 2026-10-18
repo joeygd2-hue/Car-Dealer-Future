@@ -14,7 +14,8 @@
 </div><div>
 {% if role_at_least(user.role,'manager') %}<div class="card"><h3>Discover from a data source</h3>
 <form method="post" action="/discover"><input type="hidden" name="csrf" value="{{ csrf }}">
-<select name="source"><option value="fixture">Synthetic fixtures (SIMULATED, offline)</option><option value="osm">OpenStreetMap (Overpass, free, ODbL)</option><option value="google_places">Google Places API (paid, key required)</option></select>
-<label>Search text (Google Places only)</label><input name="query" value="used car dealer" style="width:100%"><p><button>Run</button></p></form>
+<select name="source"><option value="fixture">Synthetic fixtures (SIMULATED, offline)</option><option value="osm">OpenStreetMap (Overpass, free, ODbL)</option></select><p><button>Run</button></p></form>
+<p class="small muted">Google Places is not offered here: its policies allow storing only place IDs, not business details.
+Recommended: download the TxDMV "Motor Vehicle Dealers List" (texasdmv.my.salesforce-sites.com/dealers) and import it on the left.</p>
 <p class="small muted">Searches centre on {{ settings.target_lat }}, {{ settings.target_lng }} within {{ settings.target_radius_miles }} miles. Results are deduplicated against existing records.</p></div>{% endif %}
 </div></div>{% endblock %}

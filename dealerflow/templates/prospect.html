@@ -2,13 +2,14 @@
 <h1>{{ p.name }} {{ sim(p.simulated) }} {{ status_pill(p.stage) }}{% if suppressed %} <span class="pill bad">suppressed: {{ suppressed.reason }}</span>{% endif %}</h1>
 <div class="two"><div>
 <div class="card"><table class="kv">
-<tr><td>Type</td><td>{{ p.dealership_type }}</td></tr><tr><td>Website</td><td>{% if p.website %}<a href="{{ p.website }}" rel="noopener noreferrer" target="_blank">{{ p.website }}</a>{% else %}—{% endif %}</td></tr>
-<tr><td>Inventory page</td><td>{% if p.inventory_url %}<a href="{{ p.inventory_url }}" rel="noopener noreferrer" target="_blank">{{ p.inventory_url }}</a>{% else %}—{% endif %}</td></tr>
+<tr><td>Type</td><td>{{ p.dealership_type }}</td></tr><tr><td>Website</td><td>{% if p.website %}<a href="{{ p.website|safe_url }}" rel="noopener noreferrer" target="_blank">{{ p.website }}</a>{% else %}—{% endif %}</td></tr>
+<tr><td>Inventory page</td><td>{% if p.inventory_url %}<a href="{{ p.inventory_url|safe_url }}" rel="noopener noreferrer" target="_blank">{{ p.inventory_url }}</a>{% else %}—{% endif %}</td></tr>
 <tr><td>Address</td><td>{{ p.address_line or '' }} {{ p.city or '' }} {{ p.state or '' }} {{ p.postal_code or '' }}</td></tr>
 <tr><td>Public phone</td><td>{{ p.phone_e164|phone or '—' }}</td></tr><tr><td>Public email</td><td>{{ p.email or '—' }}</td></tr>
 <tr><td>Lead source</td><td>{{ p.lead_source }}</td></tr><tr><td>Discovered</td><td>{{ p.discovered_at|local }}</td></tr>
 <tr><td>Last verified</td><td>{{ p.last_verified_at|local or 'never' }}</td></tr>
-<tr><td>Missing</td><td>{% for f in missing %}<span class="pill warn">{{ f }}</span> {% else %}nothing{% endfor %}</td></tr></table></div>
+<tr><td>Missing</td><td>{% for f in missing %}<span class="pill warn">{{ f }}</span> {% else %}nothing{% endfor %}</td></tr></table>
+{% if evidence|selectattr('source_type','equalto','osm')|list %}<p class="small muted">Contains information from <a href="https://www.openstreetmap.org/copyright" rel="noopener noreferrer" target="_blank">© OpenStreetMap contributors</a>, available under the Open Database License (ODbL).</p>{% endif %}</div>
 
 <div class="card" id="score"><h3>Score: {{ p.score if p.score is not none else 'not scored' }}{% if p.score_breakdown %} / 100 <span class="small muted">(threshold {{ p.score_breakdown.threshold }})</span>{% endif %}</h3>
 {% if p.score_breakdown %}<div class="tablewrap"><table><tr><th>Factor</th><th>Points</th><th>Why</th></tr>
@@ -22,7 +23,7 @@
 
 <h2 id="evidence">Evidence ({{ evidence|length }})</h2><div class="tablewrap"><table><tr><th>Field</th><th>Value</th><th>Source</th><th>Collected</th><th>Verified</th></tr>
 {% for e in evidence %}<tr><td>{{ e.field }}</td><td class="small">{{ e.value[:120] }}{% if e.note %}<br><span class="muted">{{ e.note }}</span>{% endif %}</td>
-<td class="small">{{ e.source_type }}{% if e.simulated %} (sim){% endif %}{% if e.source_url %}<br><a href="{{ e.source_url }}" rel="noopener noreferrer" target="_blank">link</a>{% endif %}</td><td class="small">{{ e.collected_at|local }}</td>
+<td class="small">{{ e.source_type }}{% if e.simulated %} (sim){% endif %}{% if e.source_url %}<br><a href="{{ e.source_url|safe_url }}" rel="noopener noreferrer" target="_blank">link</a>{% endif %}</td><td class="small">{{ e.collected_at|local }}</td>
 <td><form method="post" action="/evidence/{{ e.id }}/verify"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="verified" value="{{ '0' if e.verified else '1' }}"><button class="secondary small">{{ '✔ verified' if e.verified else 'mark verified' }}</button></form></td></tr>{% endfor %}</table></div>
 </div><div>
 <div class="card"><h3>Stage</h3><form method="post" action="/prospects/{{ p.id }}/stage"><input type="hidden" name="csrf" value="{{ csrf }}">
@@ -36,7 +37,7 @@
 <label>Follow up on</label><input type="date" name="follow_up_at" value="{{ p.follow_up_at.date().isoformat() if p.follow_up_at else '' }}">
 <label>Research notes</label><textarea name="research_notes">{{ p.research_notes }}</textarea><button>Save</button></form></div>
 
-<div class="card"><h3>Contacts</h3>{% for c in p.contacts %}<div class="small">{{ c.name }} — {{ c.role }} {{ c.email or '' }} {{ c.phone or '' }} {% if c.verified %}<span class="pill ok">verified</span>{% endif %} {% if c.source_url %}<a href="{{ c.source_url if c.source_url.startswith('http') else '#' }}">source</a>{% endif %}</div>{% else %}<p class="muted small">No verified contacts.</p>{% endfor %}
+<div class="card"><h3>Contacts</h3>{% for c in p.contacts %}<div class="small">{{ c.name }} — {{ c.role }} {{ c.email or '' }} {{ c.phone or '' }} {% if c.verified %}<span class="pill ok">verified</span>{% endif %} {% if c.source_url %}<a href="{{ c.source_url|safe_url }}">source</a>{% endif %}</div>{% else %}<p class="muted small">No verified contacts.</p>{% endfor %}
 <details><summary class="small">Add verified contact</summary><form method="post" action="/prospects/{{ p.id }}/contact"><input type="hidden" name="csrf" value="{{ csrf }}">
 <label>Name</label><input name="name" required><label>Role</label><input name="role"><label>Email</label><input name="email" type="email"><label>Phone</label><input name="phone">
 <label>Where you verified it (URL or "phone call 2026-10-18") *</label><input name="source_url" required><button>Add</button></form></details></div>
@@ -51,7 +52,7 @@
 {% if providers.call == 'manual' %}<p class="small"><a href="tel:{{ p.phone_e164 }}">tel:{{ p.phone_e164 }}</a></p>{% endif %}{% endif %}
 {% for c in calls %}<div class="small">#{{ c.id }} {{ c.created_at|local }} {{ c.provider }} {{ c.status }} {{ c.outcome }}
 {% if not c.outcome %}<form method="post" action="/calls/{{ c.id }}/outcome"><input type="hidden" name="csrf" value="{{ csrf }}"><select name="outcome"><option>connected</option><option>voicemail</option><option>no_answer</option><option>wrong_number</option><option value="opt_out">asked not to be contacted</option></select><input name="notes" placeholder="notes"><button class="secondary">Log</button></form>{% endif %}</div>{% endfor %}
-<p class="small muted">Calls are dialled by a person. No autodialer, prerecorded voice or recording.</p></div>
+<p class="small muted">Calls are dialled by a person. No autodialer, prerecorded voice or recording. Use calls only to <b>arrange a meeting</b>; don't make the sales presentation or take an order by phone. Texas Chapter 302 registration may otherwise apply (see feasibility report).</p></div>
 
 <div class="card"><h3>Meetings</h3>{% for m in meetings %}<div class="small"><a href="/meetings/{{ m.id }}">#{{ m.id }}</a> {{ status_pill(m.status) }} {{ m.start_at|local }} {{ sim(m.simulated) }}</div>{% endfor %}
 <form method="post" action="/prospects/{{ p.id }}/meeting"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="attendee_email" placeholder="attendee email" value="{{ p.email or '' }}"><button class="secondary">Log meeting request</button></form></div>

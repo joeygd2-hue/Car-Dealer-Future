@@ -229,7 +229,9 @@ def test_budget_threshold_exceeded_and_spike_alerts(db, t):
     from dealerflow.models import Alert, Budget
 
     db.add(Budget(name="AI monthly", category="ai", period="monthly", amount_cents=1000, alert_threshold_percent=80))
-    now = datetime.utcnow()
+    from dealerflow.db import utcnow
+
+    now = utcnow()
     for d in range(1, 8):  # quiet week
         db.add(CostEntry(incurred_on=now - timedelta(days=d), category="ai", amount=0.01, is_estimate=True))
     db.add(CostEntry(incurred_on=now, category="ai", amount=8.5, is_estimate=True))

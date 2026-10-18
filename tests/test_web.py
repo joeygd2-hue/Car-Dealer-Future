@@ -134,3 +134,81 @@ def test_zoom_webhook_signature(db, client, monkeypatch):
     assert r.status_code == 200 and r.json()["encryptedToken"] == hmac.new(b"whsec", b"abc", hashlib.sha256).hexdigest()
     r = client.post("/webhooks/zoom", content=body, headers={"x-zm-request-timestamp": ts, "x-zm-signature": "v0=bad"})
     assert r.status_code == 401
+
+
+def test_untrusted_urls_are_not_rendered_as_links(db, client):
+    from dealerflow.models import Evidence, Prospect
+
+    admin = make_user(db)
+    p = Prospect(name="XSS Motors", normalized_name="xss motors", stage="new")
+    db.add(p)
+    db.flush()
+    db.add(Evidence(prospect_id=p.id, field="name", value="x", source_type="csv:evil",
+                    source_url="javascript:alert(document.cookie)"))
+    db.commit()
+    login(client, admin.email)
+    html = client.get(f"/prospects/{p.id}").text
+    assert "javascript:alert" not in html
+
+
+def test_safe_next_blocks_open_redirects():
+    from dealerflow.web.deps import safe_next
+
+    assert safe_next("/prospects?x=1") == "/prospects?x=1"
+    assert safe_next("http://127.0.0.1:8000/tasks") == "/"
+    for bad in ("//evil.com", "/\\\\evil.com", "https://evil.com/x", "javascript:alert(1)"):
+        assert safe_next(bad) == "/", bad
+
+
+def test_back_redirect_uses_same_host_referer_only(db, client):
+    admin = make_user(db)
+    csrf = login(client, admin.email)
+    from dealerflow.models import Task
+    from dealerflow.db import utcnow
+    t = Task(title="t", due_at=utcnow())
+    db.add(t)
+    db.commit()
+    r = client.post(f"/tasks/{t.id}/done", data={"csrf": csrf}, headers={"referer": "http://testserver/tasks?show=all"},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/tasks?show=all"
+    t2 = Task(title="t2", due_at=utcnow())
+    db.add(t2)
+    db.commit()
+    r = client.post(f"/tasks/{t2.id}/done", data={"csrf": csrf}, headers={"referer": "https://evil.example/x"},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/tasks"
+
+
+def test_detail_pages_render_through_the_ui_workflow(db, client):
+    """Drive the main workflow through HTTP and render every detail page along the way."""
+    from dealerflow.models import AgentRun, InboundMessage, Meeting, OutreachMessage, Template
+
+    admin = make_user(db)
+    run_source(db, "fixture")
+    db.commit()
+    csrf = login(client, admin.email)
+    p = client.get("/api/v1/prospects", params={"q": "Brazos"}).json()["items"][0]
+    tpl = db.scalar(select(Template).where(Template.name == "intro", Template.language == "es"))
+    r = client.post(f"/prospects/{p['id']}/draft", data={"template_id": tpl.id, "csrf": csrf})
+    assert r.status_code == 200 and "Seguimiento de clientes" in r.text and "cancele su suscripción" in r.text
+    mid = db.scalar(select(OutreachMessage.id))
+    r = client.post(f"/outreach/{mid}/approve", data={"csrf": csrf, "send_now": "1"})
+    assert "SIMULATED" in r.text
+    r = client.post("/inbox/simulate", data={"prospect_id": p["id"], "csrf": csrf,
+                                             "body": "Me interesa. ¿Podemos agendar una llamada por Zoom?"})
+    assert r.status_code == 200
+    iid = db.scalar(select(InboundMessage.id))
+    assert "meeting_request" in client.get(f"/inbox/{iid}").text
+    meeting_id = db.scalar(select(Meeting.id))
+    client.post(f"/meetings/{meeting_id}/availability", data={"csrf": csrf, "days": "7"})
+    db.expire_all()
+    slot = db.get(Meeting, meeting_id).proposed_slots[0]["start"]
+    client.post(f"/meetings/{meeting_id}/choose", data={"csrf": csrf, "start": slot})
+    r = client.post(f"/meetings/{meeting_id}/approve", data={"csrf": csrf})
+    assert "Booked" in r.text and "simulated.invalid" in r.text
+    client.post("/agent/tick", data={"csrf": csrf})
+    for path in (f"/prospects/{p['id']}", f"/outreach/{mid}", f"/inbox/{iid}", f"/meetings/{meeting_id}", "/",
+                 "/agent", "/reports/weekly?simulated=1", "/audit", "/integrations"):
+        assert client.get(path).status_code == 200, path
+    run_id = db.scalar(select(AgentRun.id))
+    assert client.get(f"/agent/runs/{run_id}").status_code == 200

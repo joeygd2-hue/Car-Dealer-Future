@@ -37,7 +37,7 @@ from ..services.discovery import add_verified_contact, run_source
 from ..services.normalize import missing_fields
 from ..services.prospects import LeadRecord, intake, merge_prospects
 from ..services.scoring import score_prospect
-from .deps import check_csrf, current_user, flash, render, require
+from .deps import check_csrf, current_user, flash, render, require, back_to
 
 router = APIRouter(dependencies=[Depends(check_csrf)])
 PAGE_SIZE = 25
@@ -47,8 +47,7 @@ SORTS = {"score": Prospect.score.desc().nulls_last(), "name": Prospect.name.asc(
 
 
 def _back(request: Request, default: str = "/") -> RedirectResponse:
-    ref = request.headers.get("referer") or default
-    return RedirectResponse(ref, status_code=303)
+    return RedirectResponse(back_to(request, default), status_code=303)
 
 
 def _prospect(db: Session, pid: int) -> Prospect:

@@ -91,11 +91,11 @@ def _allowed(url: str, ua: str, client: httpx.Client) -> bool:
     try:
         r = client.get(robots, headers={"User-Agent": ua}, timeout=10)
     except httpx.HTTPError:
-        return True  # unreachable robots.txt: treat as no restrictions (RFC 9309 §2.3.1.4)
-    if r.status_code in (401, 403):
-        return False
+        return False  # unreachable: RFC 9309 §2.3.1.4 says assume complete disallow
+    if r.status_code >= 500 or r.status_code in (401, 403):
+        return False  # 5xx = unreachable (disallow); 401/403 treated conservatively as a refusal
     if r.status_code >= 400:
-        return True
+        return True  # 4xx "unavailable": RFC 9309 §2.3.1.3 allows crawling
     rp.parse(r.text.splitlines())
     return rp.can_fetch(ua, url)
 

@@ -49,7 +49,7 @@ def test_full_workflow(db, admin):
     assert counts.get("done") == 1
     db.expire_all()
     msg = db.get(OutreachMessage, msg.id)
-    assert msg.status == "sent" and msg.simulated and msg.provider == "mock"
+    assert msg.status == "sent" and msg.simulated and msg.provider == "mock_email"
     assert len(MockEmailProvider.outbox) == 1
     out, _ = MockEmailProvider.outbox[0]
     assert out.unsubscribe_url and "/u/" in out.unsubscribe_url

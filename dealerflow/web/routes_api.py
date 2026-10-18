@@ -14,9 +14,9 @@ from ..models import Activity, Prospect, User
 from ..services import crm, reports
 from ..services.prospects import LeadRecord, intake
 from ..services.scoring import score_prospect
-from .deps import current_user, require
+from .deps import check_csrf, current_user, require
 
-router = APIRouter(prefix="/api/v1", tags=["api"])
+router = APIRouter(prefix="/api/v1", tags=["api"], dependencies=[Depends(check_csrf)])  # cookie writes need X-CSRF-Token
 
 
 class ProspectIn(BaseModel):

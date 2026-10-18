@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..audit import audit, log_integration
+from ..audit import audit, clear_failures, log_integration, replay_failures
 from ..config import get_settings
 from ..db import utcnow
 from ..integrations.email import get_email_provider
@@ -451,11 +451,12 @@ def tick(db: Session, *, now: datetime | None = None) -> AgentRun:
                 counts[name] = fn(db, cfg, cp, now)
         except Exception as exc:  # noqa: BLE001 - one failing step must not stop the others
             errors.append({"step": name, "error": f"{type(exc).__name__}: {exc}"[:500]})
-            # The savepoint rollback discarded any integration log row; record the failure again.
-            from ..integrations.errors import CredentialError
-            log_integration(db, f"agent:{name}", "step", "auth_error" if isinstance(exc, CredentialError) else "error",
-                            detail=f"{type(exc).__name__}: {exc}")
+            # The savepoint rollback discarded the provider's log rows; write them again, plus the step failure.
+            replay_failures(db)
+            log_integration(db, f"agent:{name}", "step", "error", detail=f"{type(exc).__name__}: {exc}")
             log.warning("agent step failed", extra={"step": name, "error": str(exc)})
+        else:
+            clear_failures(db)
         cp[f"step:{name}"] = now.isoformat()
         st = state(db)
         st.checkpoint = dict(cp)

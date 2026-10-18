@@ -7,6 +7,8 @@
   run-jobs                     run due jobs once and exit
   demo                         load SIMULATED fixture dealerships (no network)
   check-integrations           verify configured provider credentials without sending anything
+  backup DIR                   write a verified database backup to DIR
+  restore FILE --yes           replace the database with a backup (stop web + worker first)
 """
 
 from __future__ import annotations
@@ -86,6 +88,14 @@ def main(argv: list[str]) -> None:
         _demo()
     elif cmd == "check-integrations":
         _check()
+    elif cmd == "backup":
+        from .backup import backup
+
+        print(backup(argv[1] if len(argv) > 1 else "./backups"))
+    elif cmd == "restore":
+        from .backup import restore
+
+        print(restore(argv[1], confirm="--yes" in argv))
     else:
         print(__doc__)
         sys.exit(2)

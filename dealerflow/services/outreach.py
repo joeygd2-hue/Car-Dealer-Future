@@ -242,11 +242,14 @@ def send_email_job(db: Session, payload: dict) -> dict:
     st = db.get(AgentState, 1)
     if st and st.status == "emergency_stopped":
         raise DeferJob(utcnow() + timedelta(hours=1), "emergency stop active")
+    hold = _campaign_hold(db, msg, st)
+    if hold:
+        raise DeferJob(utcnow() + timedelta(minutes=30), hold)
     if not provider.simulated:
         ok, why = live_sending_allowed(db)
         if not ok:
             raise DeferJob(utcnow() + timedelta(hours=1), why)
-    blockers = email_blockers(db, msg, at_send=True)
+    blockers = email_blockers(db, msg, at_send=True, provider_simulated=provider.simulated)
     if blockers:
         if any(b.startswith("Daily send cap") for b in blockers) and len(blockers) == 1:
             tomorrow = (utcnow() + timedelta(days=1)).replace(hour=14, minute=0, second=0, microsecond=0)
@@ -300,6 +303,23 @@ def send_email_job(db: Session, payload: dict) -> dict:
     audit(db, "outreach.sent", entity_type="outreach", entity_id=msg.id,
           data={"provider": provider.name, "simulated": res.simulated, "provider_message_id": res.provider_message_id})
     return {"sent": msg.id, "simulated": res.simulated}
+
+
+def _campaign_hold(db: Session, msg: OutreachMessage, st: AgentState | None) -> str | None:
+    """Reasons to hold an already-queued message (it stays queued and is retried later)."""
+    from ..models import Campaign
+    from .agent import config as agent_config, in_operating_window
+
+    if msg.campaign_id:
+        camp = db.get(Campaign, msg.campaign_id)
+        if camp is not None and camp.status != "active":
+            return f"campaign '{camp.name}' is {camp.status}"
+    if msg.approval_kind == "campaign_auto":
+        if st is None or st.status != "running":
+            return f"agent is {st.status if st else 'stopped'}; agent-approved messages wait"
+        if not in_operating_window(agent_config(db), utcnow()):
+            return "outside the agent's operating hours"
+    return None
 
 
 @on_failure("send_email")

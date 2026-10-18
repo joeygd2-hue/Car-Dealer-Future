@@ -24,6 +24,13 @@ from ..models import InboundMessage, Meeting, OutreachMessage, Prospect, Suppres
 from .normalize import domain_of, normalize_email, normalize_phone, valid_email
 
 SENT_STATES = ("sending", "sent", "delivered", "replied", "bounced")
+# RFC 2606 / RFC 6761 reserved names: never deliverable, used by fixtures and tests.
+RESERVED_DOMAINS = (".example", ".invalid", ".test", ".localhost", "example.com", "example.net", "example.org")
+
+
+def is_reserved_address(email: str | None) -> bool:
+    d = (domain_of(email) or "") if email else ""
+    return any(d == r.lstrip(".") or d.endswith(r if r.startswith(".") else "." + r) or d == r for r in RESERVED_DOMAINS)
 DECEPTIVE_SUBJECT = re.compile(r"^\s*(re|fw|fwd)\s*:", re.I)
 
 
@@ -93,11 +100,16 @@ def sent_today(db: Session) -> int:
         OutreachMessage.sent_at >= start, OutreachMessage.simulated.is_(False))) or 0
 
 
-def email_blockers(db: Session, msg: OutreachMessage, *, at_send: bool = False) -> list[str]:
-    """Return reasons this message must not be sent (empty list = allowed)."""
+def email_blockers(db: Session, msg: OutreachMessage, *, at_send: bool = False,
+                   provider_simulated: bool | None = None) -> list[str]:
+    """Return reasons this message must not be sent (empty list = allowed).
+
+    ``provider_simulated`` is the provider that would send it; defaults to what the draft recorded.
+    """
     s = get_settings()
     p: Prospect = msg.prospect or db.get(Prospect, msg.prospect_id)
     reasons: list[str] = []
+    real_send = not (msg.simulated if provider_simulated is None else provider_simulated)
     if not (s.business_name and s.business_postal_address and s.sender_email):
         reasons.append("Sender identity incomplete: set DF_BUSINESS_NAME, DF_BUSINESS_POSTAL_ADDRESS and DF_SENDER_EMAIL (CAN-SPAM)")
     to = normalize_email(msg.to_email)
@@ -108,6 +120,10 @@ def email_blockers(db: Session, msg: OutreachMessage, *, at_send: bool = False) 
         return reasons
     if p.do_not_contact or p.stage == "do_not_contact":
         reasons.append("Prospect is marked do-not-contact")
+    if real_send and p.simulated:
+        reasons.append("Prospect is SIMULATED test data; a real provider may never contact it")
+    if real_send and is_reserved_address(to):
+        reasons.append(f"{to} is a reserved test domain and cannot receive real email")
     sup = is_suppressed(db, to)
     if sup:
         reasons.append(f"Recipient is on the suppression list ({sup.reason})")

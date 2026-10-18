@@ -40,6 +40,10 @@ class ZoomProvider:
     def update_meeting(self, meeting_id: str, *, start: datetime, duration_minutes: int) -> None:
         raise NotImplementedError
 
+    def find_meeting(self, *, topic: str, start: datetime) -> ZoomMeeting | None:
+        """Find an upcoming meeting with this topic and start (used after an ambiguous create)."""
+        raise NotImplementedError
+
     def delete_meeting(self, meeting_id: str) -> None:
         raise NotImplementedError
 
@@ -48,7 +52,7 @@ class ZoomProvider:
 
 
 class MockZoomProvider(ZoomProvider):
-    name = "mock"
+    name = "mock_zoom"
     simulated = True
     meetings: dict[str, dict] = {}
     fail_next: list[Exception] = []
@@ -71,6 +75,14 @@ class MockZoomProvider(ZoomProvider):
     def update_meeting(self, meeting_id, *, start, duration_minutes) -> None:
         self._maybe_fail()
         type(self).meetings[meeting_id].update(start=start, duration=duration_minutes)
+
+    def find_meeting(self, *, topic, start) -> ZoomMeeting | None:
+        self._maybe_fail()
+        for mid, m in type(self).meetings.items():
+            if m["topic"] == topic and m["start"] == start:
+                url = f"https://simulated.invalid/j/{mid}"
+                return ZoomMeeting(mid, url, None, {"id": mid, "join_url": url, "simulated": True, "recovered": True}, True)
+        return None
 
     def delete_meeting(self, meeting_id) -> None:
         self._maybe_fail()
@@ -119,6 +131,16 @@ class ServerToServerZoomProvider(ZoomProvider):
         if not d.get("id") or not d.get("join_url"):
             raise IntegrationError(f"Zoom response missing id/join_url: {list(d)}")
         return ZoomMeeting(str(d["id"]), d["join_url"], d.get("start_url"), {k: d.get(k) for k in ("id", "uuid", "join_url", "start_time", "duration", "timezone")}, False)
+
+    def find_meeting(self, *, topic, start) -> ZoomMeeting | None:
+        want = start.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        r = request("GET", f"{self.API}/users/{self.s.zoom_user_id}/meetings", provider="zoom", headers=self._h(),
+                    params={"type": "upcoming", "page_size": 300})
+        for d in r.json().get("meetings", []):
+            if d.get("topic") == topic[:200] and d.get("start_time") == want:
+                return ZoomMeeting(str(d["id"]), d.get("join_url", ""), None,
+                                   {"id": d["id"], "join_url": d.get("join_url"), "recovered": True}, False)
+        return None
 
     def update_meeting(self, meeting_id, *, start, duration_minutes) -> None:
         request("PATCH", f"{self.API}/meetings/{meeting_id}", provider="zoom", headers=self._h(),

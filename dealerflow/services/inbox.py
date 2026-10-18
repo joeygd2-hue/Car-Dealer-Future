@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -55,6 +56,28 @@ def match_prospect(db: Session, inc: IncomingEmail) -> tuple[Prospect | None, Ou
     return None, None, None
 
 
+_MSGID = re.compile(r"<[^<>@\s]+@[^<>\s]+>")
+_RCPT = re.compile(r"(?:final|original)-recipient:\s*rfc822;\s*([^\s>]+)", re.I)
+
+
+def match_bounce(db: Session, inc: IncomingEmail) -> OutreachMessage | None:
+    """Find the message a bounce refers to: our Message-ID quoted in it, else the failed recipient."""
+    text = "\n".join([inc.body or "", inc.headers.get("dsn", "") if inc.headers else ""])
+    for mid in _MSGID.findall(text):
+        m = db.scalar(select(OutreachMessage).where(OutreachMessage.rfc_message_id == mid))
+        if m:
+            return m
+    rcpts = [r.strip().lower() for r in ((inc.headers or {}).get("X-Failed-Recipients", "") or
+                                         (inc.headers or {}).get("x-failed-recipients", "")).split(",") if r.strip()]
+    rcpts += [r.strip("<>").lower() for r in _RCPT.findall(text)]
+    for r in rcpts:
+        m = db.scalar(select(OutreachMessage).where(OutreachMessage.to_email == r, OutreachMessage.sent_at.is_not(None))
+                      .order_by(OutreachMessage.sent_at.desc()))
+        if m:
+            return m
+    return None
+
+
 def ingest(db: Session, inc: IncomingEmail, *, provider: str) -> InboundMessage | None:
     """Store one inbound email (idempotent on provider id) and apply its consequences."""
     if db.scalar(select(InboundMessage.id).where(InboundMessage.provider == provider,
@@ -65,6 +88,10 @@ def ingest(db: Session, inc: IncomingEmail, *, provider: str) -> InboundMessage 
         return None  # our own sent copy
     p, parent, matched_by = match_prospect(db, inc)
     c = classify(inc.subject, inc.body, inc.headers)
+    if c.label == "bounce" and parent is None:
+        parent = match_bounce(db, inc)
+        if parent:
+            p, matched_by = parent.prospect, "bounce_dsn"
     row = InboundMessage(
         provider=provider, provider_message_id=inc.provider_message_id, rfc_message_id=inc.rfc_message_id,
         in_reply_to=inc.in_reply_to, thread_id=inc.thread_id, from_email=inc.from_email, subject=inc.subject[:500],

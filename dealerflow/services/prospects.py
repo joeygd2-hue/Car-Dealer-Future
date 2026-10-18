@@ -100,7 +100,13 @@ def find_duplicate(db: Session, data: dict[str, Any], *, source: str | None = No
         conds.append(Prospect.lat.between(data["lat"] - 0.01, data["lat"] + 0.01))
     if not conds:
         conds.append(Prospect.normalized_name == norm)
+    new_domain = domain_of(data.get("website"))
     for p in db.scalars(select(Prospect).where(live, or_(*conds))):
+        # Different websites or phone numbers mean different businesses, however similar the names.
+        if new_domain and p.domain and new_domain != p.domain:
+            continue
+        if data.get("phone_e164") and p.phone_e164 and data["phone_e164"] != p.phone_e164:
+            continue
         ratio = SequenceMatcher(None, norm, p.normalized_name).ratio()
         if ratio >= 0.88:
             if data.get("lat") is not None and p.lat is not None:

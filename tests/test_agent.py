@@ -57,7 +57,8 @@ def test_tick_replenishes_scores_enrolls_and_drafts_for_approval(db, admin):
     assert len(list(db.scalars(select(OutreachMessage)))) == len(drafts)
 
 
-def test_auto_mode_sends_in_simulation_and_sequence_progresses(db, admin):
+def test_auto_mode_sends_in_simulation_and_sequence_progresses(db, admin, monkeypatch):
+    monkeypatch.setattr(agent, "in_operating_window", lambda cfg, now: True)
     _start(db, admin, auto=True)
     tick(db, now=IN_HOURS)
     db.commit()
@@ -203,7 +204,8 @@ def test_step_failure_does_not_stop_other_steps(db, admin, monkeypatch):
     assert run.counts["score"]["scored"] == 7
 
 
-def test_auto_answer_uses_only_approved_info_and_escalates_sensitive(db, admin):
+def test_auto_answer_uses_only_approved_info_and_escalates_sensitive(db, admin, monkeypatch):
+    monkeypatch.setattr(agent, "in_operating_window", lambda cfg, now: True)
     _start(db, admin, auto=True, auto_reply=True)
     kb = db.scalar(select(KnowledgeItem).where(KnowledgeItem.topic == "Pricing"))
     tick(db, now=IN_HOURS)

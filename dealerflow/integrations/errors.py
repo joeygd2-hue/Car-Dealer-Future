@@ -24,3 +24,11 @@ class PermanentError(IntegrationError):
     """Request was rejected (4xx other than auth/rate limit). Not retried."""
 
     retryable = False
+
+
+class ExternalActionsHalted(IntegrationError):
+    """Emergency stop is active: no provider may be called. Jobs are deferred, not failed."""
+
+
+class IntegrationDisabled(CredentialError):
+    """The provider was disabled after an authentication failure and must be re-verified by an admin."""

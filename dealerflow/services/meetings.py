@@ -136,10 +136,21 @@ def book_meeting_job(db: Session, payload: dict) -> dict:
         return {"aborted": "slot busy"}
     responses = dict(m.provider_response or {})
     if not m.zoom_meeting_id:  # idempotent: a retry after a calendar failure reuses the Zoom meeting
-        with track_integration(db, zoom.name, "create_meeting", simulated=zoom.simulated) as ctx:
-            zm = zoom.create_meeting(topic=m.topic, start=m.start_at, duration_minutes=s.meeting_length_minutes,
-                                     timezone_name=s.timezone, agenda=f"Intro call with {m.prospect.name}")
-            ctx["detail"] = f"meeting {zm.meeting_id}"
+        attempt = responses.get("zoom_attempt")
+        zm = None
+        if attempt and attempt.get("start") == m.start_at.isoformat():
+            # A previous attempt may have created the meeting and lost the response: look before creating.
+            with track_integration(db, zoom.name, "find_meeting", simulated=zoom.simulated) as ctx:
+                zm = zoom.find_meeting(topic=m.topic, start=m.start_at)
+                ctx["detail"] = f"recovered {zm.meeting_id}" if zm else "none found"
+        if zm is None:
+            responses["zoom_attempt"] = {"start": m.start_at.isoformat(), "at": utcnow().isoformat()}
+            m.provider_response = dict(responses)
+            db.commit()  # checkpoint the attempt before the non-idempotent create
+            with track_integration(db, zoom.name, "create_meeting", simulated=zoom.simulated) as ctx:
+                zm = zoom.create_meeting(topic=m.topic, start=m.start_at, duration_minutes=s.meeting_length_minutes,
+                                         timezone_name=s.timezone, agenda=f"Intro call with {m.prospect.name}")
+                ctx["detail"] = f"meeting {zm.meeting_id}"
         m.zoom_meeting_id, m.zoom_join_url = zm.meeting_id, zm.join_url
         responses["zoom"] = zm.raw
         m.provider_response = responses

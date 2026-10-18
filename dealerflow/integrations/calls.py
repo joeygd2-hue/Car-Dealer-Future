@@ -41,7 +41,7 @@ class ManualCallProvider(CallProvider):
 
 
 class MockCallProvider(CallProvider):
-    name = "mock"
+    name = "mock_call"
     simulated = True
     calls: list[str] = []
 

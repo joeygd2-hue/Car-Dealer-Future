@@ -27,7 +27,6 @@ from app.models.core import (
 from app.models.crm import ContactSuppression, CustomerContact, CustomerIdentity, CustomerLead
 from app.models.inventory import ListingDraft, Vehicle
 from app.models.jobs import Job, RecurringTask, WorkerHeartbeat
-from app.models.sandbox import SandboxRecord
 from app.models.notifications import Notification, NotificationPreference
 from app.models.outreach import (
     Campaign,
@@ -42,6 +41,7 @@ from app.models.outreach import (
     SalesMeeting,
     Suppression,
 )
+from app.models.sandbox import SandboxRecord
 
 __all__ = [
     "FAQ", "MODES", "MODE_CONTROLLED", "MODE_DRAFT_ONLY", "MODE_FAQ",

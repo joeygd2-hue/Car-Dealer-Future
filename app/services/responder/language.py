@@ -13,14 +13,14 @@ _ES = {
     "que", "el", "la", "los", "las", "es", "un", "una", "y", "con", "mi", "me", "si", "no", "mas", "pagos",
     "credito", "garantia", "llamar", "hablar", "persona", "gerente", "horario", "abren", "cierran", "direccion",
     "busco", "interesa", "interesado", "interesada", "seria", "nombre", "llamo", "numero", "telefono", "correo",
-    "dejen", "molesten", "escriban", "agendar", "hora", "las", "del", "al", "muy", "bien", "ese", "este", "esa",
+    "dejen", "molesten", "escriban", "agendar", "hora", "del", "al", "muy", "bien", "ese", "este", "esa",
     "estamos", "ubicados", "en", "nuestro", "nuestra", "nuestros", "su", "sus", "le", "lo", "de", "gustaria",
     "aparece", "inventario", "actual", "vehiculo", "incluyen", "caracteristicas", "aprobadas", "equipo", "necesito",
     "confirmar", "alguien", "pronto", "gusto", "ayudo", "funcionan", "mejor", "solicitud", "enviada", "aun", "confirmada",
-    "precio", "publicado", "registro", "indica", "ya", "vendio", "puede", "ayudarle", "similares", "lamento", "molestia",
-    "gerente", "directamente", "pregunta", "seguridad", "informacion", "comparta", "medio", "gracias", "avisenos",
-    "algo", "otro", "dia", "le", "funcionaria", "atencion", "fuera", "ese", "esta", "cerrado", "tiene", "venta",
-    "pendiente", "asi", "estado", "ubicacion", "estan", "cual", "cuantas", "ofrecen", "tengo", "ha", "tenido",
+    "publicado", "registro", "indica", "ya", "vendio", "puede", "ayudarle", "similares", "lamento", "molestia",
+    "directamente", "pregunta", "seguridad", "informacion", "comparta", "medio", "avisenos",
+    "algo", "otro", "dia", "funcionaria", "atencion", "fuera", "cerrado", "venta",
+    "pendiente", "asi", "estado", "ubicacion", "cual", "cuantas", "ofrecen", "tengo", "ha", "tenido",
 }
 _EN = {
     "hi", "hello", "hey", "thanks", "thank", "price", "how", "much", "car", "truck", "suv", "available",
@@ -34,7 +34,7 @@ _EN = {
     "team", "someone", "follow", "up", "shortly", "happy", "help", "best", "request", "sent", "isn", "yet", "will",
     "be", "sold", "similar", "sorry", "trouble", "shared", "directly", "question", "security", "information",
     "share", "here", "welcome", "let", "us", "know", "anything", "else", "other", "day", "outside", "business",
-    "which", "would", "like", "include", "approved", "features", "listed", "among", "vehicle", "questions",
+    "which", "like", "include", "approved", "features", "among", "vehicle", "questions",
 }
 
 

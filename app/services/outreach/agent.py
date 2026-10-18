@@ -249,12 +249,18 @@ def send_job(db: Session, payload: dict, job) -> dict:
                      outcome="BLOCKED", reasons=result.stop)
         return {"blocked": result.stop}
     if result.wait:
-        msg.block_reasons = result.wait
-        if "outside operating schedule" in result.wait:
-            raise jobs.RetryLater(seconds_until_window(st), "; ".join(result.wait))
-        if any(w.startswith("agent is") for w in result.wait):
-            raise jobs.RetryLater(300, "; ".join(result.wait))
-        raise jobs.RetryLater(1800, "; ".join(result.wait))
+        wait, mid = list(result.wait), msg.id
+
+        def _persist(s: Session) -> None:
+            s.get(OutreachMessage, mid).block_reasons = wait
+
+        if "outside operating schedule" in wait:
+            delay = seconds_until_window(st)
+        elif any(w.startswith("agent is") for w in wait):
+            delay = 300
+        else:
+            delay = 1800
+        raise jobs.RetryLater(delay, "; ".join(wait), persist=_persist)
     s = get_settings()
     msg.status = "SENDING"
     msg.attempts += 1
@@ -438,7 +444,7 @@ def handle_reply_job(db: Session, payload: dict, job) -> dict:
     reply.handled = True
     reply.action_taken = action
     audit.record(db, "outreach.reply_handled", actor_type="AGENT", entity_type="outreach_reply", entity_id=reply.id,
-                 classification=c.label, confidence=c.confidence, action=action)
+                 classification=c.label, confidence=c.confidence, action_taken=action)
     return {"classification": c.label, "action": action}
 
 

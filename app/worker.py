@@ -29,10 +29,10 @@ log = logging.getLogger("app.worker")
 
 def register_all_handlers() -> None:
     """Import modules that register job handlers and recurring tasks."""
-    import app.services.inbox.processing  # noqa: F401
-    import app.services.notifications  # noqa: F401
     import app.services.appointments  # noqa: F401
+    import app.services.inbox.processing  # noqa: F401
     import app.services.maintenance  # noqa: F401
+    import app.services.notifications  # noqa: F401
     import app.services.outreach.agent  # noqa: F401
 
 

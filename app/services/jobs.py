@@ -40,10 +40,11 @@ class PermanentJobError(Exception):
 class RetryLater(Exception):  # noqa: N818 - control-flow signal, not an error
     """Re-run later without counting an attempt (e.g. outside send window, rate limited)."""
 
-    def __init__(self, delay_seconds: float, reason: str = ""):
+    def __init__(self, delay_seconds: float, reason: str = "", persist: Callable[[Session], None] | None = None):
         super().__init__(reason)
         self.delay_seconds = max(1.0, float(delay_seconds))
         self.reason = reason
+        self.persist = persist  # optional: record why the work is waiting (runs after rollback)
 
 
 Handler = Callable[[Session, dict, Job], dict | None]
@@ -161,6 +162,8 @@ def run_job(job_id: int, worker_id: str) -> str:
             db.flush()
         except RetryLater as exc:
             db.rollback()
+            if exc.persist:
+                exc.persist(db)
             job = db.get(Job, job_id)
             job.status = QUEUED
             job.attempts = max(0, job.attempts - 1)

@@ -28,3 +28,15 @@ dev = [
     "pytest-cov>=7.1.0",
     "ruff>=0.17.1",
 ]
+
+[tool.ruff]
+line-length = 130
+target-version = "py313"
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I"]
+ignore = ["E501", "B008", "B904", "E731"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

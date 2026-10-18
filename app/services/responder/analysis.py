@@ -101,7 +101,7 @@ BANK_RX = _rx(r"\b(routing number|account number|bank account|numero de cuenta|c
 
 EMAIL_RX = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 PHONE_RX = re.compile(r"(?<!\d)(?:\+?1[\s.-]?)?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})(?!\d)")
-NAME_RX = re.compile(r"\b(?:my name is|this is|i am|i'm|me llamo|mi nombre es|soy)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)")
+NAME_RX = re.compile(r"\b(?i:my name is|this is|i am|i'm|me llamo|mi nombre es|soy)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)")
 VIN_RX = re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b")
 STOCK_RX = re.compile(r"\bstock\s*(?:#|no\.?|number)?\s*([A-Z0-9-]{3,12})\b", re.IGNORECASE)
 YEAR_RX = re.compile(r"\b(19[89]\d|20[0-3]\d)\b")

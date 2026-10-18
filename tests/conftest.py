@@ -41,7 +41,13 @@ def db():
 def world(db):
     """Two dealerships with users, hours, inventory, website chat connections."""
     from app.models import (
-        AutomationSettings, BusinessHours, Dealership, IntegrationConnection, Membership, User, Vehicle,
+        AutomationSettings,
+        BusinessHours,
+        Dealership,
+        IntegrationConnection,
+        Membership,
+        User,
+        Vehicle,
     )
     from app.security.passwords import hash_password
 

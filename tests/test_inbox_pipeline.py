@@ -3,9 +3,16 @@
 import pytest
 from sqlalchemy import func, select
 
-from app import db as dbmod
 from app.models import (
-    ContactSuppression, Conversation, CustomerLead, Dealership, Escalation, Job, Message, Notification, ResponseDraft,
+    ContactSuppression,
+    Conversation,
+    CustomerLead,
+    Dealership,
+    Escalation,
+    Job,
+    Message,
+    Notification,
+    ResponseDraft,
 )
 from app.services.inbox.outbound import queue_outbound
 from app.services.inbox.processing import ingest_inbound

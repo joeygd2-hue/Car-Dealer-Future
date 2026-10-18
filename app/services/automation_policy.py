@@ -18,7 +18,6 @@ from app.integrations.registry import META_MESSENGER, SENDABLE_CHANNELS
 from app.models import (
     MODE_CONTROLLED,
     MODE_DRAFT_ONLY,
-    MODE_FAQ,
     AutomationSettings,
     ContactSuppression,
     Conversation,

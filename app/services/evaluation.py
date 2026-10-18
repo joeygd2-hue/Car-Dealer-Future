@@ -108,8 +108,8 @@ def run_cases(data: dict | None = None) -> dict:
                 fact_values += [v.title, ", ".join(v.approved_features or []), fmt_money(v.price_cents) if v.price_cents else "", f"{v.mileage:,}" if v.mileage else ""]
             fact_values += [dealership.phone, dealership.full_address, "9:00 AM 7:00 PM 6:00 PM 9:00 19:00 18:00"]
             appt = db.scalar(select(Appointment).where(Appointment.conversation_id == conv.id))
-            from app.services.responder.engine import T, describe_when
             from app.services.appointments import utc_to_local
+            from app.services.responder.engine import T, describe_when
 
             if appt:
                 fact_values.append(describe_when(utc_to_local(appt.requested_start, dealership.timezone), lang))

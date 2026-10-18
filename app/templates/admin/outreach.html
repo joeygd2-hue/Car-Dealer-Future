@@ -1,0 +1,71 @@
+{% extends "base.html" %}{% from "_macros.html" import badge %}{% block content %}
+{% set m = metrics.measured %}
+<h1>Outreach agent {{ badge(st.state) }}</h1>
+{% if emergency %}<div class="flash err">EMERGENCY STOP ACTIVE — no outreach will be sent until it is reset.</div>{% endif %}
+<div class="notice">{% if live_email %}LIVE email sending is authorized.{% else %}SANDBOX: outreach emails are SIMULATED (not sent). Live sending needs SMTP settings, LIVE_INTEGRATIONS_ENABLED=true and a recorded "outreach.email" authorization.{% endif %}
+ Inbox: {{ "LIVE (IMAP)" if live_inbox else "sandbox" }}. Worker: {{ "healthy" if health.healthy else "NOT RUNNING — the agent only acts while a worker runs" }}.</div>
+<div class="card"><div class="row">
+{% for a, label, cls in [("start","Start","primary"),("pause","Pause",""),("stop","Stop","")] %}<form method="post" action="/admin/outreach/control/{{ a }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="{{ cls }}">{{ label }}</button></form>{% endfor %}
+<form method="post" action="/admin/outreach/control/emergency-stop"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger">EMERGENCY STOP</button></form>
+{% if emergency or st.state == "EMERGENCY_STOPPED" %}<form method="post" action="/admin/outreach/control/reset-emergency" class="row"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="text" name="reason" placeholder="Reason for reset" required><button>Reset emergency stop</button></form>{% endif %}
+</div><p class="small muted">State changed {{ st.changed_at|dt }}{% if st.state_reason %} — {{ st.state_reason }}{% endif %}. Last tick {{ st.last_tick_at|dt }}. Checkpoint: <span class="mono">{{ st.last_checkpoint|tojson }}</span></p></div>
+<h2>Measured results</h2>
+<div class="grid">
+{% for label, v in [("Prospects", m.prospects_total), ("Researched", m.prospects_researched), ("Attempts (live)", m.outreach_attempts_live), ("Attempts (simulated)", m.outreach_attempts_simulated), ("Pending approval", m.pending_approval), ("Replies", m.replies), ("Positive replies", m.positive_replies), ("Opt-outs", m.opt_outs), ("Follow-ups due", m.follow_ups_due), ("Meetings booked", m.meetings_booked ~ (" (" ~ m.meetings_booked_simulated ~ " sim)" if m.meetings_booked_simulated else "")), ("Needs human", m.replies_needing_human), ("Errors (dead jobs)", m.dead_jobs), ("Blocked sends", m.blocked_messages), ("Sent 24h", m.sent_last_24h)] %}
+<div class="card stat"><div class="n">{{ v }}</div><div class="l">{{ label }}</div></div>{% endfor %}</div>
+<div class="grid2"><div class="card"><h3 style="margin-top:0">Rates (computed from measured counts)</h3>{% for k, v in metrics.rates.items() %}<div>{{ k }}: <strong>{{ v }}</strong></div>{% endfor %}
+<h3>Queue</h3><span class="mono">{{ m.queue|tojson }}</span> · prospects by status <span class="mono">{{ m.prospects_by_status|tojson }}</span></div>
+<div class="card"><h3 style="margin-top:0">Operating costs</h3><div>Estimated: <strong>${{ "%.2f"|format(metrics.costs.estimated_cents/100) }}</strong> (7d ${{ "%.2f"|format(metrics.costs.estimated_last_7d_cents/100) }})</div><div>Recorded actual: ${{ "%.2f"|format(metrics.costs.recorded_actual_cents/100) }}</div><p class="small muted">{{ metrics.costs.note }}</p></div></div>
+
+<div class="card"><h2 style="margin-top:0">Operating limits</h2><form method="post" action="/admin/outreach/settings"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<div class="row"><div><label>Max sends/day</label><input type="number" name="max_per_day" value="{{ st.max_sends_per_day }}"></div><div><label>Max sends/hour</label><input type="number" name="max_per_hour" value="{{ st.max_sends_per_hour }}"></div>
+<div><label>Daily budget (cents)</label><input type="number" name="budget_cents" value="{{ st.daily_budget_cents }}"></div><div><label>Window start hour</label><input type="number" name="start_hour" value="{{ st.send_window_start_hour }}"></div>
+<div><label>Window end hour</label><input type="number" name="end_hour" value="{{ st.send_window_end_hour }}"></div><div><label>Target queue size</label><input type="number" name="target_queue" value="{{ st.target_queue_size }}"></div><div><label>Max retries</label><input type="number" name="max_retries" value="{{ st.max_task_retries }}"></div></div>
+<label>Send days</label>{% for i, n in [(0,"Mon"),(1,"Tue"),(2,"Wed"),(3,"Thu"),(4,"Fri"),(5,"Sat"),(6,"Sun")] %}<label style="display:inline-block;margin-right:10px"><input type="checkbox" name="weekdays" value="{{ i }}" {% if i in st.send_weekdays %}checked{% endif %}> {{ n }}</label>{% endfor %}
+<label>Target cities</label><input type="text" name="cities" value="{{ st.target_cities|join(', ') }}">
+<label><input type="checkbox" name="auto_respond" {% if st.auto_respond_routine %}checked{% endif %}> Auto-send routine replies (booking link / approved FAQ answers). Off = every reply needs approval.</label>
+<p class="small muted">Timezone {{ st.timezone }}. Only email is permitted for cold outreach; SMS and calls are blocked (TCPA / Texas SB 140).</p><p><button class="primary">Save limits</button></p></form></div>
+
+<div class="card" id="approvals"><h2 style="margin-top:0">Awaiting approval ({{ approvals|length }})</h2>
+{% for a in approvals %}<form method="post" action="/admin/outreach/messages/{{ a.id }}/approve" style="border-bottom:1px solid var(--border);padding:10px 0"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<div class="small">To <strong>{{ a.to_address }}</strong> ({{ a.prospect.name }}{% if a.prospect.is_simulated %}, simulated{% endif %}) · {{ a.kind }} step {{ a.step_index }} · why: {{ a.approval_reasons|join("; ") }}</div>
+<input type="text" name="subject" value="{{ a.subject }}"><textarea name="body" rows="7">{{ a.body }}</textarea>
+<div class="small muted">Facts used: {% for f in a.facts_used %}{{ f.key }}={{ f.value }} [{{ f.confidence }}, {{ f.source }}]; {% else %}none{% endfor %}</div>
+<button class="primary">Approve</button></form>
+<form method="post" action="/admin/outreach/messages/{{ a.id }}/reject" class="row"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="text" name="reason" placeholder="Reason"><button>Reject</button></form>
+{% else %}<p class="muted">Nothing awaiting approval.</p>{% endfor %}</div>
+
+<div class="card" id="replies"><h2 style="margin-top:0">Replies</h2><div class="table-wrap"><table><tr><th>Received</th><th>From</th><th>Class</th><th>Action</th><th>Message</th></tr>
+{% for r in replies %}<tr><td class="small">{{ r.received_at|dt }}{% if r.is_simulated %} <span class="badge">sim</span>{% endif %}</td><td class="small">{{ r.from_address }}</td><td>{{ badge(r.classification or "UNKNOWN") }} {{ "%.2f"|format(r.classification_confidence or 0) }}{% if r.requires_human %} <span class="badge b-bad">HUMAN</span>{% endif %}</td><td class="small">{{ r.action_taken or "" }}</td><td class="small">{{ r.body[:200] }}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">No replies yet.</td></tr>{% endfor %}</table></div>
+{% if not live_inbox %}<h3>Sandbox: simulate a prospect reply</h3><form method="post" action="/admin/outreach/simulate-reply" class="row"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<select name="prospect_id">{% for p in prospects if p.email %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select><input type="text" name="body" placeholder="Sounds interesting, let's set up a call" required><button>Inject</button></form>{% endif %}</div>
+
+<div class="card" id="meetings"><h2 style="margin-top:0">Sales meetings</h2><table><tr><th>Prospect</th><th>Status</th><th>Start (UTC)</th><th>Join</th><th>Booking link</th></tr>
+{% for mt in meetings %}<tr><td>{{ mt.prospect.name }}</td><td>{{ badge(mt.status) }}{% if mt.simulated %} <span class="badge">sim</span>{% endif %}</td><td>{{ mt.start_at|dt }}</td><td class="small">{{ mt.video_join_url or "" }}</td><td class="small"><a href="/book/{{ mt.booking_token }}">/book/{{ mt.booking_token[:8] }}…</a></td></tr>{% else %}<tr><td colspan="5" class="muted">None.</td></tr>{% endfor %}</table></div>
+
+<div class="card" id="campaigns"><h2 style="margin-top:0">Campaigns</h2>{% for c in campaigns %}<div style="border-bottom:1px solid var(--border);padding:8px 0"><strong>{{ c.name }}</strong> {{ badge(c.status) }} · content {{ "approved " ~ (c.content_approved_at|dt) if c.content_approved_at else "NOT approved" }} · per-message approval {{ "on" if c.require_message_approval else "off" }}
+<details><summary class="small">Sequence ({{ c.steps|length }} steps)</summary>{% for s in c.steps %}<div class="small"><strong>Day {{ s.day_offset }}: ADV: {{ s.subject }}</strong><pre style="white-space:pre-wrap">{{ s.body }}</pre></div>{% endfor %}</details>
+{% for a, l in [("approve-content","Approve content"),("activate","Activate"),("pause","Pause"),("toggle-approval","Toggle per-message approval")] %}<form class="inline" method="post" action="/admin/outreach/campaigns/{{ c.id }}/{{ a }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>{{ l }}</button></form>{% endfor %}</div>{% endfor %}
+<form method="post" action="/admin/outreach/campaigns" class="row" style="margin-top:10px"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="text" name="name" placeholder="Campaign name" required><button>Create campaign (default 3-step sequence)</button></form></div>
+
+<div class="card" id="prospects"><h2 style="margin-top:0">Prospects (top 100 by fit)</h2>
+<form method="post" action="/admin/outreach/prospects/import" enctype="multipart/form-data" class="row"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="file" name="file" accept=".csv" required><button>Import CSV</button><span class="small muted">columns: name, city, source_url (required), email, email_verified, website, phone, address, contact_name</span></form>
+<div class="table-wrap"><table><tr><th>Name</th><th>City</th><th>Email</th><th>Source</th><th>Status</th><th>Fit</th><th>Actions</th></tr>
+{% for p in prospects %}<tr><td>{{ p.name }}{% if p.is_simulated %} <span class="badge">sim</span>{% endif %}</td><td>{{ p.city or "" }}</td><td class="small">{{ p.email or "—" }}{% if p.email_verified_by_human %} <span class="badge b-ok">verified</span>{% endif %}</td>
+<td class="small">{{ p.source }}{% if p.source_url %} <a href="{{ p.source_url }}" rel="noopener noreferrer" target="_blank">src</a>{% endif %}</td><td>{{ badge(p.status) }}<div class="small muted">{{ p.status_reason or "" }}</div></td><td>{{ p.fit_score }}</td>
+<td><details><summary class="small">Edit</summary>
+<form method="post" action="/admin/outreach/prospects/{{ p.id }}/verify-email"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="email" name="email" value="{{ p.email or '' }}"><input type="text" name="source_url" placeholder="where you confirmed it"><button>Mark email verified</button></form>
+<form method="post" action="/admin/outreach/prospects/{{ p.id }}/observation"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="text" name="value" placeholder="Evidence-based observation"><input type="text" name="source_url" placeholder="source URL"><button>Add observation</button></form>
+<form class="inline" method="post" action="/admin/outreach/prospects/{{ p.id }}/dnc"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger">Do not contact</button></form>
+<form class="inline" method="post" action="/admin/outreach/prospects/{{ p.id }}/requalify"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Re-qualify</button></form></details></td></tr>{% endfor %}</table></div></div>
+
+<div class="grid2"><div class="card" id="suppression"><h2 style="margin-top:0">Do-not-contact list</h2><form method="post" action="/admin/outreach/suppressions" class="row"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><select name="kind"><option>EMAIL</option><option>DOMAIN</option><option>PHONE</option></select><input type="text" name="value" required><button>Add</button></form>
+{% for s in suppressions %}<div class="small">{{ s.kind }} {{ s.value }} — {{ s.reason }} ({{ s.created_at|dt }})</div>{% endfor %}</div>
+<div class="card" id="faqs"><h2 style="margin-top:0">Approved company answers</h2>{% for f in faqs %}<div class="small"><strong>{{ f.question }}</strong> — {{ f.answer }} <span class="muted">[{{ f.keywords|join(", ") }}]</span></div>{% endfor %}
+<form method="post" action="/admin/outreach/faqs"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="text" name="question" placeholder="Question" required><textarea name="answer" placeholder="Approved answer (no invented claims)" required></textarea><input type="text" name="keywords" placeholder="keywords: price, cost, pricing"><button>Approve answer</button></form></div></div>
+
+<div class="grid2"><div class="card"><h2 style="margin-top:0">Recent sends</h2>{% for r in recent %}<div class="small">{{ r.sent_at|dt }} {{ badge(r.status) }} {{ r.to_address }} — {{ r.subject }}{% if r.block_reasons %} <span class="muted">({{ r.block_reasons|join("; ") }})</span>{% endif %}</div>{% endfor %}
+{% if sandbox_out %}<h3>Sandbox outbox</h3>{% for s in sandbox_out %}<details><summary class="small">{{ s.created_at|dt }} → {{ s.payload.to }}: {{ s.payload.subject }}</summary><pre class="small" style="white-space:pre-wrap">{{ s.payload.body }}</pre></details>{% endfor %}{% endif %}</div>
+<div class="card"><h2 style="margin-top:0">Activity log</h2>{% for l in activity %}<div class="small">{{ l.created_at|dt }} {{ l.action }} {{ badge(l.outcome) }} <span class="mono">{{ l.details|tojson }}</span></div>{% endfor %}</div></div>
+{% endblock %}

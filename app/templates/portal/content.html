@@ -1,0 +1,17 @@
+{% extends "portal/_layout.html" %}{% from "_macros.html" import badge %}{% block content %}
+<h1>Approved FAQs &amp; response templates</h1>
+<p class="muted small">Mode B automation only auto-sends answers that come from an approved template or FAQ marked "auto-send allowed". Template placeholders: {vehicle} {price} {mileage} {features} {hours} {address} {phone} {dealer_name} {name}. A template is skipped when any placeholder has no verified value.</p>
+<div class="grid2">
+<div class="card"><h2 style="margin-top:0">FAQs</h2>{% for f in faqs %}<div style="border-bottom:1px solid var(--border);padding:8px 0"><strong>{{ f.question }}</strong> <span class="badge">{{ f.language|upper }}</span> {% if f.auto_send_allowed %}<span class="badge b-info">auto-send</span>{% endif %} {% if not f.active %}<span class="badge">inactive</span>{% endif %}
+<div class="small">{{ f.answer }}</div><div class="small muted">keywords: {{ f.keywords|join(", ") }}</div>
+{% if f.active and scope.is_admin %}<form method="post" action="/portal/{{ d.id }}/settings/faqs/{{ f.id }}/deactivate"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Deactivate</button></form>{% endif %}</div>{% else %}<p class="muted">No FAQs yet.</p>{% endfor %}
+{% if scope.is_admin %}<h3>Add FAQ</h3><form method="post" action="/portal/{{ d.id }}/settings/faqs"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Question</label><input type="text" name="question" required><label>Approved answer</label><textarea name="answer" required></textarea>
+<div class="row"><div><label>Keywords (comma-separated)</label><input type="text" name="keywords" placeholder="spanish, español"></div><div><label>Language</label><select name="language"><option value="en">English</option><option value="es">Spanish</option></select></div></div>
+<label><input type="checkbox" name="auto_send_allowed"> Allow auto-send in Mode B/C</label><p><button class="primary">Approve FAQ</button></p></form>{% endif %}</div>
+<div class="card"><h2 style="margin-top:0">Templates</h2>{% for t in templates if t.active %}<div style="border-bottom:1px solid var(--border);padding:8px 0"><strong>{{ t.intent }}</strong> <span class="badge">{{ t.language|upper }}</span> {% if t.auto_send_allowed %}<span class="badge b-info">auto-send</span>{% endif %}<div class="small">{{ t.body }}</div></div>{% else %}<p class="muted">No templates yet; the built-in reviewed phrasing is used (draft-only).</p>{% endfor %}
+{% if scope.is_admin %}<h3>Add / replace template</h3><form method="post" action="/portal/{{ d.id }}/settings/templates"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<div class="row"><div><label>Intent</label><select name="intent">{% for i in intents %}<option>{{ i }}</option>{% endfor %}</select></div><div><label>Language</label><select name="language"><option value="en">English</option><option value="es">Spanish</option></select></div></div>
+<label>Template</label><textarea name="body" required placeholder="The listed price for the {vehicle} is {price}."></textarea>
+<label><input type="checkbox" name="auto_send_allowed"> Allow auto-send in Mode B/C</label><p><button class="primary">Approve template</button></p></form>{% endif %}</div></div>
+{% endblock %}

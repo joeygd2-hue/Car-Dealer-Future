@@ -1,0 +1,31 @@
+{% extends "base.html" %}{% from "_macros.html" import badge %}{% block content %}
+<h1>Administrator workspace</h1>
+<div class="grid">
+<div class="card stat"><div class="n">{{ rows|length }}</div><div class="l">Clients</div></div>
+<div class="card stat"><div class="n">{{ badge("RUNNING" if health.healthy else "STOPPED") }}</div><div class="l">Worker ({{ health.alive_workers|length }} alive; last seen {{ health.last_seen_at or "never" }})</div></div>
+<div class="card stat"><div class="n">{{ health.queue.get("QUEUED", 0) }} / {{ health.queue.get("DEAD", 0) }}</div><div class="l">Jobs queued / dead</div></div>
+<div class="card stat"><div class="n">${{ "%.2f"|format(cost_total/100) }}</div><div class="l">Recorded costs (estimates included)</div></div>
+<div class="card stat"><div class="n">{{ badge("ON" if settings.live_integrations_enabled else "SANDBOX") }}</div><div class="l">LIVE_INTEGRATIONS_ENABLED</div></div></div>
+<div class="card"><h2 style="margin-top:0">Global emergency pause (customer-response automation)</h2>
+<form method="post" action="/admin/global-pause"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+{% if global_pause %}<input type="hidden" name="on" value="0"><span class="badge b-bad">PAUSED FOR ALL CLIENTS</span> <button>Lift global pause</button>
+{% else %}<input type="hidden" name="on" value="1"><div class="row"><input type="text" name="reason" placeholder="Reason"><button class="danger">Pause automation for ALL clients</button></div>{% endif %}</form></div>
+<div class="card"><h2 style="margin-top:0">Clients</h2><div class="table-wrap"><table><tr><th>Dealership</th><th>Status</th><th>Mode (effective / configured)</th><th>Paused</th><th>Conversations</th><th>Messages 7d</th><th>Failed sends</th></tr>
+{% for r in rows %}<tr><td><a href="/admin/dealerships/{{ r.d.id }}">{{ r.d.name }}</a> · <a class="small" href="/portal/{{ r.d.id }}">portal</a></td><td>{{ badge(r.d.status) }}</td><td class="small">{{ r.mode }} / {{ r.configured_mode }}</td>
+<td>{{ "yes" if r.paused else "no" }}</td><td>{{ r.conversations }}</td><td>{{ r.messages_7d }}</td><td>{{ r.failed }}</td></tr>{% endfor %}</table></div>
+<form method="post" action="/admin/dealerships" class="row" style="margin-top:10px"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="text" name="name" placeholder="New client dealership name" required><input type="text" name="timezone" value="America/Chicago"><button class="primary">Add client</button></form></div>
+<div class="card"><h2 style="margin-top:0">Integration status</h2><table><tr><th>Integration</th><th>Configured</th><th>Live authorized</th><th>Notes</th></tr>
+{% for i in integrations %}<tr><td>{{ i.name }}</td><td>{{ "yes" if i.configured else ("per client" if i.configured is none else "no") }}</td><td>{{ "yes" if i.live_authorized else ("per client" if i.live_authorized is none else "no") }}</td><td class="small">{{ i.note }}</td></tr>{% endfor %}</table></div>
+<div class="card"><h2 style="margin-top:0">Live authorizations</h2><p class="small muted">Live provider use requires LIVE_INTEGRATIONS_ENABLED=true, configured credentials AND an explicit authorization below. Without them every send is SIMULATED.</p>
+<form method="post" action="/admin/live-authorizations"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div class="row">
+<div><label>Scope</label><select name="scope">{% for s in scopes %}<option>{{ s }}</option>{% endfor %}<option>customer_messaging.META_MESSENGER</option><option>customer_messaging.TWILIO_SMS</option></select></div>
+<div><label>Dealership id (for client-specific scopes)</label><input type="number" name="dealership_id"></div></div>
+<label>Authorization statement</label><textarea name="statement" required placeholder="I authorize live sending for … after verifying …"></textarea><p><button class="danger">Record live authorization</button></p></form>
+{% for a in live_auths %}<div class="small">{{ a.authorized_at|dt }} · {{ a.scope }}{% if a.dealership_id %} · dealership {{ a.dealership_id }}{% endif %} · {{ "revoked" if a.revoked_at else "active" }} — {{ a.statement }}
+{% if not a.revoked_at %}<form class="inline" method="post" action="/admin/live-authorizations/revoke"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="scope" value="{{ a.scope }}">{% if a.dealership_id %}<input type="hidden" name="dealership_id" value="{{ a.dealership_id }}">{% endif %}<button>Revoke</button></form>{% endif %}</div>{% endfor %}</div>
+<div class="card"><h2 style="margin-top:0">Evaluations</h2><form method="post" action="/admin/evaluations/run"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Run evaluation now</button></form>
+{% for e in evals %}<div class="small">#{{ e.id }} {{ e.created_at|dt }} {{ badge("SUCCEEDED" if e.passed else "FAILED") }} engine {{ e.engine_version }} — {% for k, v in e.metrics.items() if k != "thresholds" %}{{ k }} {{ v }}; {% endfor %}</div>{% endfor %}</div>
+<div class="card"><h2 style="margin-top:0">Errors (dead jobs)</h2><div class="table-wrap"><table><tr><th>#</th><th>Type</th><th>Attempts</th><th>Error</th><th></th></tr>
+{% for j in dead %}<tr><td>{{ j.id }}</td><td>{{ j.type }}</td><td>{{ j.attempts }}/{{ j.max_attempts }}</td><td class="mono">{{ (j.last_error or "")[:300] }}</td><td><form method="post" action="/admin/jobs/{{ j.id }}/retry"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Retry</button></form></td></tr>
+{% else %}<tr><td colspan="5" class="muted">No dead jobs.</td></tr>{% endfor %}</table></div></div>
+{% endblock %}

@@ -1,0 +1,6 @@
+{% extends "portal/_layout.html" %}{% from "_macros.html" import badge %}{% block content %}<h1>Service &amp; account</h1>
+<div class="card"><dl class="kv"><dt>Account status</dt><dd>{{ badge(d.status) }}</dd><dt>Service plan</dt><dd>{{ d.service_plan or "—" }}</dd><dt>Time zone</dt><dd>{{ d.timezone }}</dd><dt>Messages (30 days)</dt><dd>{{ usage.messages_30d }}</dd></dl></div>
+<div class="card"><h2 style="margin-top:0">Connected channels</h2><table><tr><th>Channel</th><th>Status</th><th>Notes</th></tr>
+{% for c in conns %}<tr><td>{{ c.display_name or c.provider }}</td><td>{{ badge(c.status) }}</td><td class="small">{{ c.last_error or "" }}</td></tr>{% endfor %}</table>
+<p class="small muted">Facebook Marketplace chats have no official API; they're handled with the human-assisted workflow in the Inbox. Messenger and SMS need provider approval before live use.</p></div>
+<div class="card"><h2 style="margin-top:0">SEO reports</h2><p class="muted">SEO reporting arrives in Phase 4 and will appear here.</p></div>{% endblock %}

@@ -1,0 +1,3 @@
+{% extends "base.html" %}{% block content %}<h1>Your dealerships</h1>
+{% for m in memberships %}<div class="card"><a href="/portal/{{ m.dealership_id }}">{{ m.dealership.name }}</a> <span class="badge">{{ m.role }}</span></div>
+{% else %}<p class="muted">You are not a member of any dealership yet.</p>{% endfor %}{% endblock %}

@@ -1,0 +1,6 @@
+{% extends "base.html" %}{% block content %}<div class="card" style="max-width:640px;margin:30px auto">
+{% if meeting.status == "CONFIRMED" %}<h1>You're booked</h1><p>Your call is confirmed for {{ meeting.start_at|dt }}.</p>{% if meeting.video_join_url %}<p>Join link: {{ meeting.video_join_url }}</p>{% endif %}{% if meeting.simulated %}<p class="notice">Sandbox mode: this booking is simulated.</p>{% endif %}
+{% elif meeting.status != "PROPOSED" %}<h1>This link is no longer active</h1>
+{% else %}<h1>Pick a time for a 30-minute call</h1>{% if error %}<div class="flash err">{{ error }}</div>{% endif %}<p class="muted small">Times are shown in UTC; the calendar invite will show your local time. ({{ tz }} business hours)</p>
+<form method="post"><div class="grid">{% for s in slots %}<label class="card" style="margin:0;cursor:pointer"><input type="radio" name="slot" value="{{ s.isoformat() }}" required> {{ s.strftime("%a %b %d, %H:%M") }} UTC</label>{% else %}<p>No times are available right now.</p>{% endfor %}</div>
+{% if slots %}<p><button class="primary">Book this time</button></p>{% endif %}</form>{% endif %}</div>{% endblock %}

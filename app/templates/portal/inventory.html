@@ -1,0 +1,25 @@
+{% extends "portal/_layout.html" %}{% from "_macros.html" import badge %}{% block content %}
+<h1>Inventory &amp; listings</h1>
+<p class="muted small">The assistant only quotes price and availability that were verified within the last {{ stale_hours }} hours and have no data conflict. Phase 2 ingestion will populate this automatically.</p>
+<div class="card"><div class="table-wrap"><table><tr><th>Vehicle</th><th>Stock</th><th>Price</th><th>Miles</th><th>Status</th><th>Verified</th><th>Approved features</th><th></th></tr>
+{% for v in vehicles %}{% set stale = (not v.verified_at) or ((now - v.verified_at).total_seconds() > stale_hours*3600) %}
+<tr><td>{{ v.title }}</td><td>{{ v.stock_number or "—" }}</td><td>{{ v.price_cents|money }}</td><td>{{ "{:,}".format(v.mileage) if v.mileage is not none else "—" }}</td>
+<td>{{ badge(v.status) }}{% if v.data_conflict_note %} <span class="badge b-bad" title="{{ v.data_conflict_note }}">CONFLICT</span>{% endif %}</td>
+<td class="small">{{ v.verified_at|dt }}{% if stale %} <span class="badge b-warn">STALE</span>{% endif %}</td><td class="small">{{ v.approved_features|join(", ") }}</td>
+<td><form method="post" action="/portal/{{ d.id }}/inventory/vehicles/{{ v.id }}/verify"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button title="Confirm price and availability are current">Confirm current</button></form></td></tr>
+{% else %}<tr><td colspan="8" class="muted">No vehicles yet.</td></tr>{% endfor %}</table></div></div>
+<div class="card"><h2 style="margin-top:0">Add / update a vehicle</h2>
+<form method="post" action="/portal/{{ d.id }}/inventory/vehicles"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<div class="row"><div><label>Existing vehicle (to edit)</label><select name="vehicle_id"><option value="">New vehicle</option>{% for v in vehicles %}<option value="{{ v.id }}">{{ v.title }} {{ v.stock_number or "" }}</option>{% endfor %}</select></div>
+<div><label>Year</label><input type="number" name="year"></div><div><label>Make</label><input type="text" name="make"></div><div><label>Model</label><input type="text" name="model"></div><div><label>Trim</label><input type="text" name="trim"></div></div>
+<div class="row"><div><label>VIN</label><input type="text" name="vin"></div><div><label>Stock #</label><input type="text" name="stock_number"></div><div><label>Price ($)</label><input type="text" name="price"></div><div><label>Mileage</label><input type="text" name="mileage"></div>
+<div><label>Status</label><select name="status">{% for s in ["AVAILABLE","PENDING","SOLD","UNKNOWN"] %}<option>{{ s }}</option>{% endfor %}</select></div></div>
+<label>Approved features (comma-separated — only these will be mentioned)</label><input type="text" name="features">
+<label>Data conflict note (leave blank if none — any note blocks price/availability answers)</label><input type="text" name="conflict_note">
+<p><button class="primary">Save &amp; mark verified</button></p></form></div>
+<div class="card"><h2 style="margin-top:0">Listing drafts</h2><div class="table-wrap"><table><tr><th>Vehicle</th><th>Lang</th><th>Title</th><th>Status</th><th></th></tr>
+{% for l in drafts %}<tr><td>{{ l.vehicle.title }}</td><td>{{ l.language|upper }}</td><td><details><summary>{{ l.title }}</summary><p class="small">{{ l.body }}</p></details></td><td>{{ badge(l.status) }}</td>
+<td>{% if l.status == "DRAFT" %}<form class="inline" method="post" action="/portal/{{ d.id }}/listings/{{ l.id }}/approve"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Approve</button></form>
+<form class="inline" method="post" action="/portal/{{ d.id }}/listings/{{ l.id }}/reject"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Reject</button></form>{% endif %}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">No listing drafts. Phase 2 generates EN/ES listing drafts here.</td></tr>{% endfor %}</table></div></div>
+{% endblock %}

@@ -1,0 +1,4 @@
+{% extends "portal/_layout.html" %}{% from "_macros.html" import badge %}{% block content %}<h1>Audit trail</h1>
+<div class="card"><div class="table-wrap"><table><tr><th>When</th><th>Actor</th><th>Action</th><th>Entity</th><th>Outcome</th><th>Details</th></tr>
+{% for l in logs %}<tr><td class="small">{{ l.created_at|dt }}</td><td class="small">{{ l.actor_type }}{% if l.actor_user_id and l.actor_user_id in users %} · {{ users[l.actor_user_id].name }}{% endif %}</td>
+<td>{{ l.action }}{% if l.external %} <span class="badge b-info">external</span>{% endif %}</td><td class="small">{{ l.entity_type or "" }} {{ l.entity_id or "" }}</td><td>{{ badge(l.outcome) }}</td><td class="mono">{{ l.details|tojson }}</td></tr>{% endfor %}</table></div></div>{% endblock %}

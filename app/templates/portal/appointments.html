@@ -1,0 +1,20 @@
+{% extends "portal/_layout.html" %}{% from "_macros.html" import badge %}{% block content %}
+<h1>Test-drive appointments</h1>
+<p class="muted small">Customers are never told a time is confirmed until you confirm it here.
+{% if calendar_connected %}Confirming also creates a calendar event.{% else %}No calendar is connected, so availability can't be checked automatically.{% endif %}
+Times shown in {{ d.timezone }}.</p>
+<div class="card"><div class="table-wrap"><table><tr><th>#</th><th>Requested</th><th>Customer</th><th>Vehicle</th><th>Status</th><th>Calendar</th><th>Actions</th></tr>
+{% for a in appts %}<tr><td>{{ a.id }}</td><td>{{ local(a.requested_start).strftime("%a %b %d %I:%M %p") }}{% if a.confirmed_start %}<br><span class="small">confirmed {{ local(a.confirmed_start).strftime("%a %b %d %I:%M %p") }}</span>{% endif %}</td>
+<td class="small">{{ a.customer_name or "—" }}<br>{{ a.customer_phone or "" }} {{ a.customer_email or "" }}</td><td>{{ vehicles[a.vehicle_id].title if a.vehicle_id in vehicles else "—" }}</td>
+<td>{{ badge(a.status) }}</td><td>{{ badge(a.availability_checked) }}{% if a.calendar_event_id %}<br><span class="mono">{{ a.calendar_event_id }}</span>{% endif %}</td>
+<td>{% if a.status in ["REQUESTED","PENDING_CONFIRMATION","RESCHEDULE_REQUESTED"] %}
+<form class="inline" method="post" action="/portal/{{ d.id }}/appointments/{{ a.id }}/confirm"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="primary">Confirm</button></form>
+<form class="inline" method="post" action="/portal/{{ d.id }}/appointments/{{ a.id }}/decline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Decline</button></form>{% endif %}
+{% if a.status in ["CONFIRMED","PENDING_CONFIRMATION","REQUESTED","RESCHEDULE_REQUESTED"] %}
+<details><summary class="small">Reschedule / cancel</summary><form method="post" action="/portal/{{ d.id }}/appointments/{{ a.id }}/reschedule"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="datetime-local" name="new_start" required><button>Move</button></form>
+<form method="post" action="/portal/{{ d.id }}/appointments/{{ a.id }}/cancel"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="text" name="note" placeholder="Reason"><button class="danger">Cancel</button></form></details>{% endif %}
+{% if a.status == "CONFIRMED" %}<form class="inline" method="post" action="/portal/{{ d.id }}/appointments/{{ a.id }}/complete"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Completed</button></form>
+<form class="inline" method="post" action="/portal/{{ d.id }}/appointments/{{ a.id }}/no-show"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>No-show</button></form>{% endif %}
+<details><summary class="small">History</summary>{% for e in a.events %}<div class="small">{{ e.created_at|dt }} {{ e.event }} ({{ e.actor }})</div>{% endfor %}</details></td></tr>
+{% else %}<tr><td colspan="7" class="muted">No appointments yet.</td></tr>{% endfor %}</table></div></div>
+{% endblock %}

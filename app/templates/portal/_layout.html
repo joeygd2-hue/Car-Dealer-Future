@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ d.name }} · {{ settings.app_name }}{% endblock %}
+{% block body %}
+<div class="layout">
+<aside class="side">
+  <div class="label">{{ d.name }}</div>
+  {% set p = "/portal/" ~ d.id %}
+  <a href="{{ p }}">Overview</a><a href="{{ p }}/inbox">Inbox</a><a href="{{ p }}/appointments">Appointments</a>
+  <a href="{{ p }}/inventory">Inventory &amp; listings</a><a href="{{ p }}/notifications">Notifications</a>
+  <div class="label">Settings</div>
+  <a href="{{ p }}/settings/business">Business info &amp; hours</a><a href="{{ p }}/settings/content">FAQs &amp; templates</a>
+  <a href="{{ p }}/settings/automation">Automation</a><a href="{{ p }}/settings/notifications">Notification rules</a>
+  <div class="label">Account</div><a href="{{ p }}/audit">Audit trail</a><a href="{{ p }}/account">Service &amp; account</a>
+</aside>
+<main>{% if flash %}<div class="flash">{{ flash }}</div>{% endif %}{% if flash_error %}<div class="flash err">{{ flash_error }}</div>{% endif %}
+{% block content %}{% endblock %}</main></div>
+{% endblock %}

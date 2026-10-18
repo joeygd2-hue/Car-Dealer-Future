@@ -1,0 +1,3 @@
+{% extends "base.html" %}{% block content %}<div class="card" style="max-width:520px;margin:40px auto">
+{% if done %}<h1>You're unsubscribed</h1><p>You won't receive further outreach emails from us.</p>
+{% else %}<h1>Unsubscribe</h1><p>Click below to stop receiving outreach emails from us.</p><form method="post"><button class="primary">Unsubscribe</button></form>{% endif %}</div>{% endblock %}

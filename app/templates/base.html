@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}{{ settings.app_name }}{% endblock %}</title><link rel="stylesheet" href="/static/app.css"></head>
+<body>
+<header class="top">
+  <a class="brand" href="/">{{ settings.app_name }}</a>
+  <nav>
+  {% if user %}
+    {% if user.is_platform_admin %}<a href="/admin">Admin</a><a href="/admin/outreach">Outreach agent</a><a href="/admin/audit">Audit</a>{% endif %}
+    {% for nd in nav_dealerships[:6] %}<a href="/portal/{{ nd.id }}">{{ nd.name }}</a>{% endfor %}
+  {% endif %}
+  </nav>
+  {% if user %}<div class="me">{{ user.name }}{% if unread %} · <span class="badge b-info">{{ unread }} unread</span>{% endif %}
+    <form class="inline" method="post" action="/logout"><button>Sign out</button></form></div>{% endif %}
+</header>
+{% block body %}<main>{% block flash %}{% if flash %}<div class="flash">{{ flash }}</div>{% endif %}{% if flash_error %}<div class="flash err">{{ flash_error }}</div>{% endif %}{% endblock %}{% block content %}{% endblock %}</main>{% endblock %}
+</body></html>

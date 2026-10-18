@@ -1,0 +1,20 @@
+{% extends "portal/_layout.html" %}{% from "_macros.html" import badge %}{% block content %}
+<h1>Unified inbox</h1>
+<form class="card row" method="get">
+<div><label>Status</label><select name="status"><option value="">Any</option>{% for s in ["AWAITING_STAFF","ESCALATED","AWAITING_CUSTOMER","OPEN","CLOSED"] %}<option {% if f_status==s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
+<div><label>Channel</label><select name="channel"><option value="">Any</option>{% for c in channels %}<option {% if f_channel==c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></div>
+<div><label><input type="checkbox" name="mine" value="1" {% if mine %}checked{% endif %}> Assigned to me</label></div><div><button>Filter</button></div></form>
+<div class="card"><div class="table-wrap"><table>
+<tr><th>#</th><th>Channel</th><th>Vehicle</th><th>Lang</th><th>Status</th><th>Escalation</th><th>Appointment</th><th>Last inbound</th></tr>
+{% for c in convs %}<tr><td><a href="/portal/{{ d.id }}/conversations/{{ c.id }}">#{{ c.id }}</a></td><td>{{ c.channel }}</td>
+<td>{{ vehicles[c.vehicle_id].title if c.vehicle_id in vehicles else "—" }}</td><td>{{ c.preferred_language|upper }}</td>
+<td>{{ badge(c.status) }}{% if c.human_takeover %} <span class="badge b-info">HUMAN</span>{% endif %}{% if c.opted_out %} {{ badge("OPT_OUT") }}{% endif %}</td>
+<td>{{ badge(c.escalation_status) if c.escalation_status != "NONE" else "" }}</td><td>{{ c.appointment_status if c.appointment_status != "NONE" else "" }}</td><td class="small">{{ c.last_inbound_at|dt }}</td></tr>
+{% else %}<tr><td colspan="8" class="muted">Nothing here.</td></tr>{% endfor %}</table></div></div>
+<div class="card"><h2 style="margin-top:0">Log a Facebook Marketplace message</h2>
+<p class="small muted">Meta provides no API for Marketplace chats. Read the buyer's message in Facebook yourself, paste it here, and you'll get a drafted reply to paste back. The platform never logs into Facebook.</p>
+<form method="post" action="/portal/{{ d.id }}/marketplace/intake"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<div class="row"><div><label>Thread label (buyer name + listing)</label><input type="text" name="thread_label" required placeholder="Maria – 2019 Civic"></div>
+<div><label>Buyer first name (optional)</label><input type="text" name="buyer_name"></div></div>
+<label>Buyer's message</label><textarea name="text" required></textarea><p><button class="primary">Log message &amp; draft reply</button></p></form></div>
+{% endblock %}

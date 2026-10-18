@@ -1,0 +1,13 @@
+{% extends "portal/_layout.html" %}{% from "_macros.html" import badge %}{% block content %}
+<h1>Notification rules</h1>
+<form class="card" method="post" action="/portal/{{ d.id }}/settings/notifications"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label><input type="checkbox" name="immediate_alerts" {% if prefs.immediate_alerts %}checked{% endif %}> Immediate alerts for new inquiries (escalations always alert)</label>
+<label><input type="checkbox" name="daily_digest" {% if prefs.daily_digest %}checked{% endif %}> Daily digest at</label><input type="number" name="digest_hour" min="0" max="23" value="{{ prefs.digest_hour_local }}" style="max-width:100px"> <span class="small muted">(local hour)</span>
+<label><input type="checkbox" name="notify_assigned" {% if prefs.notify_assigned_user %}checked{% endif %}> Notify the assigned team member first</label>
+<label><input type="checkbox" name="email_enabled" {% if prefs.email_enabled %}checked{% endif %}> Send email copies (in-app notifications are always kept)</label>
+<h3>Who receives escalations</h3>{% for m in members %}<label><input type="checkbox" name="escalation_member_ids" value="{{ m.user_id }}" {% if m.receives_escalations %}checked{% endif %}> {{ m.user.name }} ({{ m.role }})</label>{% endfor %}
+<p class="small muted">Dealership admins are also alerted for: {{ prefs.escalate_to_admins_reasons|join(", ") }}.</p>
+{% if scope.is_admin %}<p><button class="primary">Save</button></p>{% endif %}</form>
+<div class="card"><h2 style="margin-top:0">Delivery log</h2><p class="small muted">SIMULATED means sandbox mode — the email was not actually sent.</p><div class="table-wrap"><table><tr><th>When</th><th>Kind</th><th>Channel</th><th>To</th><th>Subject</th><th>Status</th></tr>
+{% for n in sent %}<tr><td class="small">{{ n.created_at|dt }}</td><td>{{ n.kind }}</td><td>{{ n.channel }}</td><td class="small">{{ n.recipient_address or ("user #" ~ n.user_id) }}</td><td class="small">{{ n.subject }}</td><td>{{ badge(n.status) }} <span class="small muted">{{ n.status_detail or "" }}</span></td></tr>{% endfor %}</table></div></div>
+{% endblock %}

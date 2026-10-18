@@ -1,0 +1,20 @@
+{% extends "portal/_layout.html" %}{% from "_macros.html" import badge %}{% block content %}
+<h1>{{ d.name }}</h1>
+{% if settings.paused %}<div class="notice">Automation is paused for this dealership{% if settings.paused_reason %}: {{ settings.paused_reason }}{% endif %}.</div>{% endif %}
+<div class="grid">
+  <a class="card stat" href="/portal/{{ d.id }}/inbox?status=AWAITING_STAFF"><div class="n">{{ stats.open_conversations }}</div><div class="l">Open conversations</div></a>
+  <a class="card stat" href="/portal/{{ d.id }}/inbox"><div class="n">{{ stats.pending_drafts }}</div><div class="l">Drafts awaiting review</div></a>
+  <a class="card stat" href="/portal/{{ d.id }}/inbox?status=ESCALATED"><div class="n">{{ stats.open_escalations }}</div><div class="l">Open escalations</div></a>
+  <a class="card stat" href="/portal/{{ d.id }}/appointments"><div class="n">{{ stats.pending_appointments }}</div><div class="l">Appointments to confirm</div></a>
+  <a class="card stat" href="/portal/{{ d.id }}/inventory"><div class="n">{{ stats.listing_drafts }}</div><div class="l">Listing drafts to review</div></a>
+  <div class="card stat"><div class="n" style="font-size:16px">{{ mode }}</div><div class="l">Effective automation mode</div></div>
+</div>
+<div class="card"><h2 style="margin-top:0">Recent conversations</h2><div class="table-wrap"><table>
+<tr><th>#</th><th>Channel</th><th>Language</th><th>Status</th><th>Next action</th><th>Updated</th></tr>
+{% for c in recent %}<tr><td><a href="/portal/{{ d.id }}/conversations/{{ c.id }}">#{{ c.id }}</a></td><td>{{ c.channel }}</td><td>{{ c.preferred_language|upper }}</td>
+<td>{{ badge(c.status) }}{% if c.opted_out %} {{ badge("OPT_OUT") }}{% endif %}</td><td class="small">{{ c.next_action or "" }}</td><td class="small">{{ c.updated_at|dt }}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No conversations yet.</td></tr>{% endfor %}</table></div></div>
+<div class="card"><h3 style="margin-top:0">Website chat</h3><p class="small">Embed on your site:
+<code class="mono">&lt;script src="{{ settings.base_url }}/static/chat-widget.js" data-key="{{ d.public_chat_key }}" data-base="{{ settings.base_url }}" defer&gt;&lt;/script&gt;</code>
+· <a href="/chat/{{ d.public_chat_key }}">Open test page</a></p></div>
+{% endblock %}

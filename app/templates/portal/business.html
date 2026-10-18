@@ -1,0 +1,12 @@
+{% extends "portal/_layout.html" %}{% block content %}
+<h1>Business info &amp; hours</h1>
+<p class="muted small">The assistant only shares this information once an administrator approves it. Currently: <strong>{{ "APPROVED" if d.business_info_approved else "NOT APPROVED" }}</strong>{% if d.business_info_approved_at %} ({{ d.business_info_approved_at|dt }}){% endif %}.</p>
+<form class="card" method="post" action="/portal/{{ d.id }}/settings/business"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<div class="row"><div><label>Phone</label><input type="text" name="phone" value="{{ d.phone or '' }}"></div><div><label>Email</label><input type="text" name="email" value="{{ d.email or '' }}"></div><div><label>Website</label><input type="text" name="website" value="{{ d.website or '' }}"></div></div>
+<div class="row"><div><label>Street address</label><input type="text" name="address_line1" value="{{ d.address_line1 or '' }}"></div><div><label>City</label><input type="text" name="city" value="{{ d.city or '' }}"></div><div><label>State</label><input type="text" name="state" value="{{ d.state or '' }}"></div><div><label>ZIP</label><input type="text" name="postal_code" value="{{ d.postal_code or '' }}"></div></div>
+<h2>Hours ({{ d.timezone }})</h2><div class="table-wrap"><table><tr><th>Day</th><th>Open</th><th>Close</th><th>Closed</th></tr>
+{% for i in range(7) %}{% set h = hours.get(i) %}<tr><td>{{ days[i] }}</td><td><input type="time" name="open_{{ i }}" value="{{ h.open_time if h and h.open_time else '' }}"></td>
+<td><input type="time" name="close_{{ i }}" value="{{ h.close_time if h and h.close_time else '' }}"></td><td><input type="checkbox" name="closed_{{ i }}" {% if h and h.closed %}checked{% endif %}></td></tr>{% endfor %}</table></div>
+{% if scope.is_admin %}<label><input type="checkbox" name="approve" {% if d.business_info_approved %}checked{% endif %}> I approve this information for use in customer replies</label><p><button class="primary">Save</button></p>
+{% else %}<p class="muted">Only dealership administrators can change this.</p>{% endif %}</form>
+{% endblock %}

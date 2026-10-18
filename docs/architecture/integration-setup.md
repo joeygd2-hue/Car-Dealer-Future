@@ -64,10 +64,8 @@ Calls are blocked outside `DF_CALLING_HOURS_*` (local time) and for do-not-conta
 ## 5. Lead discovery
 - **Fixture** (default): SIMULATED, offline.
 - **OpenStreetMap / Overpass**: no key. Results carry the ODbL attribution note. Keep request volume low on the public instance.
-- **Google Places API (New)**: create an API key restricted to the Places API (New) and your server's IP.
-  Set `DF_GOOGLE_PLACES_API_KEY`. Each Text Search is recorded as an *estimated* cost (Settings → cost estimates)
-  and checked against the agent's budget. Google's terms limit caching of Places content: place IDs may be stored,
-  and raw payloads are cleared by `purge_stale_places` after 30 days. Review the current terms before relying on stored fields.
+- **TxDMV dealer list (recommended)**: open https://texasdmv.my.salesforce-sites.com/dealers → *Motor Vehicle Dealers List*, download the spreadsheet, then **Import** it with source label "TxDMV dealer list YYYY-MM-DD" and that URL. Check the dry-run preview to confirm the columns mapped. License number, type, county and DBA are kept as evidence.
+- **Google Places API**: not available as a lead source. Google's policies allow storing place IDs only, not business details. See the feasibility report.
 - **CSV/XLSX import**: for lists you are allowed to use (for example a public licensing dataset). Always fill in the source.
 - **Website research**: `DF_WEBSITE_RESEARCH_ENABLED=true`. Fetches at most the homepage and one inventory page per dealer,
   honours robots.txt, identifies itself with `DF_HTTP_USER_AGENT`, and stores observations as unverified evidence.

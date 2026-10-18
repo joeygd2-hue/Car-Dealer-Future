@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% from "macros.html" import status_pill %}{% block title %}Integrations{% endblock %}{% block content %}
 <h1>Integrations</h1><div class="two"><div>
 <div class="card"><table class="kv"><tr><td>Email</td><td>{{ s.email_provider }}{% if s.email_provider=='mock' %} (SIMULATED){% endif %}</td></tr><tr><td>Calendar</td><td>{{ s.calendar_provider }}</td></tr>
-<tr><td>Zoom</td><td>{{ s.zoom_provider }}</td></tr><tr><td>Calls</td><td>{{ s.call_provider }}</td></tr><tr><td>Google Places key</td><td>{{ 'set' if s.google_places_api_key.get_secret_value() else 'not set' }}</td></tr>
+<tr><td>Zoom</td><td>{{ s.zoom_provider }}</td></tr><tr><td>Calls</td><td>{{ s.call_provider }}</td></tr><tr><td>Google Places</td><td>not used for stored leads (terms allow storing place IDs only)</td></tr>
 <tr><td>Website research</td><td>{{ 'enabled' if s.website_research_enabled else 'disabled' }}</td></tr><tr><td>Real sending</td><td>{{ 'enabled' if s.outreach_sending_enabled else 'disabled' }}</td></tr>
 <tr><td>Sender identity</td><td>{{ s.business_name or '⚠ DF_BUSINESS_NAME missing' }} · {{ s.sender_email or '⚠ DF_SENDER_EMAIL missing' }} · {{ 'address set' if s.business_postal_address else '⚠ DF_BUSINESS_POSTAL_ADDRESS missing' }}</td></tr></table>
 {% if user.role=='admin' %}<form method="post" action="/integrations/check"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Verify credentials (sends nothing)</button></form>{% endif %}

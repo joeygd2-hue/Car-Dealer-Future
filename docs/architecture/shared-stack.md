@@ -88,7 +88,7 @@ Public, unauthenticated endpoints: `GET /healthz`, `GET|POST /u/{token}` (unsubs
 | `CalendarProvider` | `integrations/calendar.py` | `busy`, `create_event`, `update_event`, `delete_event`, `check` | `mock`, `google` |
 | `ZoomProvider` | `integrations/zoom.py` | `create_meeting`, `update_meeting`, `delete_meeting`, `check` | `mock`, `zoom` (Server-to-Server OAuth) |
 | `CallProvider` | `integrations/calls.py` | `start_call` | `manual` (tel: link), `twilio` (agent-first bridge), `mock` |
-| Discovery sources | `integrations/discovery.py` | functions returning `LeadRecord` | `fixture` (SIMULATED), `osm`, `google_places` |
+| Discovery sources | `integrations/discovery.py` | functions returning `LeadRecord` | `fixture` (SIMULATED), `osm` (Google Places client exists but may not be used for stored leads) |
 
 Errors: raise `CredentialError` (not retried), `RateLimitedError` (retried, honours Retry-After),
 `PermanentError` (not retried), or `IntegrationError` (retried).

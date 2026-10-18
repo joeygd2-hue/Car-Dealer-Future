@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     calling_sunday_start: int = 12
 
     # Lead discovery
-    google_places_api_key: SecretStr = SecretStr("")
+    google_places_api_key: SecretStr = SecretStr("")  # client exists; results may not be stored as leads
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     website_research_enabled: bool = False
     http_user_agent: str = "dealerflow-research/0.1 (+contact: set DF_SENDER_EMAIL)"

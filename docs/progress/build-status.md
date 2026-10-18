@@ -20,8 +20,8 @@ SQLAlchemy/Alembic + Jinja, matching the owner's other Python/FastAPI project. D
 
 | Area | Implemented | Where |
 |---|---|---|
-| Research docs | Feasibility report, source register, integration matrix | `docs/research/`, `docs/architecture/integration-matrix.md` |
-| Lead discovery | Fixture (SIMULATED), OpenStreetMap Overpass, Google Places (New) Text Search, dealer website research (robots.txt-aware, off by default), CSV/XLSX import with dry run, manual entry, JSON API | `integrations/discovery.py`, `integrations/website.py`, `services/importer.py`, `services/discovery.py` |
+| Research docs | Feasibility report (lead sources, email, calling, Texas law, privacy, costs, unresolved questions), source register with access dates and confidence, integration matrix | `docs/research/`, `docs/architecture/integration-matrix.md` |
+| Lead discovery | Fixture (SIMULATED), OpenStreetMap Overpass (with ODbL attribution), CSV/XLSX import with dry run (incl. TxDMV-style license columns), manual entry, JSON API, dealer website research (robots.txt-aware, off by default). Google Places is **disabled for stored leads** (terms allow storing place IDs only) | `integrations/discovery.py`, `integrations/website.py`, `services/importer.py`, `services/discovery.py` |
 | Data quality | Validation (URL, email, US phone→E.164, state, ZIP), missing-field indicators, per-field evidence with source URL and timestamp, conflicts kept as evidence (never overwritten), last-verified date | `services/normalize.py`, `services/prospects.py` |
 | Deduplication | Source ID → domain → phone → email domain → fuzzy name with same ZIP/city/≤0.5 mi; manual merge | `services/prospects.py` |
 | Scoring | 7 weighted factors (configurable weights and threshold), per-factor reason, evidence IDs, unverified list; DNC scores 0; no revenue/volume/demographic estimates | `services/scoring.py` |
@@ -36,7 +36,7 @@ SQLAlchemy/Alembic + Jinja, matching the owner's other Python/FastAPI project. D
 
 ## Tests
 
-`pytest` runs 99 tests in about 20 s with no network. The same suite passes on Postgres 16
+`pytest` runs 102 tests in about 20 s with no network. The same suite passes on Postgres 16
 (`DF_TEST_PG_URL=postgresql+psycopg://… pytest`).
 
 | File | Tests | Covers |
@@ -44,10 +44,10 @@ SQLAlchemy/Alembic + Jinja, matching the owner's other Python/FastAPI project. D
 | `test_workflow.py` | 1 | **Step 9 scenario:** fixture import → dedup → score → draft → approve → mock send → reply matched → CRM stage + tasks → availability → approval → Zoom + calendar booking → reschedule → cancel |
 | `test_compliance.py` | 13 | Opt-out by reply (EN/ES) and link (incl. one-click POST), domain suppression, opt-out between approval and send, duplicate jobs send once, cooldown/duplicate/touch limits, stop on reply, missing CAN-SPAM identity, rep can't approve, missing verified values, unverified observations, daily-cap deferral |
 | `test_failures.py` | 15 | Rate-limit retry with backoff, expired credentials fail fast, provider rejection, interrupted send not resent, stale-lock recovery, exclusive claim, Zoom failure leaves meeting unbooked, calendar failure retry reuses Zoom meeting, availability failure offers no times, HTTP 5xx/401/429/400 mapping, Google `invalid_grant`, missing credentials |
-| `test_agent.py` | 16 | Stopped/paused/emergency-stop behaviour, replenish → score → enroll → draft, auto mode in simulation, auto mode needs admin, real provider never sends without live authorization + env flag, budget limit, discovery-per-day limit, campaign daily cap, step isolation, approved-answers-only with sensitive escalation, idempotent tick scheduling, restart recovery, health/heartbeat |
+| `test_agent.py` | 17 | Stopped/paused/emergency-stop behaviour, replenish → score → enroll → draft, auto mode in simulation, auto mode needs admin, real provider never sends without live authorization + env flag, budget limit with estimated costs, Google Places refused, discovery-per-day limit, campaign daily cap, step isolation, approved-answers-only with sensitive escalation, idempotent tick scheduling, restart recovery, health/heartbeat |
 | `test_web.py` | 13 | Full UI workflow over HTTP (Spanish draft → send → simulated reply → booking) rendering every detail page, anonymous access, login rate limit, every page renders, CSRF, viewer/rep restrictions, workflow-only stages via API, API keys, bulk-action safeguards, Zoom webhook signature, link/redirect safety |
-| `test_prospecting.py` | 8 | Validation, CSV dry run + commit + dedup, XLSX, conflicting values, fuzzy-name dedup, manual merge, explainable/configurable scoring, missing fields |
-| `test_providers_http.py` | 10 | Request/response shape for Gmail, Google Calendar (incl. 409 idempotency), Zoom S2S, Places, Overpass, website research (robots + signals), SMTP, Twilio, against mocked HTTP |
+| `test_prospecting.py` | 9 | Validation, CSV dry run + commit + dedup, XLSX, conflicting values, fuzzy-name dedup, manual merge, explainable/configurable scoring, missing fields, license-list columns kept as evidence |
+| `test_providers_http.py` | 11 | Request/response shape for Gmail, Google Calendar (incl. 409 idempotency), Zoom S2S, Places, Overpass, website research (robots disallow, unreachable robots.txt, signals), SMTP, Twilio, against mocked HTTP |
 | `test_classify.py` | 20 | EN/ES classification cases, quoted text ignored, mixed signals, header-based auto-reply/bounce |
 | `test_reports.py` | 2 | Drafts ≠ sent, simulated counted separately, simulated sends don't mark real prospects contacted |
 | `test_migrations.py` | 1 | Migrations match models exactly |
@@ -76,5 +76,6 @@ Pause, Emergency stop.
 1. Fill in sender identity (`DF_BUSINESS_*`, `DF_SENDER_*`) and edit templates and approved answers so every statement is true.
 2. Pick an email route (Google Workspace via Gmail API or SMTP) and set up SPF, DKIM and DMARC on your sending domain.
 3. Create the Google Calendar and Zoom S2S credentials; run Integrations → Verify credentials.
-4. Decide on lead sources (see feasibility report); import a first real list by CSV.
-5. Send 5–10 human-approved emails, then consider enabling the agent in `manual` approval mode.
+4. Download the TxDMV *Motor Vehicle Dealers List* and import it (dry run first). Google Places is not usable for stored leads.
+5. Before a cold-calling routine, settle the Texas Chapter 302 question (feasibility report §4).
+6. Send 5–10 human-approved emails, then consider enabling the agent in `manual` approval mode.

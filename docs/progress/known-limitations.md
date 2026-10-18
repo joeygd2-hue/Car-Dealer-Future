@@ -14,7 +14,7 @@ ran against SIMULATED providers or mocked HTTP.
 | Zoom Server-to-Server OAuth | Code + mocked-HTTP test only | Zoom S2S app (account admin) with meeting scopes |
 | Zoom webhooks | Signature/validation tested locally | Public HTTPS `DF_BASE_URL` + event subscription |
 | Twilio click-to-call | Code + mocked-HTTP test only; status webhook untested | Twilio account, number or verified caller ID |
-| Google Places (New) | Code + mocked-HTTP test only | API key with billing |
+| Google Places (New) | **Disabled as a lead source** (terms allow storing place IDs only); client code kept | A live, non-stored lookup feature in a later phase |
 | OpenStreetMap Overpass | Code + mocked-HTTP test only | None (public), but not called during the build |
 | Website research | Mocked HTTP only; off by default | Enable and try on a few dealer sites |
 | Microsoft 365 / Graph mail and calendar | **Not implemented** | Use SMTP/IMAP if your tenant allows it, or add a Graph provider |
@@ -29,10 +29,9 @@ ran against SIMULATED providers or mocked HTTP.
   never writes free text of its own; it only sends approved text.
 - **Inventory activity** is a rough lower bound: distinct "year make" strings on the first inventory page.
   Many dealer sites render inventory with JavaScript, so this will often read 0 or miss the page.
-- **Dealership type** (independent vs franchise) is inferred only from OpenStreetMap tags. Google Places doesn't
-  provide it, so those leads stay `unknown` until a person sets it.
-- **No TxDMV dealer-license import connector.** A downloadable public list can be loaded with CSV import
-  (see feasibility report for availability).
+- **Dealership type** (independent vs franchise) is inferred only from OpenStreetMap tags. TxDMV license type
+  is kept as evidence but not yet mapped automatically; other leads stay `unknown` until a person sets it.
+- **No automatic TxDMV download.** The list sits behind a JavaScript page, so it is downloaded by hand and imported as CSV/XLSX. Its exact column names haven't been confirmed; check the dry-run preview.
 - **Meeting time selection is manual.** The app suggests real free slots, but a person copies them into the reply and
   records which one the prospect accepted. It does not parse times out of replies.
 - **Booking approval is always manual** (manager), including for agent-handled meeting requests.
@@ -43,7 +42,7 @@ ran against SIMULATED providers or mocked HTTP.
 - **SQLite is the default.** Under concurrent web and worker writes, SQLite serialises them (WAL mode, 30 s timeout).
   Use Postgres for anything beyond one or two users; the suite passes on Postgres 16.
 - **Proposals are records only**: there's no document generation or e-signature.
-- **Cost tracking** records *estimated* Google Places cost per search, plus actual costs you enter. Provider invoices
+- **Cost tracking** records *estimated* cost per discovery run (editable estimates; free sources default to $0), plus actual costs you enter. Provider invoices
   are not imported. CAC is shown only when won clients and costs exist.
 - **No UI for editing a prospect's core fields** (address, phone, website) after creation. New sources fill missing
   fields, and conflicts are kept as evidence. Use merge or add notes; Phase 2 should add an editor with evidence capture.
@@ -65,6 +64,11 @@ ran against SIMULATED providers or mocked HTTP.
 - API keys are per user, shown once and stored hashed. There is no expiry; regenerate to revoke.
 
 ## Legal
+
+- **Texas Chapter 302 (telephone solicitation registration, $10,000 bond) is unresolved.** The app positions calls as
+  meeting-booking only (the §302.059(1) exemption), but whether a Zoom meeting counts as a "face-to-face" presentation
+  hasn't been confirmed. Get advice, or register, before repeated cold calling.
+- SMS is deliberately absent (Texas SB 140).
 
 The compliance rules in the code (CAN-SPAM footer and opt-out, suppression, Texas calling hours, no autodialing or
 recording) reflect the research in `docs/research/`. They are **not legal advice**. Have counsel review

@@ -250,3 +250,12 @@ def test_twilio_bridges_agent_first_without_recording(monkeypatch, routes):
     assert unquote_plus(form["To"]) == "+12815550199"  # the operator's phone rings first
     twiml = unquote_plus(form["Twiml"])
     assert 'record="do-not-record"' in twiml and "+12815550123" in twiml and 'callerId="+12815550100"' in twiml
+
+
+def test_robots_unreachable_means_disallow(monkeypatch):
+    from dealerflow.integrations import website
+
+    _env(monkeypatch, DF_WEBSITE_RESEARCH_ENABLED="true")
+    client = REAL_CLIENT(transport=httpx.MockTransport(
+        lambda req: httpx.Response(503) if req.url.path == "/robots.txt" else httpx.Response(200, text="<html></html>")))
+    assert website.research_site("https://down.example/", client=client).blocked_by_robots

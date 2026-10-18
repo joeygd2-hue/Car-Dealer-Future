@@ -49,6 +49,9 @@ def schedule_daily(db, now) -> None:
 
     s = get_settings()
     local = now.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(s.timezone))
+    from .services.maintenance import schedule_daily_phase4
+
+    schedule_daily_phase4(db, local.replace(tzinfo=None))
     if local.hour >= 7 and s.notify_email:
         day = local.date().isoformat()
         enqueue(db, "daily_digest", f"daily_digest:{day}", {"day": day}, max_attempts=3)

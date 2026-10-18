@@ -8,7 +8,7 @@
 <p class="small">Status reason: {{ st.status_reason or '—' }}</p>
 {% if role_at_least(user.role,'manager') %}<div class="row">
 {% for s,label in [('running','Start / resume'),('paused','Pause'),('stopped','Stop')] %}<form class="inline" method="post" action="/agent/status"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="{{ s }}"><button class="secondary">{{ label }}</button></form>{% endfor %}
-<form class="inline" method="post" action="/agent/status" onsubmit="return confirm('Emergency stop: halt all sending and return queued messages to draft?')"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="emergency_stopped"><input name="reason" placeholder="reason"><button class="danger">EMERGENCY STOP</button></form>
+<form class="inline" method="post" action="/agent/status" data-confirm="Emergency stop: halt all sending and return queued messages to draft?"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="emergency_stopped"><input name="reason" placeholder="reason"><button class="danger">EMERGENCY STOP</button></form>
 <form class="inline" method="post" action="/agent/tick"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Run one tick now</button></form>
 </div>{% endif %}
 <p class="small muted">Paused: reads the inbox and processes opt-outs only. Stopped / emergency stop: does nothing; emergency stop also blocks sends that were already approved.</p></div>

@@ -408,6 +408,8 @@ class CostEntry(Base):
     def basis(self) -> str:
         if self.verified:
             return "verified_billing"
+        if self.quantity is not None and not float(self.amount or 0) and not self.is_estimate:
+            return "unknown"  # usage measured, but no rate on file: cost is not claimed
         return "estimated" if self.is_estimate else "recorded"
 
 

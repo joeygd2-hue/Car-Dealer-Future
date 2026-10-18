@@ -38,7 +38,10 @@ def login(request: Request, email: str = Form(...), password: str = Form(...), n
     request.session.update({"uid": user.id, "t": time.time()})
     user.last_login_at = utcnow()
     audit(db, "auth.login", actor_id=user.id)
-    return RedirectResponse(next if next.startswith("/") and not next.startswith("//") else "/", status_code=303)
+    safe = next.startswith("/") and not next.startswith("//") and "\\" not in next
+    if user.is_client:  # client users only ever see the client portal
+        return RedirectResponse(next if safe and next.startswith("/portal") else "/portal", status_code=303)
+    return RedirectResponse(next if safe else "/", status_code=303)
 
 
 @router.post("/logout", dependencies=[Depends(check_csrf)])

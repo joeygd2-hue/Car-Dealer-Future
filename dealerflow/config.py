@@ -104,6 +104,21 @@ class Settings(BaseSettings):
 
     session_max_age_seconds: int = Field(default=60 * 60 * 12)
 
+    # --- Phase 4 ---------------------------------------------------------------------------
+    # Client-facing email (monthly reports, lead summaries). Off by default: messages are recorded
+    # as SIMULATED. Real delivery also needs the client's "report_email" connection marked connected.
+    client_email_sending_enabled: bool = False
+    attachments_dir: str = "./state/attachments"
+    max_upload_bytes: int = 10 * 1024 * 1024
+    api_rate_limit_per_minute: int = 300
+    crawler_timeout_seconds: float = 15.0
+    pagespeed_api_key: SecretStr = SecretStr("")  # Google PageSpeed Insights API v5 (optional)
+    stripe_webhook_secret: SecretStr = SecretStr("")  # whsec_... ; empty disables the Stripe webhook
+    ai_enabled: bool = False  # optional Claude API use; deterministic templates/rules otherwise
+    anthropic_api_key: SecretStr = SecretStr("")
+    ai_model: str = "claude-opus-5-5"
+    retention_days_conversations: int = 365
+
     @property
     def target_city_list(self) -> list[str]:
         return [c.strip() for c in self.target_cities.split(",") if c.strip()]
@@ -111,6 +126,17 @@ class Settings(BaseSettings):
     @property
     def working_day_list(self) -> list[int]:
         return [int(d) for d in self.working_days.split(",") if d.strip()]
+
+    def production_problems(self) -> list[str]:
+        """Configuration that must be fixed before the app may start with DF_ENV=production."""
+        problems = []
+        if len(self.secret_key.get_secret_value()) < 32:
+            problems.append("DF_SECRET_KEY must be a random value of at least 32 characters")
+        if not self.base_url.startswith("https://"):
+            problems.append("DF_BASE_URL must use https:// (secure cookies, unsubscribe links)")
+        if self.database_url.startswith("sqlite"):
+            problems.append("DF_DATABASE_URL should point to PostgreSQL in production")
+        return problems
 
     def require_secret_key(self) -> str:
         key = self.secret_key.get_secret_value()

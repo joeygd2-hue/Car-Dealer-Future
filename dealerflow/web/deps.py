@@ -38,6 +38,16 @@ class NotAuthenticated(Exception):
     pass
 
 
+# Paths a client (dealership) user may reach. Everything else is staff-only, enforced centrally here so
+# that a route using plain Depends(current_user) can never leak internal data to a client user.
+CLIENT_ALLOWED_PREFIXES = ("/portal", "/api/v1/portal", "/logout")
+
+
+def _confine_client(request: Request, user: User) -> None:
+    if user.is_client and not request.url.path.startswith(CLIENT_ALLOWED_PREFIXES):
+        raise HTTPException(403, "This area is for staff. Use the client portal.")
+
+
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
@@ -45,6 +55,7 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         if not user:
             raise HTTPException(401, "Invalid API key")
         request.state.api = True
+        _confine_client(request, user)
         return user
     uid = request.session.get("uid")
     if not uid:
@@ -57,6 +68,14 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         request.session.clear()
         raise NotAuthenticated()
     request.state.api = False
+    _confine_client(request, user)
+    return user
+
+
+def require_client(user: User = Depends(current_user)) -> User:
+    """Client-portal dependency: only client users bound to a client."""
+    if not user.is_client or user.client_id is None:
+        raise HTTPException(403, "Client portal only")
     return user
 
 

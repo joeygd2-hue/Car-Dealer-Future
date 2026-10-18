@@ -55,6 +55,10 @@ def create_app() -> FastAPI:
     if STATIC.exists():
         app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
+        @app.get("/favicon.ico", include_in_schema=False)
+        def favicon():
+            return FileResponse(STATIC / "favicon.svg", media_type="image/svg+xml")
+
         @app.get("/", include_in_schema=False)
         def index():
             return FileResponse(STATIC / "index.html")

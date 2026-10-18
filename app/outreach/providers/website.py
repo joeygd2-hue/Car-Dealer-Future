@@ -61,8 +61,15 @@ def fetch_pages(website: str, max_pages: int = 3) -> dict[str, str]:
     if fixture is not None:
         return {urljoin(f"https://{domain}", p): body for p, body in fixture.items()}
     base = f"{u.scheme or 'https'}://{domain}"
+    from app.core.errors import BadRequest
+    from app.core.netguard import assert_public_url
+    try:
+        if _transport is None:
+            assert_public_url(base, require_https=False)
+    except BadRequest:
+        return {}
     pages: dict[str, str] = {}
-    with httpx.Client(timeout=10, transport=_transport, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
+    with httpx.Client(timeout=10, transport=_transport, headers={"User-Agent": USER_AGENT}, follow_redirects=False) as client:
         rp = urllib.robotparser.RobotFileParser()
         try:
             r = client.get(f"{base}/robots.txt")

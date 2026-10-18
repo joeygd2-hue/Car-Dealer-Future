@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dealer Listings Workspace</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar" id="topbar" hidden>
+    <div class="brand">Car Dealer Future</div>
+    <nav id="nav"></nav>
+    <div class="who">
+      <select id="clientSelect" aria-label="Dealership"></select>
+      <span id="whoName"></span>
+      <button id="logoutBtn" class="ghost">Sign out</button>
+    </div>
+  </header>
+  <main id="app"></main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

@@ -26,6 +26,11 @@ from app.sync.reactions import react_to_vehicle_events
 router = APIRouter(prefix="/api/clients/{client_id}", tags=["inventory"])
 
 
+def _clean_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Secrets belong in the encrypted `secret` field, never in plain config JSON."""
+    return {k: v for k, v in (cfg or {}).items() if "token" not in k.lower() and "secret" not in k.lower() and "password" not in k.lower()}
+
+
 def source_view(s: InventorySource) -> dict:
     return {"id": s.id, "name": s.name, "source_type": s.source_type, "config": s.config, "has_secret": bool(s.secret_ciphertext),
             "full_snapshot": s.full_snapshot, "schedule_minutes": s.schedule_minutes, "stale_after_hours": s.stale_after_hours,
@@ -62,7 +67,7 @@ def create_source(body: SourceIn, ctx: ClientContext = Depends(client_ctx("impor
     validate_feed_config(body.source_type, body.config, body.authorization_note)
     if body.schedule_minutes is not None and body.schedule_minutes < 15:
         raise BadRequest("schedule_minutes must be at least 15")
-    src = InventorySource(client_id=ctx.client_id, name=body.name, source_type=body.source_type, config=body.config,
+    src = InventorySource(client_id=ctx.client_id, name=body.name, source_type=body.source_type, config=_clean_config(body.config),
                           full_snapshot=body.full_snapshot, schedule_minutes=body.schedule_minutes,
                           stale_after_hours=body.stale_after_hours, enabled=body.enabled, authorization_note=body.authorization_note)
     if body.secret:
@@ -82,7 +87,7 @@ def update_source(source_id: str, body: dict[str, Any], ctx: ClientContext = Dep
         if k == "secret" and v:
             src.secret_ciphertext = encrypt_secret(v)
         elif k in allowed:
-            setattr(src, k, v)
+            setattr(src, k, _clean_config(v) if k == "config" else v)
     validate_feed_config(src.source_type, src.config or {}, src.authorization_note)
     sync_source_schedule(ctx.db, src)
     audit_ctx(ctx, "inventory_source.updated", "inventory_source", src.id, fields=sorted(body.keys()))

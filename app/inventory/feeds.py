@@ -15,6 +15,7 @@ import httpx
 from app.config import settings
 from app.core.crypto import decrypt_secret
 from app.core.errors import BadRequest
+from app.core.netguard import assert_public_url
 from app.core.tenancy import ClientContext
 from app.inventory.importer import run_import
 from app.inventory.parsers import parse_csv, parse_json_feed, parse_xlsx
@@ -32,9 +33,9 @@ def set_transport(t: httpx.BaseTransport | None) -> None:
 def validate_feed_config(source_type: str, config: dict[str, Any], authorization_note: str | None) -> None:
     if source_type not in FEED_TYPES or not config.get("url"):
         return
-    u = urlparse(config["url"])
-    if u.scheme != "https":
+    if urlparse(config["url"]).scheme != "https":
         raise BadRequest("Feed URLs must use https")
+    assert_public_url(config["url"])
     if not (authorization_note or "").strip():
         raise BadRequest("Record who at the dealership authorised this feed (authorization_note) before enabling it")
     if config.get("format", "csv") not in ("csv", "json", "xlsx"):
@@ -46,6 +47,8 @@ def fetch_feed(source: InventorySource) -> tuple[bytes, str]:
     url = cfg.get("url")
     if not url:
         raise BadRequest("Source has no feed URL configured")
+    if _transport is None:  # tests inject a mock transport; real fetches are checked every time (DNS can change)
+        assert_public_url(url)
     headers = {"User-Agent": "CarDealerFuture-InventorySync/0.2 (+authorized dealer feed)"}
     auth = cfg.get("auth") or {}
     if source.secret_ciphertext:

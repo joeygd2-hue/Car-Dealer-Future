@@ -175,3 +175,11 @@ def test_stale_scan_flags_unconfirmed_availability(world):
     assert res["stale_flagged"] == 3
     ctx.db.expire_all()
     assert all(v.stale for v in ctx.db.scalars(select(Vehicle)).all())
+
+
+def test_feed_urls_to_internal_addresses_are_rejected(world, client):
+    h = login(client, "owner@alpha.test")
+    for url in ("https://127.0.0.1/feed.csv", "https://169.254.169.254/latest", "https://localhost/feed", "http://dms.example.com/f.csv"):
+        r = client.post(f"/api/clients/{world['a'].id}/sources", headers=h, json={
+            "name": "x", "source_type": "feed_api", "config": {"url": url}, "authorization_note": "test"})
+        assert r.status_code == 400, url

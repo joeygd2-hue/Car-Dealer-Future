@@ -56,6 +56,28 @@ def list_listings(status: str | None = None, limit: int = 100, offset: int = 0, 
     return {"total": total, "items": items}
 
 
+# Batch routes must be registered before /listings/{listing_id}/... so 'batch' is not read as an id.
+class BatchIn(BaseModel):
+    listing_ids: list[str]
+    expected_count: int | None = None
+    confirm: bool = False
+    acknowledge_all_warnings: bool = False
+    note: str | None = None
+
+
+@router.post("/listings/batch/preview")
+def batch_preview(body: BatchIn, ctx: ClientContext = Depends(client_ctx("approve"))):
+    return service.batch_preview(ctx, body.listing_ids)
+
+
+@router.post("/listings/batch/approve")
+def batch_approve(body: BatchIn, ctx: ClientContext = Depends(client_ctx("approve"))):
+    if body.expected_count is None:
+        raise BadRequest("expected_count (from the preview) is required")
+    return service.batch_approve(ctx, body.listing_ids, expected_count=body.expected_count, confirm=body.confirm,
+                                 acknowledge_all_warnings=body.acknowledge_all_warnings, note=body.note)
+
+
 @router.get("/listings/{listing_id}")
 def get_listing(listing_id: str, ctx: ClientContext = Depends(client_ctx())):
     lst = service.get_listing(ctx, listing_id)
@@ -128,27 +150,6 @@ def reject(listing_id: str, body: NoteIn, ctx: ClientContext = Depends(client_ct
 def regenerate(listing_id: str, body: NoteIn, ctx: ClientContext = Depends(client_ctx("generate"))):
     service.request_regeneration(ctx, listing_id, body.note)
     return service.listing_view(ctx, service.get_listing(ctx, listing_id))
-
-
-class BatchIn(BaseModel):
-    listing_ids: list[str]
-    expected_count: int | None = None
-    confirm: bool = False
-    acknowledge_all_warnings: bool = False
-    note: str | None = None
-
-
-@router.post("/listings/batch/preview")
-def batch_preview(body: BatchIn, ctx: ClientContext = Depends(client_ctx("approve"))):
-    return service.batch_preview(ctx, body.listing_ids)
-
-
-@router.post("/listings/batch/approve")
-def batch_approve(body: BatchIn, ctx: ClientContext = Depends(client_ctx("approve"))):
-    if body.expected_count is None:
-        raise BadRequest("expected_count (from the preview) is required")
-    return service.batch_approve(ctx, body.listing_ids, expected_count=body.expected_count, confirm=body.confirm,
-                                 acknowledge_all_warnings=body.acknowledge_all_warnings, note=body.note)
 
 
 # --- publishing ---

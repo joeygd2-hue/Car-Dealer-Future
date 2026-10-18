@@ -22,7 +22,7 @@ session or an infinite loop, and it does not need a browser tab to stay open.
 | `stopped` (default) | Nothing. Human-approved sends still go out through the job queue. |
 | `running` | All steps, subject to limits and the operating window. |
 | `paused` | Inbox polling and follow-up reminders only, so opt-outs are still processed. No discovery, drafting or auto-approval. |
-| `emergency_stopped` | Nothing. Every `approved`/`queued` message goes back to `draft`, and send jobs defer while the stop is active. Only an admin can clear it. |
+| `emergency_stopped` | Nothing, anywhere: every provider call (email, calendar, Zoom, inbox, discovery, research, calls, credential checks) is refused at the integration gate and logged as `blocked`. Every `approved`/`queued` message goes back to `draft`; jobs defer without using retries. Only an admin can clear it. |
 
 Separately, **live operation** (`agent_state.live_authorized`, set by an admin who types `AUTHORIZE LIVE`)
 together with `DF_OUTREACH_SENDING_ENABLED=true` is required before any non-simulated provider sends.
@@ -44,7 +44,13 @@ Until both hold, real-provider send jobs defer and campaign auto-approval is ski
 Sending itself happens in `send_email` jobs, which re-run the full compliance gate (`services/compliance.py`)
 immediately before calling the provider.
 
-## Safety gates (all enforced in code and covered by tests)
+## Safety gates (all enforced in code and covered by tests, incl. `tests/test_adversarial.py`)
+
+- Holds at send time: a queued message waits while its campaign is paused; an agent-approved message also waits while
+  the agent isn't `running` or is outside operating hours. Human-approved messages aren't held by agent state.
+- An authentication failure disables that provider (`integration_disabled:<provider>`) until an admin's
+  **Verify credentials** check passes.
+- A real provider never contacts SIMULATED prospects or reserved test domains (except `live-check` to `DF_TEST_INBOXES`).
 
 - Suppression list (email, @domain, phone) and do-not-contact are checked at draft, approval and send.
   An opt-out from anyone at a dealership marks the whole dealership do-not-contact.

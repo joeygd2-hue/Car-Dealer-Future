@@ -120,7 +120,8 @@ def email_blockers(db: Session, msg: OutreachMessage, *, at_send: bool = False,
         return reasons
     if p.do_not_contact or p.stage == "do_not_contact":
         reasons.append("Prospect is marked do-not-contact")
-    if real_send and p.simulated:
+    controlled_test = msg.origin == "live_check" and (to or "") in s.test_inbox_list
+    if real_send and p.simulated and not controlled_test:
         reasons.append("Prospect is SIMULATED test data; a real provider may never contact it")
     if real_send and is_reserved_address(to):
         reasons.append(f"{to} is a reserved test domain and cannot receive real email")

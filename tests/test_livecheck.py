@@ -39,4 +39,6 @@ def test_livecheck_sends_to_controlled_inbox_without_live_authorization(real_ema
     assert out.subject.startswith("[dealerflow live check]") and out.unsubscribe_url
     # A normal message to a non-listed address with the same real provider is still held
     m = db.scalar(select(OutreachMessage))
-    assert m.origin == "live_check"
+    assert m.origin == "live_check" and m.simulated  # never counted as a business result
+    from dealerflow.services import reports
+    assert reports.daily(db)["sent"]["real"] == 0

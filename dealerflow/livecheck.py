@@ -38,11 +38,13 @@ def send(to: str, *, confirmed: bool) -> dict:
     if s.email_provider == "mock":
         raise SystemExit("DF_EMAIL_PROVIDER is mock; configure the real provider first")
     with session_scope() as db:
-        p = intake(db, LeadRecord(name=NAME, source="manual", email=to, dealership_type="other",
+        # Test record: counted with simulated/test data, never as a business result.
+        p = intake(db, LeadRecord(name=NAME, source="live_check", email=to, dealership_type="other", simulated=True,
                                   notes="Created by live-check. Not a prospect.")).prospect
         tpl = db.scalar(select(Template).where(Template.name == "intro", Template.language == "en"))
         msg = create_draft(db, p, tpl, actor=None, origin="live_check")
         msg.subject = f"[dealerflow live check] {msg.subject}"
+        msg.simulated = True  # a controlled test, not outreach
         msg.status, msg.approval_kind, msg.queued_at = "queued", "live_check", utcnow()
         db.add(Job(kind="send_email", key=f"send_email:{msg.id}", payload={"message_id": msg.id}, max_attempts=1))
         audit(db, "livecheck.send", data={"to": to, "message_id": msg.id})

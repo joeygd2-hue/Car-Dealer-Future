@@ -2,7 +2,7 @@
 <h1>Meeting #{{ m.id }} {{ status_pill(m.status) }} {{ sim(m.simulated) }}</h1>
 <div class="two"><div class="card"><table class="kv"><tr><td>Prospect</td><td><a href="/prospects/{{ m.prospect_id }}">{{ m.prospect.name }}</a></td></tr>
 <tr><td>Attendee</td><td>{{ m.attendee_email or '—' }}</td></tr><tr><td>Time</td><td>{{ m.start_at|local or 'not chosen' }}</td></tr>
-<tr><td>Zoom</td><td>{% if m.zoom_join_url %}{{ m.zoom_meeting_id }} <a href="{{ m.zoom_join_url }}" rel="noopener noreferrer" target="_blank">join link</a>{% else %}—{% endif %}</td></tr>
+<tr><td>Zoom</td><td>{% if m.zoom_join_url %}{{ m.zoom_meeting_id }} <a href="{{ m.zoom_join_url|safe_url }}" rel="noopener noreferrer" target="_blank">join link</a>{% else %}—{% endif %}</td></tr>
 <tr><td>Calendar event</td><td>{{ m.calendar_event_id or '—' }}</td></tr><tr><td>Availability checked</td><td>{{ m.availability_checked_at|local or 'never' }} {{ m.availability_source or '' }}</td></tr></table>
 {% if m.error %}<p style="color:var(--bad)">{{ m.error }}</p>{% endif %}
 {% if m.provider_response %}<details><summary class="small">Provider responses</summary><pre>{{ m.provider_response|tojson(indent=2) }}</pre></details>{% endif %}

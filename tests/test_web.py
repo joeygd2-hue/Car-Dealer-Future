@@ -134,3 +134,46 @@ def test_zoom_webhook_signature(db, client, monkeypatch):
     assert r.status_code == 200 and r.json()["encryptedToken"] == hmac.new(b"whsec", b"abc", hashlib.sha256).hexdigest()
     r = client.post("/webhooks/zoom", content=body, headers={"x-zm-request-timestamp": ts, "x-zm-signature": "v0=bad"})
     assert r.status_code == 401
+
+
+def test_untrusted_urls_are_not_rendered_as_links(db, client):
+    from dealerflow.models import Evidence, Prospect
+
+    admin = make_user(db)
+    p = Prospect(name="XSS Motors", normalized_name="xss motors", stage="new")
+    db.add(p)
+    db.flush()
+    db.add(Evidence(prospect_id=p.id, field="name", value="x", source_type="csv:evil",
+                    source_url="javascript:alert(document.cookie)"))
+    db.commit()
+    login(client, admin.email)
+    html = client.get(f"/prospects/{p.id}").text
+    assert "javascript:alert" not in html
+
+
+def test_safe_next_blocks_open_redirects():
+    from dealerflow.web.deps import safe_next
+
+    assert safe_next("/prospects?x=1") == "/prospects?x=1"
+    assert safe_next("http://127.0.0.1:8000/tasks") == "/"
+    for bad in ("//evil.com", "/\\\\evil.com", "https://evil.com/x", "javascript:alert(1)"):
+        assert safe_next(bad) == "/", bad
+
+
+def test_back_redirect_uses_same_host_referer_only(db, client):
+    admin = make_user(db)
+    csrf = login(client, admin.email)
+    from dealerflow.models import Task
+    from dealerflow.db import utcnow
+    t = Task(title="t", due_at=utcnow())
+    db.add(t)
+    db.commit()
+    r = client.post(f"/tasks/{t.id}/done", data={"csrf": csrf}, headers={"referer": "http://testserver/tasks?show=all"},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/tasks?show=all"
+    t2 = Task(title="t2", due_at=utcnow())
+    db.add(t2)
+    db.commit()
+    r = client.post(f"/tasks/{t2.id}/done", data={"csrf": csrf}, headers={"referer": "https://evil.example/x"},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/tasks"

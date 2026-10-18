@@ -49,7 +49,6 @@ class Settings(BaseSettings):
     outreach_daily_cap: int = 25
     outreach_per_prospect_cooldown_days: int = 7
     outreach_max_touches_per_prospect: int = 3
-    outreach_auto_send_approved: bool = False  # still requires human approval per message
 
     # SMTP / IMAP (any mailbox that allows it, e.g. Google Workspace with an app password)
     smtp_host: str = ""
@@ -102,8 +101,6 @@ class Settings(BaseSettings):
     # Notifications
     notify_email: str = ""  # optional daily digest recipient; empty disables it
 
-    bootstrap_admin_email: str = ""
-    bootstrap_admin_password: SecretStr = SecretStr("")
 
     session_max_age_seconds: int = Field(default=60 * 60 * 12)
 

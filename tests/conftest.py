@@ -14,6 +14,8 @@ import pytest
 _TMP = tempfile.mkdtemp(prefix="dealerflow-tests-")
 _TEMPLATE_DB = os.path.join(_TMP, "template.db")
 
+PG_URL = os.environ.get("DF_TEST_PG_URL")  # optional: run the suite against Postgres instead of SQLite
+
 BASE_ENV = {
     "DF_ENV": "test",
     "DF_SECRET_KEY": "test-secret-key",
@@ -51,7 +53,25 @@ def _build_template() -> None:
     reset_engine()
 
 
-_build_template()
+if not PG_URL:
+    _build_template()
+
+
+def _reset_pg() -> None:
+    from sqlalchemy import create_engine, text
+
+    from dealerflow.db import reset_engine, session_scope
+    from dealerflow.migrate import upgrade
+    from dealerflow.seed import seed
+
+    eng = create_engine(PG_URL)
+    with eng.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
+    eng.dispose()
+    reset_engine()
+    upgrade(PG_URL)
+    with session_scope() as db:
+        seed(db)
 
 
 @pytest.fixture(autouse=True)
@@ -63,10 +83,15 @@ def fresh_db(tmp_path, monkeypatch):
     from dealerflow.integrations.zoom import MockZoomProvider
     from dealerflow.web.deps import login_limiter
 
-    path = tmp_path / "test.db"
-    shutil.copy(_TEMPLATE_DB, path)
-    monkeypatch.setenv("DF_DATABASE_URL", f"sqlite:///{path}")
-    get_settings.cache_clear()
+    if PG_URL:
+        monkeypatch.setenv("DF_DATABASE_URL", PG_URL)
+        get_settings.cache_clear()
+        _reset_pg()
+    else:
+        path = tmp_path / "test.db"
+        shutil.copy(_TEMPLATE_DB, path)
+        monkeypatch.setenv("DF_DATABASE_URL", f"sqlite:///{path}")
+        get_settings.cache_clear()
     reset_engine()
     MockEmailProvider.reset()
     MockCalendarProvider.reset()

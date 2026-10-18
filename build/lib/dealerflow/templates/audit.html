@@ -1,4 +1,0 @@
-{% extends "base.html" %}{% block title %}Audit log{% endblock %}{% block content %}<h1>Audit log</h1>
-<form class="row"><input name="action" value="{{ action }}" placeholder="action prefix e.g. outreach."><button>Filter</button></form>
-<div class="tablewrap"><table><tr><th>When</th><th>Who</th><th>Action</th><th>Entity</th><th>Data</th></tr>{% for a in rows %}<tr><td class="small">{{ a.created_at|local }}</td><td class="small">{{ a.actor.email if a.actor else 'system/agent' }}</td><td>{{ a.action }}</td><td class="small">{{ a.entity_type or '' }} {{ a.entity_id or '' }}</td><td class="small"><code>{{ a.data|tojson if a.data else '' }}</code></td></tr>{% endfor %}</table></div>
-<p><a href="?action={{ action }}&page={{ page+1 }}">older →</a></p>{% endblock %}

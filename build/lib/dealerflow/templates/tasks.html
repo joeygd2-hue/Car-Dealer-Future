@@ -1,7 +1,0 @@
-{% extends "base.html" %}{% from "macros.html" import status_pill %}{% block title %}Tasks{% endblock %}{% block content %}
-<h1>Tasks</h1><p class="row"><a class="pill" href="?show=open">open</a><a class="pill" href="?show=all">all</a><a class="pill" href="?show={{ show }}&mine=1">mine</a></p>
-<div class="tablewrap"><table><tr><th>Due</th><th>Task</th><th>Prospect</th><th>Kind</th><th>Status</th><th></th></tr>
-{% for t in tasks %}<tr><td class="small">{% if t.status=='open' and t.due_at < now %}<span class="pill bad">overdue</span> {% endif %}{{ t.due_at|local }}</td><td>{{ t.title }}</td><td>{% if t.prospect %}<a href="/prospects/{{ t.prospect_id }}">{{ t.prospect.name }}</a>{% endif %}</td><td class="small">{{ t.kind }}</td><td>{{ status_pill(t.status) }}</td>
-<td>{% if t.status=='open' %}<form class="inline" method="post" action="/tasks/{{ t.id }}/done"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">done</button></form>
-<form class="inline" method="post" action="/tasks/{{ t.id }}/snooze"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="days" value="1"><button class="secondary">+1 day</button></form>{% endif %}</td></tr>
-{% else %}<tr><td colspan="6" class="muted">No tasks.</td></tr>{% endfor %}</table></div>{% endblock %}

@@ -1,4 +1,0 @@
-{% extends "base.html" %}{% from "macros.html" import sim, status_pill %}{% block title %}Meetings{% endblock %}{% block content %}
-<h1>Meetings</h1><div class="tablewrap"><table><tr><th>#</th><th>Prospect</th><th>Status</th><th>When</th><th>Zoom</th></tr>
-{% for m in rows %}<tr><td><a href="/meetings/{{ m.id }}">{{ m.id }}</a></td><td><a href="/prospects/{{ m.prospect_id }}">{{ m.prospect.name }}</a></td><td>{{ status_pill(m.status) }} {{ sim(m.simulated) }}</td><td>{{ m.start_at|local or '—' }}</td><td class="small">{{ m.zoom_meeting_id or '' }}</td></tr>
-{% else %}<tr><td colspan="5" class="muted">No meetings.</td></tr>{% endfor %}</table></div>{% endblock %}

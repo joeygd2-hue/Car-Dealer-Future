@@ -1,1 +1,0 @@
-{% extends "base.html" %}{% block content %}<h1>Activity</h1><div class="card"><ul class="timeline">{% for a in rows %}<li><span class="muted small">{{ a.created_at|local }}</span> <span class="pill">{{ a.kind }}</span> <a href="/prospects/{{ a.prospect_id }}">#{{ a.prospect_id }}</a> {{ a.summary }}</li>{% endfor %}</ul></div>{% endblock %}

@@ -1,9 +1,0 @@
-{% extends "base.html" %}{% from "macros.html" import sim, status_pill %}{% block content %}
-<h1>{{ row.subject or '(no subject)' }} {{ sim(row.simulated) }}</h1><div class="two"><div class="card">
-<p class="small">From {{ row.from_email }} · {{ row.received_at|local }} · via {{ row.provider }}</p><pre>{{ row.body }}</pre></div>
-<div><div class="card"><h3>Classification: {{ status_pill(row.classification) }} {{ '%.0f'|format((row.classification_confidence or 0)*100) }}%</h3>
-{% for r in row.classification_reasons or [] %}<div class="small muted">{{ r }}</div>{% endfor %}
-<form method="post" action="/inbox/{{ row.id }}/reclassify"><input type="hidden" name="csrf" value="{{ csrf }}"><select name="classification">{% for l in ['opt_out','meeting_request','interested','question','not_interested','referral','auto_reply','bounce','unclear'] %}<option {% if l==row.classification %}selected{% endif %}>{{ l }}</option>{% endfor %}</select><button class="secondary">Correct</button></form></div>
-<div class="card"><h3>Prospect</h3>{% if row.prospect %}<a href="/prospects/{{ row.prospect_id }}">{{ row.prospect.name }}</a> (matched by {{ row.matched_by }}){% else %}<form method="post" action="/inbox/{{ row.id }}/assign"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="prospect_id" placeholder="prospect #" required><button>Assign</button></form>{% endif %}</div>
-{% if row.prospect and row.classification not in ('opt_out','bounce') %}<div class="card"><h3>Reply</h3><form method="post" action="/inbox/{{ row.id }}/reply"><input type="hidden" name="csrf" value="{{ csrf }}"><textarea name="body" required></textarea><button>Draft reply</button></form><p class="small muted">Drafts go to the outreach queue for approval.</p></div>{% endif %}
-</div></div>{% endblock %}

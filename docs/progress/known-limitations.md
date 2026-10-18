@@ -69,3 +69,23 @@ ran against SIMULATED providers or mocked HTTP.
 The compliance rules in the code (CAN-SPAM footer and opt-out, suppression, Texas calling hours, no autodialing or
 recording) reflect the research in `docs/research/`. They are **not legal advice**. Have counsel review
 templates, the data sources you choose, and any move to automated (`auto`) sending before going live.
+
+
+## Phase 2 (inventory, listings, publishing)
+
+Last updated 2026-10-18 by the Phase 2 chat.
+
+| Item | Status / what's needed |
+|---|---|
+| Facebook Marketplace publishing | **No API exists** for organic dealer vehicle listings (ended 2021/2023). Publication, edits, removal and buyer messages are manual. The app records staff-attested URLs but cannot verify a Marketplace listing is still live. Browser automation is deliberately not used. |
+| Meta vehicle catalog (`meta_catalog`) | Code + mocked-HTTP test only. Needs Meta App Review (`catalog_management` + `business_management`), Business Verification, a vehicle catalog, vehicle detail page URLs and a system-user token. The batch-status response shape is handled defensively but unverified. Items power paid ads, not organic listings. |
+| Real inventory feeds | No dealer feed has been connected; feeds tested with mocked HTTP. No SFTP receiver for HomeNet/vAuto-style drops. No DMS vendor presets until real export samples exist. |
+| AI listing prose | Off by default; tested with a mocked client only. Template generator cannot apply free-text reviewer feedback (it records it). |
+| Spanish | Fixed vocabulary; unknown features/colours stay in English and are flagged for review. |
+| Photos | URLs only: no download, reachability check, resizing or moderation. |
+| VIN decode | Offline check digit + model-year only; NHTSA vPIC not integrated. |
+| Metrics | Listing views, inquiries and sales are not measured (no reliable source), so none are reported. |
+| Tenancy | Enforced by tenant-scoped ORM sessions, composite FKs and route checks; PostgreSQL row-level security is not configured. Phase 1 tables (CRM) are agency-wide by design. |
+| Dealership users | Created by a dealership admin or agency manager with a temporary password; no invite email, password reset or MFA yet. |
+| Docs from Phase 1 | `docs/research/feasibility-report.md` and Phase 1's `docs/research/source-register.md` (IDs like `[S-OSM]`) are referenced but were never committed on the Phase 1 branch. Phase 2 sources are in `docs/research/phase2-source-register.md`. |
+| Phase 4 branch | `claude/blissful-davinci-82py6w` is still a separate app (`app/` package) and is not merged; it must be ported into `dealerflow`. |

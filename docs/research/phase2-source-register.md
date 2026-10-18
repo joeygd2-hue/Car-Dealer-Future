@@ -1,4 +1,4 @@
-# Source register
+# Source register: Phase 2 (inventory and listing channels) and outreach compliance cross-check
 
 Sources used for integration and compliance decisions. Full briefs with context:
 `meta-and-inventory-integrations-2026-10.md` and `outreach-providers-and-compliance-2026-10.md` (both 2026-10-18).

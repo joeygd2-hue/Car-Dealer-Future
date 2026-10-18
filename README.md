@@ -3,6 +3,12 @@
 Prospecting, CRM, outreach and a persistent outreach agent, for a business that sells marketing
 automation to independent used-car dealerships around Sugar Land and Houston, Texas.
 
+**Phase 2 (also in this code):** dealership clients and users with strict per-dealership isolation; inventory
+import (CSV, spreadsheet, DMS export, authorised feeds, manual entry) with validation and sync history; English and
+Spanish listings generated only from verified data, with guardrails, review, approval and revision history; publishing
+via a manual Facebook Marketplace workflow (no API exists for it), the Meta vehicle catalog (guarded) and CSV export;
+per-dealership reports. Open **Dealerships** in the app.
+
 **Phase 1 (this code):** lead discovery and import, deduplication, explainable scoring, CRM pipeline,
 human-approved email outreach (English/Spanish), reply import and classification, opt-out and
 suppression enforcement, Zoom and calendar scheduling, click-to-call, daily and weekly reports, and
@@ -21,9 +27,10 @@ cp .env.example .env              # fill in DF_BUSINESS_* and DF_SENDER_* at lea
 python -m dealerflow migrate      # creates state/dealerflow.db and seeds stages/templates
 python -m dealerflow create-user you@example.com admin
 python -m dealerflow demo         # optional: 8 SIMULATED fixture dealerships, no network
+python -m dealerflow demo-dealer  # optional: a SIMULATED dealership client with fixture inventory (Phase 2)
 python -m dealerflow web          # http://127.0.0.1:8000
 python -m dealerflow worker       # second terminal: agent ticks, sending, inbox polling
-pytest                            # 99 tests, no network
+pytest                            # 146 tests, no network
 ```
 
 Docker: `docker compose up --build` runs `migrate`, then `web` and `worker`.

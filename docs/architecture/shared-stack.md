@@ -92,3 +92,46 @@ Public, unauthenticated endpoints: `GET /healthz`, `GET|POST /u/{token}` (unsubs
 
 Errors: raise `CredentialError` (not retried), `RateLimitedError` (retried, honours Retry-After),
 `PermanentError` (not retried), or `IntegrationError` (retried).
+
+## Phase 2 additions (dealership inventory, listings, publishing)
+
+Added by the Phase 2 chat on top of this foundation (no second app, login or queue).
+
+**Clients and tenancy.** A signed dealership is a `clients` row (`clients.prospect_id` links the won CRM prospect;
+create it from `/dealers`). Dealership-owned tables inherit `models_dealer.TenantMixin` (`client_id NOT NULL`) and
+reference parents through composite `(client_id, parent_id)` foreign keys, so the database refuses cross-dealership
+links. `tenancy.tenant_session(client_id)` filters every query on tenant models and refuses writes for another client.
+Web routes get a `ClientContext` only through `routes_dealers.dealer_ctx(permission)` → `tenancy.authorize_client`.
+Another client's ids return 404. **Phase 3 (client portal) must reuse `clients`, `dealer_ctx` and these rules.**
+
+**Dealership users.** `users.client_id` + `users.client_role` (`dealer_admin | dealer_reviewer | dealer_viewer`).
+Such users can only open `/dealers/{their id}/...` and `/api/v1/dealers/{their id}/...`; `web/deps.current_user`
+returns 403 for every other path and `require()` rejects them, so they never see the CRM, agent or settings.
+Staff open any client workspace; viewer = read, rep = import/edit/publish, manager/admin = also settings and channel
+connections. Staff approve listings only if the dealership allows agency approval in its settings.
+
+| Area | Module |
+|---|---|
+| Models + migration | `models_dealer.py`, `migrations/versions/0002_phase2_inventory_listings.py` |
+| Tenancy | `tenancy.py` |
+| Inventory | `services/inventory/` (parsers, normalize, validate, vin, importer, feeds, reactions) |
+| Listings | `services/listings/` (dealer_settings, facts, i18n, template_generator, ai_generator, guardrails, service) |
+| Publishing | `services/publishing/service.py`, channels in `integrations/listing_channels.py` |
+| AI | `integrations/llm.py` (`structured_call`; optional, off by default; Phase 3/4 should reuse it) |
+| Jobs | `services/dealer_jobs.py`: `inventory_sync`, `listing_generate`, `publish_operation`, `inventory_stale_scan`; scheduled from `worker.schedule_tick` |
+| Reports | `services/dealer_reports.py` |
+| Pages / API | `web/routes_dealers.py` (`/dealers/...`), `web/routes_dealer_api.py` (`/api/v1/dealers/{client_id}/...`) |
+
+`ListingChannel` interface (`integrations/listing_channels.py`): `build_payload`, `validate_payload`, `publish`,
+`update`, `delete`, `check_status` → `ChannelResult(outcome=confirmed|submitted|manual_required|failed)`; each channel
+documents itself in `DOCS`. Implementations: `facebook_marketplace` (manual), `meta_catalog` (API, guarded), `mock`
+(SIMULATED). Same error conventions as the other providers. A listing is `published_confirmed` only after a channel
+confirms (`confirmation_type=api`) or a person records the live URL with an attestation (`manual_attested`).
+
+Phase 2 JSON API (`/api/v1/dealers/{client_id}`, same auth): `GET vehicles`, `GET vehicles/{id}`, `POST imports`
+(multipart), `GET imports/{id}`, `GET listings`, `GET listings/{id}`, `POST listings/{id}/approve`,
+`POST listings-batch/preview|approve`, `GET publications`, `GET publications/{id}`, `POST publications/{id}/publish`,
+`POST publications/{id}/confirm-manual`, `GET reports/summary`, `GET export.csv`.
+
+Secrets stay in the environment: a feed credential is read from the variable named in `inventory_sources.secret_env`
+(must start `DF_FEED_`), a Meta token from `channel_connections.token_env` (must start `DF_META_TOKEN_`).

@@ -7,7 +7,7 @@
 <a href="/reports/weekly">Weekly report</a><a href="/integrations">Integrations</a><a href="/settings">Settings</a>
 <a href="/dealers">Dealerships</a>
 {% if role_at_least(user.role, 'manager') %}<a href="/audit">Audit log</a>{% endif %}{% endif %}</nav>
-<span class="right small">{{ user.email }} ({{ user.role }})<form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Log out</button></form></span></header>{% endif %}
+<span class="right small">{{ user.email }} ({{ user.client_role.replace("_", " ") if user.client_id else user.role }})<form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Log out</button></form></span></header>{% endif %}
 <main>
 {% if user and not user.client_id and (providers.email == 'mock' or providers.calendar == 'mock' or providers.zoom == 'mock') %}
 <div class="banner small">SIMULATED providers active: email={{ providers.email }}, calendar={{ providers.calendar }}, zoom={{ providers.zoom }}, calls={{ providers.call }}. Nothing marked SIMULATED reached a real person.</div>{% endif %}

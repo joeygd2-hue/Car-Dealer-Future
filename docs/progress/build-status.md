@@ -3,7 +3,7 @@
 | Phase | Scope | Status |
 |---|---|---|
 | **1** | Research, lead generation, CRM, sales operations, persistent outreach agent | **Implemented and tested with simulated providers.** Live integrations not yet verified (no credentials). |
-| 2 | (defined in its own task) | Not started. Must extend this app; see `docs/architecture/shared-stack.md`. |
+| **2** | Dealership inventory ingestion, bilingual listings, approvals, publishing | **Implemented in this app and tested with fixtures, SIMULATED channel and mocked HTTP.** Meta catalog not live-verified (no credentials). See the Phase 2 section below. |
 | 3 | (defined in its own task) | Not started. |
 | 4 | (defined in its own task) | Not started. |
 
@@ -36,7 +36,7 @@ SQLAlchemy/Alembic + Jinja, matching the owner's other Python/FastAPI project. D
 
 ## Tests
 
-`pytest` runs 99 tests in about 20 s with no network. The same suite passes on Postgres 16
+`pytest` runs 146 tests (99 Phase 1 + 47 Phase 2) with no network. The same suite passes on Postgres 16
 (`DF_TEST_PG_URL=postgresql+psycopg://… pytest`).
 
 | File | Tests | Covers |
@@ -78,3 +78,48 @@ Pause, Emergency stop.
 3. Create the Google Calendar and Zoom S2S credentials; run Integrations → Verify credentials.
 4. Decide on lead sources (see feasibility report); import a first real list by CSV.
 5. Send 5–10 human-approved emails, then consider enabling the agent in `manual` approval mode.
+
+
+## Phase 2: dealership inventory, listings and publishing
+
+Last updated 2026-10-18 (Phase 2 chat, branch `claude/dealership-inventory-publishing-iq0aqw`).
+
+**How Phase 2 joined this app.** Phases 1, 2 and 4 had each started from the empty repository at the same time and
+built separate apps on separate branches. The owner chose this Phase 1 `dealerflow` app as the single foundation.
+Phase 2 merged this branch and ported its feature set into `dealerflow` (the earlier standalone Phase 2 code is in
+git history at `786fc1e`). Its duplicate outreach agent was dropped in favour of Phase 1's. The Phase 4 branch
+(`claude/blissful-davinci-82py6w`) has **not** been merged; it still contains a separate app and needs porting too.
+
+| Area | Implemented | Where |
+|---|---|---|
+| Clients and tenancy | `clients` (from won prospects), dealership users bound to one client, tenant-scoped sessions, composite tenant FKs, 404 for other clients' ids, dealership users blocked from all staff pages | `models_dealer.py`, `tenancy.py`, `web/deps.py` |
+| Ingestion | CSV/TSV/XLSX/JSON uploads, DMS exports via column mapping, authorised HTTPS feeds (scheduled, credential from env, SSRF guard), manual entry; raw rows kept; run history | `services/inventory/` |
+| Validation | Missing/contradictory/implausible data, VIN check digit + model-year cross-check, duplicate VINs, branded titles, photo URLs, stale detection | `services/inventory/validate.py`, `dealer_jobs.run_stale_scan` |
+| Sync | Price/detail/photo/status change detection, removal for full snapshots with a mass-removal safeguard, reappearance, idempotent re-import | `services/inventory/importer.py`, `reactions.py` |
+| Listings | Deterministic EN/ES generator (default) + optional Claude generator; titles, descriptions, features, search terms, CTA, 7 FAQ answers, disclaimers; uncertainty notes; immutable revisions with facts snapshot | `services/listings/` |
+| Guardrails | Urgency (EN/ES), unsupported warranty/accident/title/owner/certification/financing claims, year/mileage/price/drivetrain/transmission/fuel mismatches, unverified features, keyword stuffing, limits, required fields, disclaimers, branded-title disclosure | `services/listings/guardrails.py` |
+| Review | Workspace pages: inventory, vehicle detail + history, EN/ES side by side, edit, photos, issues, approve with warning acknowledgement, reject, regenerate, revisions, batch approval (preview, expected count, confirm) | `web/routes_dealers.py`, `templates/dealer_*.html` |
+| Publishing | Facebook Marketplace manual package + recorded publication/edit/removal; Meta vehicle catalog (guarded); SIMULATED channel; idempotent operations, retries with backoff, bounded attempts, withdrawal on sale; CSV export | `services/publishing/`, `integrations/listing_channels.py` |
+| Reports | Imported, generated, approved, API-confirmed vs manually-confirmed publications, manual required, failed, stale, sold needing withdrawal, data issues, sync health | `services/dealer_reports.py` |
+| API | `/api/v1/dealers/{client_id}/...` | `web/routes_dealer_api.py` |
+
+| Test file | Tests | Covers |
+|---|---|---|
+| `test_dealer_inventory.py` | 11 | Normalisation + raw rows, malformed rows, contradictions, VIN, duplicates, idempotent re-import, price change, sold/removed, mass-removal safeguard, XLSX upload page, authorised feed through the worker, SSRF guard, stale scan |
+| `test_dealer_listings.py` | 18 | Bilingual generation from verified facts, worker drafts, 9 guardrail cases, supported claims allowed, missing data flagged, warning acknowledgement + stale facts, agency approval gating, batch safeguards, revisions, AI output still guard-railed |
+| `test_dealer_publishing.py` | 10 | Marketplace manual evidence rules, price change → needs update, sold → withdrawal, API submit/confirm + idempotency, retries, permanent failure + retry, bounded retries, sold → API delete, stale blocks publishing, Meta guard + request shape |
+| `test_dealer_isolation.py` | 6 | Cross-dealer pages/API → 404, dealership users blocked from staff pages, server-side roles + CSRF, staff viewer read-only, ORM tenant filter and write refusal, composite FKs |
+| `test_dealer_web.py` | 2 | Full HTTP workflow (prospect → client → dealer user → settings → upload → worker drafts → batch approve → Marketplace record → SIMULATED API publish → reports → ES export → API key → audit) and every page renders |
+
+Verified by hand on 2026-10-18: full suite 146 passed on SQLite and on **PostgreSQL 16**; migration `0002`
+upgrade → downgrade → upgrade on SQLite; `migrate` → `demo-dealer` → `run-jobs` → `web`, then a headless-Chromium
+pass as a dealership owner (inventory, listing review, approval, Marketplace package, recording publication, reports,
+mobile width; staff pages return 403) and as staff (dealership directory).
+
+### Next steps (Phase 2 scope)
+1. Phase 4 chat: port its finance/SEO/portal modules into this app (its branch is still a separate app).
+2. Phase 3 chat: build the client portal and customer messaging on `clients`, `dealer_ctx` and dealership users.
+   Marketplace buyer conversations remain manual (no API).
+3. To verify Meta live: Meta app with App Review, a test vehicle catalog, a system-user token in `DF_META_TOKEN_*`,
+   then publish one SIMULATED dealership's listing to a test catalog.
+4. Get real DMS export samples from pilot dealers and add column-mapping presets.

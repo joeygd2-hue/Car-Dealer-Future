@@ -28,6 +28,7 @@ from app.models.crm import ContactSuppression, CustomerContact, CustomerIdentity
 from app.models.inventory import ListingDraft, Vehicle
 from app.models.jobs import Job, RecurringTask, WorkerHeartbeat
 from app.models.notifications import Notification, NotificationPreference
+from app.models.ops import PasswordResetToken, PilotRecipient, RateCounter, SendAttempt
 from app.models.outreach import (
     Campaign,
     CostEntry,
@@ -50,6 +51,6 @@ __all__ = [
     "CustomerIdentity", "CustomerLead", "Dealership", "Enrollment", "Escalation", "EvaluationRun",
     "InboundEvent", "IntegrationConnection", "Job", "ListingDraft", "LiveAuthorization", "Membership",
     "Message", "ModeAuthorization", "Notification", "NotificationPreference", "OutreachAgentState", "OutreachFAQ",
-    "OutreachMessage", "OutreachReply", "Prospect", "ProspectFact", "RecurringTask", "ResponseDraft",
+    "OutreachMessage", "OutreachReply", "PasswordResetToken", "PilotRecipient", "Prospect", "RateCounter", "SendAttempt", "ProspectFact", "RecurringTask", "ResponseDraft",
     "SalesMeeting", "SandboxRecord", "Suppression", "SystemControl", "User", "UserSession", "Vehicle", "WorkerHeartbeat",
 ]

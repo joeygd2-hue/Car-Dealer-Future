@@ -204,6 +204,10 @@ def process_message(db: Session, message_id: int) -> dict:
         if text:
             plan.body, plan.generated_by = text, "template+llm"
 
+    if A.CANCEL_APPOINTMENT in an.intents:
+        from app.services.appointments import customer_change_requested
+
+        customer_change_requested(db, conv, msg.body)
     appt = None
     if plan.appointment_request is not None and plan.appointment_request_in_hours is not False:
         appt = request_from_conversation(db, conv, plan.appointment_request,
@@ -218,6 +222,8 @@ def process_message(db: Session, message_id: int) -> dict:
     draft = ResponseDraft(conversation_id=conv.id, dealership_id=dealership.id, in_reply_to_message_id=msg.id,
                           body=plan.body, language=lang, confidence=plan.confidence, intents=plan.intents,
                           facts_used=plan.facts_used, unresolved=plan.unresolved,
+                          fact_snapshot={f.key: f.value for f in fs.facts
+                                         if f.key in set(plan.facts_used) | {"vehicle"}},
                           escalation_reasons=plan.escalation_reasons, decision="AUTO_SEND" if decision.auto_send else "DRAFT_ONLY",
                           decision_reasons=decision.reasons, generated_by=plan.generated_by, engine_version=ENGINE_VERSION,
                           status="PENDING_REVIEW")

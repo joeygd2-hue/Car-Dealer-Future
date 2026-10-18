@@ -45,3 +45,26 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
+
+
+def verify_integrity(db: Session, limit: int | None = None) -> dict:
+    """Recompute every row's HMAC and look for id gaps (deleted rows). Returns a report for the admin UI."""
+    from sqlalchemy import select
+
+    from app.models.core import audit_entry_hmac
+
+    stmt = select(AuditLog).order_by(AuditLog.id)
+    if limit:
+        stmt = stmt.limit(limit)
+    tampered, gaps, unsealed, checked, prev = [], [], [], 0, None
+    for row in db.scalars(stmt):
+        checked += 1
+        if row.entry_hmac is None:
+            unsealed.append(row.id)
+        elif row.entry_hmac != audit_entry_hmac(row):
+            tampered.append(row.id)
+        if prev is not None and row.id != prev + 1:
+            gaps.append([prev + 1, row.id - 1])
+        prev = row.id
+    return {"checked": checked, "tampered_ids": tampered, "missing_id_ranges": gaps, "unsealed_ids": unsealed,
+            "ok": not (tampered or gaps or unsealed)}

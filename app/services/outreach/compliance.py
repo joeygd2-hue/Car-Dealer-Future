@@ -122,7 +122,7 @@ def check_message(db: Session, msg: OutreachMessage, state: OutreachAgentState, 
     prospect = db.get(Prospect, msg.prospect_id)
     # Global controls.
     if controls.get_flag(db, controls.OUTREACH_EMERGENCY_STOP) or state.state == "EMERGENCY_STOPPED":
-        r.stop.append("emergency stop is active")
+        r.wait.append("outreach emergency stop is active")  # held, not destroyed: resumes only after an explicit reset
     elif state.state != "RUNNING":
         r.wait.append(f"agent is {state.state}")
     # Channel.
@@ -170,20 +170,42 @@ def check_message(db: Session, msg: OutreachMessage, state: OutreachAgentState, 
             r.stop.append("missing unsubscribe instructions")
         if not msg.subject.startswith("ADV:"):
             r.stop.append("missing ADV: subject prefix (Texas Bus. & Com. Code ch. 321)")
-    # Schedule, limits, budget (temporary).
+    # Schedule and budget (temporary). Send-volume limits are enforced atomically by the caller with
+    # distributed counters (see send_volume_specs), so concurrent workers cannot exceed them.
     if msg.kind == "SEQUENCE":
         if not in_send_window(state, now):
             r.wait.append("outside operating schedule")
-        if sends_since(db, now - timedelta(hours=1)) >= state.max_sends_per_hour:
-            r.wait.append("hourly send limit reached")
-        if sends_since(db, now - timedelta(hours=24)) >= state.max_sends_per_day:
-            r.wait.append("daily send limit reached")
         if msg.campaign_id:
             camp = db.get(Campaign, msg.campaign_id)
-            if camp and sends_since(db, now - timedelta(hours=24), camp.id) >= camp.daily_send_limit:
-                r.wait.append("campaign daily send limit reached")
             if camp and spent_today_cents(db, state, camp.id) + estimated_cost_cents > camp.daily_budget_cents:
                 r.wait.append("campaign daily budget reached")
     if spent_today_cents(db, state) + estimated_cost_cents > state.daily_budget_cents:
         r.wait.append("daily budget reached")
     return r
+
+
+LONG_WINDOW = 400 * 86400  # keys below embed the local date, so one window per key is enough
+
+
+def send_volume_specs(db: Session, msg: OutreachMessage, state: OutreachAgentState) -> list[tuple[str, int, int, int]]:
+    """Distributed counters (key, limit, window_seconds, amount) for one outreach sequence email."""
+    if msg.kind != "SEQUENCE":
+        return []
+    day = local_now(state).date().isoformat()
+    specs = [("outreach:sends:hour", state.max_sends_per_hour, 3600, 1),
+             (f"outreach:sends:day:{day}", state.max_sends_per_day, LONG_WINDOW, 1)]
+    camp = db.get(Campaign, msg.campaign_id) if msg.campaign_id else None
+    if camp:
+        specs.append((f"outreach:sends:campaign:{camp.id}:day:{day}", camp.daily_send_limit, LONG_WINDOW, 1))
+    return specs
+
+
+def reserve_budget(db: Session, state: OutreachAgentState, cost_cents: float) -> bool:
+    """Atomically reserve spend against the daily outreach budget (millicents)."""
+    from app.services import rate_limits
+
+    if cost_cents <= 0:
+        return True
+    day = local_now(state).date().isoformat()
+    return rate_limits.try_acquire(db, f"outreach:budget:{day}", int(state.daily_budget_cents * 1000), LONG_WINDOW,
+                                   int(round(cost_cents * 1000)))

@@ -182,6 +182,10 @@ def discover_job(db: Session, payload: dict, job) -> dict:
 
     if spent_today_cents(db, st) + source.estimated_cost_cents_per_call > st.daily_budget_cents:
         return {"skipped": "daily budget reached"}
+    from app.services.outreach.compliance import reserve_budget
+
+    if not reserve_budget(db, st, source.estimated_cost_cents_per_call * len(st.target_cities or [1])):
+        return {"skipped": "daily budget reserved by other work"}
     try:
         return discover(db, source, st.target_cities or ["Sugar Land"], int(payload.get("limit", 10)),
                         run_ref=f"job:{job.id}")
@@ -232,53 +236,93 @@ def _on_send_dead(db: Session, payload: dict, job) -> None:
         msg.status, msg.error = "FAILED", (job.last_error or "")[:1000]
         notifications.notify_operator(db, kind="SYSTEM", subject="Outreach send failed",
                                       body=f"Message #{msg.id} to {msg.to_address} failed: {msg.error[:300]}",
-                                      link="/admin/outreach", dedupe_key=f"sendfail-o:{msg.id}")
+                                      link="/admin/pilot", dedupe_key=f"sendfail-o:{msg.id}")
+
+
+SEND_KIND = "OUTREACH_EMAIL"
+
+
+def _uncertain(db: Session, msg: OutreachMessage, error: str) -> dict:
+    msg.status, msg.error = "UNCERTAIN", error
+    notifications.notify_operator(db, kind="SYSTEM", subject="Outreach delivery uncertain — check before resending",
+                                  body=f"Message #{msg.id} to {msg.to_address}: {error}. It will not be re-sent automatically.",
+                                  link="/admin/pilot", dedupe_key=f"uncertain-o:{msg.id}")
+    return {"uncertain": error}
 
 
 @jobs.handler("outreach.send", on_dead=_on_send_dead)
 def send_job(db: Session, payload: dict, job) -> dict:
-    msg = db.get(OutreachMessage, jobs.payload_get(payload, "message_id"))
-    if msg is None or msg.status not in ("APPROVED", "SENDING"):
-        return {"skipped": msg.status if msg else "missing"}
+    """Claim → revalidate everything → reserve limits → gate → commit → send → record."""
+    from sqlalchemy import update as sa_update
+
+    from app.services import rate_limits, send_gate
+    from app.services.outreach.compliance import send_volume_specs
+
+    mid = jobs.payload_get(payload, "message_id")
+    msg = db.get(OutreachMessage, mid)
+    if msg is None:
+        return {"skipped": "missing"}
+    if msg.status == "SENDING":
+        send_gate.resolve_in_flight(db, SEND_KIND, msg.id)
+        return _uncertain(db, msg, "worker stopped mid-send; delivery unknown")
+    claimed = db.execute(sa_update(OutreachMessage).where(OutreachMessage.id == mid, OutreachMessage.status == "APPROVED")
+                         .values(status="SENDING").execution_options(synchronize_session=False)).rowcount
+    if claimed != 1:
+        return {"skipped": msg.status}
+    db.refresh(msg)
     st = get_state(db)
     sender, live = registry.outreach_email_sender(db)
     result = check_message(db, msg, st, live=live)
+
+    def _hold(reasons: list[str], delay: float):
+        def _persist(s: Session) -> None:
+            s.get(OutreachMessage, mid).block_reasons = reasons
+        raise jobs.RetryLater(delay, "; ".join(reasons), persist=_persist)  # rollback also releases the claim
+
     if result.stop:
         msg.status, msg.block_reasons = "BLOCKED", result.stop
         audit.record(db, "outreach.send_blocked", actor_type="AGENT", entity_type="outreach_message", entity_id=msg.id,
                      outcome="BLOCKED", reasons=result.stop)
         return {"blocked": result.stop}
     if result.wait:
-        wait, mid = list(result.wait), msg.id
-
-        def _persist(s: Session) -> None:
-            s.get(OutreachMessage, mid).block_reasons = wait
-
-        if "outside operating schedule" in wait:
-            delay = seconds_until_window(st)
-        elif any(w.startswith("agent is") for w in wait):
-            delay = 300
-        else:
-            delay = 1800
-        raise jobs.RetryLater(delay, "; ".join(wait), persist=_persist)
+        if "outside operating schedule" in result.wait:
+            _hold(result.wait, seconds_until_window(st))
+        _hold(result.wait, 300 if any("agent is" in w or "emergency" in w for w in result.wait) else 1800)
+    failed = rate_limits.acquire_all(db, send_volume_specs(db, msg, st))
+    if failed:
+        _hold([f"send limit reached ({failed})"], 900)
+    if send_gate.emergency_stopped(db):
+        _hold(["platform emergency stop is active"], 300)
+    gate = send_gate.open_attempt(db, kind=SEND_KIND, ref_id=msg.id, channel="EMAIL", recipient=msg.to_address, live=live)
+    if not gate.allowed:
+        msg.status, msg.block_reasons = "BLOCKED", gate.reasons
+        return {"blocked": gate.reasons}
     s = get_settings()
-    msg.status = "SENDING"
-    msg.attempts += 1
     domain = (s.outreach_sender_email or "sandbox.invalid").split("@")[-1]
+    msg.attempts += 1
     msg.rfc_message_id = msg.rfc_message_id or f"<outreach-{msg.id}-{secrets.token_hex(6)}@{domain}>"
+    db.commit()  # claim, counters and IN_FLIGHT ledger row are durable before the provider is called
+
     base = s.base_url.rstrip("/")
     headers = {"List-Unsubscribe": f"<{base}/u/{msg.unsubscribe_token}>",
                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"} if msg.unsubscribe_token else {}
     res = sender.send(to=msg.to_address, subject=msg.subject, body=msg.body,
                       from_addr=s.outreach_sender_email or "outreach@sandbox.invalid", from_name=s.outreach_sender_name,
                       headers=headers, message_id=msg.rfc_message_id, in_reply_to=msg.in_reply_to)
+    send_gate.close_attempt(db, gate.attempt, res)
     if not res.ok:
         msg.error = res.error
-        msg.status = "APPROVED" if res.retryable else "FAILED"
         audit.record(db, "outreach.send_failed", actor_type="AGENT", entity_type="outreach_message", entity_id=msg.id,
-                     outcome="FAILED", external=live, error=res.error)
+                     outcome="FAILED", external=live, error=res.error, uncertain=res.uncertain)
+        if res.uncertain:
+            return _uncertain(db, msg, res.error or "delivery uncertain")
+        for key, _limit, window, amount in send_volume_specs(db, msg, st):  # definitively not sent: free the slots
+            rate_limits.release(db, key, window, amount)
         if res.retryable:
+            msg.status = "APPROVED"
+            db.commit()
             raise RuntimeError(res.error)
+        msg.status = "FAILED"
         if "refused" in (res.error or ""):
             add_suppression(db, "EMAIL", msg.to_address, "BOUNCE", f"smtp refused message #{msg.id}")
         return {"failed": res.error}
@@ -305,6 +349,19 @@ def send_job(db: Session, payload: dict, job) -> dict:
                  entity_id=msg.id, outcome="OK" if live else "SIMULATED", external=live, to=msg.to_address,
                  step=msg.step_index)
     return {"status": msg.status}
+
+
+def reconcile_uncertain(db: Session, msg: OutreachMessage, *, delivered: bool, user_id: int) -> None:
+    if msg.status != "UNCERTAIN":
+        raise ValueError("message is not awaiting reconciliation")
+    msg.status = "SENT" if delivered else "APPROVED"  # APPROVED → next tick re-sends (new generation key)
+    msg.error = "marked delivered by operator" if delivered else None
+    if delivered:
+        msg.sent_at = msg.sent_at or utcnow()
+    else:
+        get_state(db).run_generation += 1
+    audit.record(db, "outreach.reconciled", actor_type="USER", actor_user_id=user_id, entity_type="outreach_message",
+                 entity_id=msg.id, delivered=delivered)
 
 
 @jobs.handler("outreach.poll_inbox")

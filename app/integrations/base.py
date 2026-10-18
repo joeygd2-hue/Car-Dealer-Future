@@ -22,6 +22,8 @@ class SendResult:
     provider_message_id: str | None = None
     error: str | None = None
     retryable: bool = False
+    # True when the request may have reached the provider (e.g. read timeout after sending): never auto-retry.
+    uncertain: bool = False
     raw: dict = field(default_factory=dict)
 
     @property

@@ -135,6 +135,8 @@ def decide(db: Session, conv: Conversation, plan: ReplyPlan, fs: FactSheet, now:
         reasons.append("intents not approved for automation: " + ", ".join(outside))
     if not substantive and "faq" not in plan.template_covered:
         reasons.append("nothing substantive to answer")
+    if not plan.answered:
+        reasons.append("no question was answered from verified data (clarifying questions are sent by staff)")
     # Low-risk answers must come from approved templates/FAQs (Mode B rule; also applies in Mode C).
     uncovered = [i for i in plan.answered if i in FAQ_AUTO_INTENTS and i not in plan.template_covered]
     if uncovered:

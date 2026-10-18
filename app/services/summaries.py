@@ -25,6 +25,7 @@ TOPIC_ACTIONS = {
     "unknown_question": "Answer the customer's question personally.",
     "appointment_change": "Contact the customer to cancel or reschedule the appointment.",
     "low_confidence": "Review the draft carefully before sending.",
+    "ambiguous_vehicle": "Confirm which vehicle the customer means (several match), then reply.",
 }
 
 INTENT_LABELS = {

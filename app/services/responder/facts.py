@@ -160,7 +160,7 @@ def build_fact_sheet(db: Session, dealership: Dealership, settings: AutomationSe
             fs.facts.append(Fact("price", fs.price_text, f"inventory verified {vehicle.verified_at:%Y-%m-%d %H:%M} UTC"))
         elif not vehicle.price_cents:
             fs.inventory_problems.append("price_missing")
-        if vehicle.mileage is not None and not vehicle.data_conflict_note:
+        if vehicle.mileage is not None and trusted:
             fs.mileage_text = f"{vehicle.mileage:,}"
             fs.facts.append(Fact("mileage", fs.mileage_text, f"inventory vehicle #{vehicle.id}"))
         fs.features = [str(f) for f in (vehicle.approved_features or [])]

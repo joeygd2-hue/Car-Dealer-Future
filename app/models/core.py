@@ -76,6 +76,13 @@ class User(IdMixin, TimestampMixin, Base):
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime)
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # TOTP MFA (RFC 6238). Secrets are Fernet-encrypted; recovery codes are stored as SHA-256 hashes.
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    mfa_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    mfa_pending_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    mfa_last_counter: Mapped[int | None] = mapped_column(Integer)
+    mfa_recovery_hashes: Mapped[list] = mapped_column(JSON, default=list)
 
     memberships: Mapped[list[Membership]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
@@ -101,6 +108,7 @@ class UserSession(IdMixin, Base):
     token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     csrf_token: Mapped[str] = mapped_column(String(128))
+    mfa_verified: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     ip: Mapped[str | None] = mapped_column(String(64))
@@ -124,6 +132,8 @@ class AuditLog(IdMixin, Base):
     outcome: Mapped[str] = mapped_column(String(20), default="OK")  # OK|FAILED|BLOCKED|SIMULATED
     external: Mapped[bool] = mapped_column(Boolean, default=False)  # touched a third party / customer
     details: Mapped[dict] = mapped_column(JSON, default=dict)
+    # HMAC over the row's content (key derived from ENCRYPTION_KEY) → detects edited rows; id gaps → deleted rows.
+    entry_hmac: Mapped[str | None] = mapped_column(String(64))
 
 
 class SystemControl(IdMixin, Base):
@@ -175,3 +185,52 @@ class IntegrationConnection(IdMixin, TimestampMixin, Base):
     config: Mapped[dict] = mapped_column(JSON, default=dict)
     last_error: Mapped[str | None] = mapped_column(Text)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+# ---------------------------------------------------------------------------- audit-log integrity
+
+def audit_hmac_key() -> bytes:
+    import hashlib
+
+    from app.config import get_settings
+
+    key = get_settings().encryption_key or "development-only-audit-key"
+    return hashlib.sha256(b"audit-log:" + key.encode()).digest()
+
+
+def audit_entry_hmac(row: AuditLog) -> str:
+    import hashlib
+    import hmac
+    import json
+
+    payload = json.dumps([
+        row.created_at.isoformat() if row.created_at else None, row.dealership_id, row.actor_type, row.actor_user_id,
+        row.action, row.entity_type, row.entity_id, row.outcome, bool(row.external), row.details,
+    ], sort_keys=True, default=str)
+    return hmac.new(audit_hmac_key(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+class AuditLogImmutableError(RuntimeError):
+    pass
+
+
+from sqlalchemy import event  # noqa: E402
+
+
+@event.listens_for(AuditLog, "before_insert")
+def _audit_seal(mapper, connection, target: AuditLog) -> None:
+    if target.created_at is None:
+        target.created_at = utcnow()
+    if target.details is None:
+        target.details = {}
+    target.entry_hmac = audit_entry_hmac(target)
+
+
+@event.listens_for(AuditLog, "before_update")
+def _audit_no_update(mapper, connection, target) -> None:
+    raise AuditLogImmutableError("audit log entries are append-only")
+
+
+@event.listens_for(AuditLog, "before_delete")
+def _audit_no_delete(mapper, connection, target) -> None:
+    raise AuditLogImmutableError("audit log entries are append-only")

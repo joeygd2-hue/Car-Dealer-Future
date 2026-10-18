@@ -37,18 +37,27 @@ class SmtpEmailSender:
             msg[k] = v
         msg.set_content(body)
         try:
-            with smtplib.SMTP(self.host, self.port, timeout=20) as smtp:
+            smtp = smtplib.SMTP(self.host, self.port, timeout=20)
+        except OSError as exc:  # could not connect: nothing was sent
+            return SendResult(FAILED, error=f"SMTP connect error: {exc}", retryable=True)
+        try:
+            with smtp:
                 if self.use_tls:
                     smtp.starttls()
                 if self.username:
                     smtp.login(self.username, self.password or "")
                 refused = smtp.send_message(msg)
+        except (smtplib.SMTPServerDisconnected, socket.timeout) as exc:
+            # The connection dropped during the transaction; the server may already have accepted the message.
+            return SendResult(FAILED, error=f"delivery uncertain: {exc}", uncertain=True)
         except smtplib.SMTPRecipientsRefused as exc:
             return SendResult(FAILED, error=f"recipient refused: {exc.recipients}", retryable=False)
         except smtplib.SMTPAuthenticationError as exc:
             return SendResult(FAILED, error=f"SMTP auth failed: {exc.smtp_code}", retryable=False)
-        except (smtplib.SMTPException, OSError, socket.timeout) as exc:
-            return SendResult(FAILED, error=f"SMTP error: {exc}", retryable=True)
+        except smtplib.SMTPResponseException as exc:  # the server explicitly refused: nothing was accepted
+            return SendResult(FAILED, error=f"SMTP {exc.smtp_code}: {exc.smtp_error!r}", retryable=400 <= exc.smtp_code < 500)
+        except (smtplib.SMTPException, OSError) as exc:  # connection broke mid-transaction: outcome unknown
+            return SendResult(FAILED, error=f"delivery uncertain: {exc}", uncertain=True)
         if refused:
             return SendResult(FAILED, error=f"recipient refused: {refused}", retryable=False)
         return SendResult(SENT, provider_message_id=msg["Message-ID"])

@@ -29,7 +29,7 @@ class AutomationSettings(IdMixin, TimestampMixin, Base):
     max_auto_replies_per_dealership_per_hour: Mapped[int] = mapped_column(Integer, default=30)
     min_seconds_between_auto_replies: Mapped[int] = mapped_column(Integer, default=30)
     auto_reply_outside_business_hours: Mapped[bool] = mapped_column(Boolean, default=False)
-    stale_inventory_hours: Mapped[int] = mapped_column(Integer, default=48)
+    stale_inventory_hours: Mapped[int] = mapped_column(Integer, default=24)
     confidence_threshold: Mapped[float] = mapped_column(Float, default=0.85)
     # Mode C: extra intents the dealership explicitly approved for automation.
     controlled_intents: Mapped[list] = mapped_column(JSON, default=list)

@@ -73,9 +73,15 @@ class ResolvedChannel:
     note: str
 
 
-def customer_channel(db: Session, connection: IntegrationConnection | None, provider: str) -> ResolvedChannel:
+def customer_channel(db: Session, connection: IntegrationConnection | None, provider: str,
+                     dealership_id: int | None = None) -> ResolvedChannel:
+    dealership_id = dealership_id if dealership_id is not None else (connection.dealership_id if connection else None)
     if provider == WEBSITE_CHAT:
-        return ResolvedChannel(FirstPartyChat(), True, "first-party website chat")
+        # First-party, but replies still reach real website visitors → same live authorization rule as other channels.
+        if live_authorized(db, customer_scope(WEBSITE_CHAT), dealership_id):
+            return ResolvedChannel(FirstPartyChat(), True, "first-party website chat (live authorized)")
+        return ResolvedChannel(sandbox.SandboxCustomerChannel(db, provider), False,
+                               "sandbox: website chat replies not live-authorized for this dealership")
     if provider in (MARKETPLACE_ASSISTED, ADF_LEAD):
         return ResolvedChannel(ManualOnlyChannel(provider), False, "manual channel")
     failure_mode = (connection.config or {}).get("sandbox_failure_mode") if connection else None

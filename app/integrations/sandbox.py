@@ -32,6 +32,8 @@ def _fail(failure_mode: str | None) -> SendResult | None:
         return SendResult(FAILED, error="sandbox: simulated transient provider error (HTTP 503)", retryable=True)
     if failure_mode == "permanent":
         return SendResult(FAILED, error="sandbox: simulated permanent provider error (HTTP 400)", retryable=False)
+    if failure_mode == "uncertain":
+        return SendResult(FAILED, error="sandbox: simulated read timeout after request was sent", uncertain=True)
     return None
 
 

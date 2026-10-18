@@ -44,8 +44,10 @@ class TwilioSmsChannel:
         try:
             resp = self.client.post(url, auth=(self.sid, self.token),
                                     data={"To": recipient_id, "From": self.from_number, "Body": text})
-        except httpx.HTTPError as exc:
-            return SendResult(FAILED, error=f"network error: {exc}", retryable=True)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:  # request never reached the provider
+            return SendResult(FAILED, error=f"connection error: {exc}", retryable=True)
+        except httpx.HTTPError as exc:  # read timeout / dropped connection after sending: outcome unknown
+            return SendResult(FAILED, error=f"delivery uncertain: {exc}", uncertain=True)
         try:
             data = resp.json()
         except ValueError:

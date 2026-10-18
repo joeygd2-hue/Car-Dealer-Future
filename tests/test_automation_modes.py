@@ -67,7 +67,7 @@ def test_mode_b_auto_answers_low_risk_with_templates(db, world):
     d = last_draft(db, cid)
     assert d.decision == "AUTO_SEND", d.decision_reasons
     msgs = outbound(db, cid)
-    assert len(msgs) == 1 and msgs[0].sender_type == "AI_AUTO" and msgs[0].delivery_status == "SENT"
+    assert len(msgs) == 1 and msgs[0].sender_type == "AI_AUTO" and msgs[0].delivery_status == "SIMULATED"
     assert "$18,995" in msgs[0].body
 
 

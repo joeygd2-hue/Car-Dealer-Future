@@ -115,30 +115,55 @@ def _mark_failed(db: Session, payload: dict, job) -> None:
 
 @jobs.handler("notification.send_email", on_dead=_mark_failed)
 def send_email_job(db: Session, payload: dict, job) -> dict:
-    n = db.get(Notification, jobs.payload_get(payload, "notification_id"))
-    if n is None or n.status in ("SENT", "SIMULATED", "SKIPPED"):
+    from sqlalchemy import update
+
+    from app.services import send_gate
+
+    nid = jobs.payload_get(payload, "notification_id")
+    n = db.get(Notification, nid)
+    if n is None:
         return {"skipped": True}
+    if n.status == "SENDING":
+        send_gate.resolve_in_flight(db, "NOTIFICATION_EMAIL", n.id)
+        n.status, n.status_detail = "UNCERTAIN", "worker stopped mid-send; not re-sent automatically"
+        return {"uncertain": True}
     if not n.recipient_address:
         n.status, n.status_detail = "SKIPPED", "no email address"
         return {"skipped": True}
+    if db.execute(update(Notification).where(Notification.id == nid, Notification.status == "PENDING")
+                  .values(status="SENDING").execution_options(synchronize_session=False)).rowcount != 1:
+        return {"skipped": n.status}
+    db.refresh(n)
     sender, live = registry.notification_email_sender(db)
-    settings = get_settings()
+    gate = send_gate.open_attempt(db, kind="NOTIFICATION_EMAIL", ref_id=n.id, channel="EMAIL", recipient=n.recipient_address,
+                                  live=live, dealership_id=n.dealership_id)
+    if not gate.allowed:
+        n.status, n.status_detail = "BLOCKED", "; ".join(gate.reasons)
+        return {"blocked": gate.reasons}
     n.attempts += 1
+    db.commit()
+    settings = get_settings()
     result = sender.send(to=n.recipient_address, subject=f"[{settings.app_name}] {n.subject}", body=n.body,
                          from_addr=settings.smtp_from or "notifications@sandbox.invalid", from_name=settings.app_name)
+    send_gate.close_attempt(db, gate.attempt, result)
     if result.ok:
         n.status = result.status  # SENT or SIMULATED
         n.provider_message_id = result.provider_message_id
         n.sent_at = utcnow()
         n.status_detail = None if live else "sandbox: email not actually sent (live email not authorized/configured)"
-        audit.record(db, "notification.email_sent" if live else "notification.email_simulated", actor_type="WORKER",
-                     dealership_id=n.dealership_id, entity_type="notification", entity_id=n.id,
-                     outcome="OK" if live else "SIMULATED", external=live)
         return {"status": n.status}
     n.status_detail = result.error
+    if result.uncertain:
+        n.status = "UNCERTAIN"
+        return {"uncertain": result.error}
     if result.retryable:
+        n.status = "PENDING"
+        db.commit()
         raise RuntimeError(result.error)
-    raise jobs.PermanentJobError(result.error or "email rejected")
+    n.status = "FAILED"
+    audit.record(db, "notification.failed", actor_type="WORKER", dealership_id=n.dealership_id,
+                 entity_type="notification", entity_id=n.id, outcome="FAILED", external=True)
+    return {"failed": result.error}
 
 
 # ------------------------------------------------------------------ daily digest

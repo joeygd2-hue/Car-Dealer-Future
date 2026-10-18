@@ -26,6 +26,7 @@ R_NEGOTIATION, R_CONDITION, R_COMPLAINT = "negotiation", "condition_history", "c
 R_HUMAN, R_FRUSTRATION, R_SENSITIVE = "human_request", "frustration", "sensitive_data"
 R_INVENTORY, R_MISSING, R_UNKNOWN, R_APPT_CHANGE = "uncertain_inventory", "missing_data", "unknown_question", "appointment_change"
 R_LOW_CONFIDENCE = "low_confidence"
+R_AMBIGUOUS = "ambiguous_vehicle"
 
 INTENT_TO_REASON = {
     A.FINANCING: R_FINANCING, A.CREDIT: R_CREDIT, A.WARRANTY: R_WARRANTY, A.TRADE_IN: R_TRADE,
@@ -210,6 +211,9 @@ def compose(an: Analysis, fs: FactSheet, text: str, *, contact_name: str | None,
     if vehicle_intents and fs.vehicle is None:
         say("ambiguous_vehicle" if fs.vehicle_ambiguous else "which_vehicle")
         plan.confidence -= 0.15
+        if fs.vehicle_ambiguous:
+            plan.unresolved.append("vehicle")
+            plan.escalation_reasons.append(R_AMBIGUOUS)
     elif vehicle_intents:
         problems = fs.inventory_problems
         if A.AVAILABILITY in an.intents:

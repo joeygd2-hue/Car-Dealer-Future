@@ -59,7 +59,7 @@ class Message(IdMixin, Base):
     provider_message_id: Mapped[str | None] = mapped_column(String(200))
     source_timestamp: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    # RECEIVED|QUEUED|SENDING|SENT|FAILED|SIMULATED|MANUAL_EXTERNAL|BLOCKED
+    # RECEIVED|QUEUED|SENDING|SENT|FAILED|SIMULATED|MANUAL_EXTERNAL|BLOCKED|UNCERTAIN (needs human reconciliation)
     delivery_status: Mapped[str] = mapped_column(String(20), default="RECEIVED")
     delivery_error: Mapped[str | None] = mapped_column(Text)
     idempotency_key: Mapped[str | None] = mapped_column(String(200), unique=True)
@@ -96,6 +96,8 @@ class ResponseDraft(IdMixin, TimestampMixin, Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     intents: Mapped[list] = mapped_column(JSON, default=list)
     facts_used: Mapped[list] = mapped_column(JSON, default=list)
+    # Values of the verified facts at draft time; an AI send is blocked if any of them changed since.
+    fact_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
     unresolved: Mapped[list] = mapped_column(JSON, default=list)
     escalation_reasons: Mapped[list] = mapped_column(JSON, default=list)
     decision: Mapped[str | None] = mapped_column(String(40))  # DRAFT_ONLY|AUTO_SEND|NO_REPLY

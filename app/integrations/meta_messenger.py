@@ -69,8 +69,10 @@ class MessengerChannel:
             body["messaging_type"] = "RESPONSE"
         try:
             resp = self.client.post(self.url, params={"access_token": self.token}, json=body)
-        except httpx.HTTPError as exc:
-            return SendResult(FAILED, error=f"network error: {exc}", retryable=True)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:  # request never reached the provider
+            return SendResult(FAILED, error=f"connection error: {exc}", retryable=True)
+        except httpx.HTTPError as exc:  # read timeout / dropped connection after sending: outcome unknown
+            return SendResult(FAILED, error=f"delivery uncertain: {exc}", uncertain=True)
         data = _json(resp)
         if resp.status_code == 200 and data.get("message_id"):
             return SendResult(SENT, provider_message_id=data["message_id"], raw=data)

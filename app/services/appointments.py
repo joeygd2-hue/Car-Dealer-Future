@@ -233,3 +233,17 @@ def dispatch_reminders_job(db: Session, payload: dict, job) -> dict:
         _schedule_reminders(db, appt)
         n += 1
     return {"checked": n}
+
+
+def customer_change_requested(db: Session, conv: Conversation, text: str) -> Appointment | None:
+    """Customer asked to cancel/reschedule. Staff decide; we only flag it (never auto-cancel or auto-move)."""
+    appt = db.scalar(select(Appointment).where(Appointment.conversation_id == conv.id, Appointment.status.in_(ACTIVE))
+                     .order_by(Appointment.id.desc()))
+    if appt is None:
+        return None
+    appt.status = "RESCHEDULE_REQUESTED"
+    _event(db, appt, "CUSTOMER_CHANGE_REQUESTED", "customer", message=text[:500])
+    audit.record(db, "appointment.customer_change_requested", actor_type="CUSTOMER", dealership_id=appt.dealership_id,
+                 entity_type="appointment", entity_id=appt.id)
+    _sync_conv(db, appt)
+    return appt

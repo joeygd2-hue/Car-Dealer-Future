@@ -50,7 +50,7 @@ def test_confirm_with_calendar_creates_event_confirmation_and_reminders(db, worl
     assert len(reminders) >= 1
     run_worker()
     conf = db.scalar(select(Message).where(Message.conversation_id == cid, Message.sender_type == "SYSTEM"))
-    assert conf is not None and "confirmed" in conf.body and conf.delivery_status == "SENT"
+    assert conf is not None and "confirmed" in conf.body and conf.delivery_status == "SIMULATED"  # chat not live-authorized
     # Calendar now busy at that time → a second request for the same slot is flagged BUSY.
     _, appt2 = _request(db, world, "t-3")
     assert appt2.availability_checked == "BUSY"

@@ -151,7 +151,9 @@ def test_rate_and_budget_limits_defer(db, world, running):
     db.commit()
     tick_all(db, 1)
     m = db.get(OutreachMessage, msg.id)
-    assert m.status == "APPROVED" and "hourly send limit reached" in m.block_reasons
+    assert m.status == "APPROVED" and any("outreach:sends:hour" in r for r in m.block_reasons)
+    assert not [r for r in db.scalars(select(SandboxRecord).where(SandboxRecord.kind == "EMAIL_OUT"))
+                if r.payload["to"] == m.to_address]
     job = db.scalar(select(Job).where(Job.type == "outreach.send", Job.status == "QUEUED"))
     assert job is not None and job.attempts == 0  # deferred, not failed
     running.max_sends_per_hour = 50
@@ -173,12 +175,15 @@ def test_emergency_stop(db, world, running):
     agent.emergency_stop(db, user_id=world["platform"].id, reason="test")
     db.commit()
     assert db.scalar(select(Job).where(Job.idempotency_key == "manual-send")).status == "CANCELLED"
-    # Even a send job that slips through is blocked at send time.
+    # Even a send job that slips through is held at send time (not sent, not destroyed).
     jobs.enqueue(db, "outreach.send", {"message_id": msg.id}, idempotency_key="slipped")
     db.commit()
     run_worker()
     db.expire_all()
-    assert db.get(OutreachMessage, msg.id).status == "BLOCKED"
+    held = db.get(OutreachMessage, msg.id)
+    assert held.status == "APPROVED" and any("emergency" in r for r in held.block_reasons)
+    assert not [r for r in db.scalars(select(SandboxRecord).where(SandboxRecord.kind == "EMAIL_OUT"))
+                if r.payload["to"] == held.to_address]
     with pytest.raises(ValueError):
         agent.start(db, user_id=world["platform"].id)
     agent.reset_emergency(db, user_id=world["platform"].id, reason="verified")

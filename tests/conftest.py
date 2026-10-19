@@ -34,7 +34,7 @@ BASE_ENV = {
 for k, v in BASE_ENV.items():
     os.environ[k] = v
 for k in list(os.environ):
-    if k.startswith("DF_") and k not in BASE_ENV:
+    if k.startswith("DF_") and k not in BASE_ENV and k != "DF_TEST_PG_URL":  # keep: conftest may be imported twice
         del os.environ[k]
 
 

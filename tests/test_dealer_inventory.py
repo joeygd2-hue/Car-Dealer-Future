@@ -143,7 +143,7 @@ def test_authorised_feed_sync_through_worker(cid, monkeypatch):
                                                        "mileage": 30000, "images": ["https://img.example/f1.jpg"]}]})
     monkeypatch.setattr(http_mod.httpx, "Client", lambda **kw: REAL_CLIENT(transport=httpx.MockTransport(handler)))
     monkeypatch.setenv("DF_FEED_ALPHA_DMS", "dealer-issued-token")
-    monkeypatch.setattr("dealerflow.services.netguard.socket.getaddrinfo", lambda *a, **k: [(None, None, None, None, ("93.184.216.34", 443))])
+    monkeypatch.setattr("dealerflow.services.netguard._resolve", lambda *a, **k: [(None, None, None, None, ("93.184.216.34", 443))])
     from dealerflow.services import dealer_jobs
     from dealerflow.services.inventory.feeds import validate_feed_config
     from dealerflow.tenancy import system_context

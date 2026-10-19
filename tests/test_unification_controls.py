@@ -105,13 +105,13 @@ def test_shared_ssrf_guard_fails_closed_on_dns_error(monkeypatch):
     def boom(*a, **k):
         raise socket.gaierror("nope")
 
-    monkeypatch.setattr(netguard.socket, "getaddrinfo", boom)
+    monkeypatch.setattr(netguard, "_resolve", boom)
     with pytest.raises(netguard.UnsafeURL, match="DNS"):
         netguard.assert_public_url("https://feeds.dealer-site.com/inventory.csv")
 
 
 def test_shared_ssrf_guard_requires_https_for_feeds_but_not_websites(monkeypatch):
-    monkeypatch.setattr(netguard.socket, "getaddrinfo", lambda *a, **k: [(0, 0, 0, "", ("93.184.216.34", 80))])
+    monkeypatch.setattr(netguard, "_resolve", lambda *a, **k: [(0, 0, 0, "", ("93.184.216.34", 80))])
     with pytest.raises(netguard.UnsafeURL, match="https"):
         netguard.assert_public_url("http://dealer-site.com/feed.csv")
     netguard.assert_public_url("http://dealer-site.com/", require_https=False)

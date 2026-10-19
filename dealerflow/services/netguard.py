@@ -17,6 +17,11 @@ from urllib.parse import urlparse
 from .dealer_errors import BadRequest
 
 
+def _resolve(host: str, port: int):
+    """DNS lookup used by the guard (tests stub this, not the global socket module)."""
+    return socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+
+
 class UnsafeURL(BadRequest):
     """The URL is not allowed for a server-side fetch."""
 
@@ -33,7 +38,7 @@ def assert_public_url(url: str, *, require_https: bool = True) -> None:
     if host.endswith((".invalid", ".test", ".localhost")) or host == "localhost":
         raise UnsafeURL("URL host is not allowed")
     try:
-        infos = socket.getaddrinfo(host, u.port or (443 if u.scheme == "https" else 80), type=socket.SOCK_STREAM)
+        infos = _resolve(host, u.port or (443 if u.scheme == "https" else 80))
     except socket.gaierror as exc:
         raise UnsafeURL(f"DNS lookup failed for {host}") from exc
     for info in infos:

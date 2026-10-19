@@ -161,6 +161,15 @@ def record(db: Session, action: str, *, actor=None, entity=None, client_id: int 
                  entity_id=getattr(entity, "id", None) if entity is not None else None, data=data or None, ip=ip)
 
 
+def event(db: Session, action: str, *, actor_id: int | None = None, client_id: int | None = None,
+          entity_type: str | None = None, entity_id: int | None = None, **details: Any) -> AuditLog:
+    """Keyword-style audit entry used by the Phase 3 customer-messaging code (secret-looking keys redacted)."""
+    data = _scrub({k: v for k, v in details.items() if v is not None})
+    if client_id is not None:
+        data["client_id"] = client_id
+    return audit(db, action, actor_id=actor_id, entity_type=entity_type, entity_id=entity_id, data=data or None)
+
+
 _SENSITIVE_KEYS = ("password", "token", "secret", "api_key", "authorization", "card", "cvv")
 
 

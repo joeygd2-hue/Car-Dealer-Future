@@ -9,22 +9,22 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from statistics import median
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import audit
 from ..db import utcnow
 from ..integrations.listing_channels import CHANNELS as LISTING_CHANNELS
 from ..models import (
-    Appointment,
     Client,
     ClientReport,
-    Conversation,
     IntegrationConnection,
     SearchMetric,
     SeoIssue,
     User,
 )
+from ..models_customer import CustomerConversation as Conversation
+from ..models_customer import TestDriveAppointment as Appointment
 from ..models_dealer import (
     ChannelConnection,
     ChannelPublication,
@@ -95,7 +95,9 @@ def build_report_data(db: Session, client: Client, start: date, end: date) -> di
     def distinct_listings(q) -> int:
         return int(db.scalar(select(func.count()).select_from(q.distinct().subquery())) or 0)
     all_convs = db.scalars(select(Conversation).where(Conversation.client_id == cid, Conversation.created_at >= s, Conversation.created_at < e)).all()
-    convs = [c for c in all_convs if not c.simulated]  # SIMULATED test conversations are reported separately, never as real
+    convs = [c for c in all_convs if not c.simulated]
+    real_appt = or_(Appointment.conversation_id.is_(None),
+                    ~Appointment.conversation_id.in_(select(Conversation.id).where(Conversation.client_id == cid, Conversation.simulated.is_(True))))  # SIMULATED test conversations are reported separately, never as real
     response_minutes = [
         (c.first_response_at - c.first_inbound_at).total_seconds() / 60
         for c in convs if c.first_inbound_at and c.first_response_at and c.first_response_at >= c.first_inbound_at
@@ -146,7 +148,7 @@ def build_report_data(db: Session, client: Client, start: date, end: date) -> di
             "simulated_excluded": simulated_pubs,
         },
         "inquiries": {
-            "received": metric(len(convs), "conversations", "Connected channels only; excludes SIMULATED test conversations"),
+            "received": metric(len(convs), "customer_conversations", "Connected channels only; excludes SIMULATED test conversations"),
             "simulated_excluded": len(all_convs) - len(convs),
             "by_channel": by_channel,
             "median_first_response_minutes": metric(round(median(response_minutes), 1) if response_minutes else None, "conversations",
@@ -155,8 +157,11 @@ def build_report_data(db: Session, client: Client, start: date, end: date) -> di
             "escalations": metric(sum(1 for c in convs if c.escalated_at), "conversations"),
         },
         "appointments": {
-            "test_drive_requests": metric(count(Appointment, Appointment.kind == "test_drive", Appointment.requested_at >= s, Appointment.requested_at < e), "appointments"),
-            "confirmed": metric(count(Appointment, Appointment.status.in_(("confirmed", "completed")), Appointment.requested_at >= s, Appointment.requested_at < e), "appointments"),
+            "test_drive_requests": metric(count(Appointment, Appointment.kind == "TEST_DRIVE", real_appt, Appointment.created_at >= s,
+                                                Appointment.created_at < e),
+                                          "test_drive_appointments", "Requests made in the period (staff confirm every request); simulated excluded"),
+            "confirmed": metric(count(Appointment, Appointment.status.in_(("CONFIRMED", "COMPLETED")), real_appt, Appointment.created_at >= s,
+                                      Appointment.created_at < e), "test_drive_appointments"),
         },
         "seo": {
             "issues_resolved": metric(count(SeoIssue, SeoIssue.resolved_at >= s, SeoIssue.resolved_at < e), "seo_issues", "Resolved = no longer detected by a re-audit, or marked resolved"),

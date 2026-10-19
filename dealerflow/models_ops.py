@@ -27,6 +27,8 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -65,6 +67,11 @@ class IntegrationConnection(_Ts, Base):
     authorization_note: Mapped[str] = mapped_column(Text, default="")
     authorized_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     last_error: Mapped[str | None] = mapped_column(Text)
+    # Phase 3 customer messaging: pause one channel; provider account id (Meta page id, Twilio number, ADF token
+    # hash …); non-secret config such as a sandbox failure mode for tests.
+    paused: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    external_account_id: Mapped[str | None] = mapped_column(String(200), index=True)
+    config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default=text("'{}'"), nullable=False)
 
 
 class SupportTicket(_Ts, Base):

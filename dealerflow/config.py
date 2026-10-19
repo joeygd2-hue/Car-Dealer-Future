@@ -144,6 +144,22 @@ class Settings(BaseSettings):
     ai_enabled: bool = False  # optional general Claude API use (integrations.llm.complete); listings use listing_ai_enabled
     retention_days_conversations: int = 365
 
+    # --- Phase 3: customer messaging ---------------------------------------------------------
+    # Master switch for delivering replies to car buyers. Off: every reply is SIMULATED (sandbox) even when a
+    # client's channel connection is marked connected.
+    live_customer_messaging_enabled: bool = False
+    # Pilot mode (default on): a LIVE customer/notification send is allowed only to an allowlisted internal test
+    # recipient. Simulated sends are unaffected.
+    pilot_mode: bool = True
+    # Optional Claude rephrasing of grounded drafts (needs DF_AI_ENABLED + key); the rephrase is discarded
+    # unless it passes the same output validation as the template text.
+    customer_ai_rephrase_enabled: bool = False
+    # Inbound webhook verification. Empty = that webhook is refused (never accepted unsigned).
+    meta_app_secret: SecretStr = SecretStr("")
+    meta_verify_token: SecretStr = SecretStr("")
+    # Twilio SMS webhooks are verified with DF_TWILIO_AUTH_TOKEN (the platform Twilio account, see Phase 1 calling).
+    chat_max_messages_per_visitor_per_hour: int = 30
+
     @property
     def listing_ai_available(self) -> bool:
         return self.listing_ai_enabled and bool(self.anthropic_api_key.get_secret_value())

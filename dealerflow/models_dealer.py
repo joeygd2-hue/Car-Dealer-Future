@@ -29,6 +29,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     text,
 )
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column
@@ -86,6 +87,9 @@ class Client(Base):
     response_rules: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default=text("'{}'"))
     activated_at: Mapped[datetime | None] = mapped_column(DateTime)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Phase 3: the customer-response engine may state phone, address and hours only once a manager approved them.
+    # ``business_hours`` holds the structured week the engine uses: {"0": ["09:00", "19:00"], ..., "6": null} (0 = Monday).
+    business_info_approved: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -196,6 +200,9 @@ class Vehicle(TenantMixin, Base):
     photo_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     stale: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Phase 3: set when sources disagree (e.g. feed price != website price); the response engine then quotes
+    # nothing about price/availability and escalates.
+    data_conflict_note: Mapped[str | None] = mapped_column(Text)
     simulated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

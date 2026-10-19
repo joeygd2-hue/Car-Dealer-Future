@@ -1,98 +1,91 @@
-"""INTERIM Phase 3 workflows needed by reporting and end-to-end validation.
+"""Agency-side inquiry tools on top of the Phase 3 customer-response pipeline.
 
-SCOPE NOTE: shared scaffolding, not the Phase 3 feature set: simulated customer inquiries, approved
-bilingual template responses (delivery SIMULATED) and lead summaries to the dealership. Inventory,
-listings and publishing are Phase 2's (services/inventory, services/listings, services/publishing).
-Phase 3 replaces this module and models_interim.py.
+Phase 4 shipped an interim stand-in here (fixed templates over interim tables). The Phase 3 port replaces it:
+a simulated inquiry now goes through the real pipeline (ingest → analyze → grounded draft → policy), the draft is
+the engine's, sending goes through the send gate (SANDBOX unless live delivery is authorized), and the lead summary
+is the Phase 3 summary. The JSON API contract of ``/api/v1/clients/{cid}/inquiries/simulated`` and the
+draft/approve endpoints is kept; ``message_id`` in those responses is the draft id.
 """
 from __future__ import annotations
-
-import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import audit
 from ..db import utcnow
-from ..models import Appointment, Client, Conversation, ConversationMessage, User
+from ..integrations import customer_channels as channels
+from ..models import Client, User
+from ..models_customer import CustomerConversation, ResponseDraft
 from ..models_dealer import Vehicle
 from . import client_email
 
-APPROVED_RESPONSES = {
-    "availability": {
-        "en": "Thanks for your interest in the {vehicle}. A member of our team will confirm availability and reach out shortly.",
-        "es": "Gracias por su interés en el {vehicle}. Un miembro de nuestro equipo confirmará la disponibilidad y se comunicará pronto.",
-    },
-    "test_drive": {
-        "en": "We'd be happy to set up a test drive of the {vehicle}. What day and time works for you?",
-        "es": "Con gusto le agendamos una prueba de manejo del {vehicle}. ¿Qué día y hora le conviene?",
-    },
-}
-ESCALATE_RE = re.compile(r"\b(lawyer|complaint|accident|warranty claim|credit score|financing approval|abogado|queja|accidente|garantía)\b", re.IGNORECASE)
+# Kept for the API's "template" field. The engine composes the reply from verified facts; these keys only name
+# the intent the agency asked for and are checked against the draft's detected intents.
+APPROVED_RESPONSES = {"availability": "availability", "test_drive": "test_drive"}
+CHANNEL_ALIASES = {"web_form": channels.WEBSITE_CHAT, "website_chat": channels.WEBSITE_CHAT, "sms": channels.TWILIO_SMS,
+                   "messenger": channels.META_MESSENGER, "marketplace": channels.MARKETPLACE_ASSISTED, "adf": channels.ADF_LEAD}
 
 
 def receive_inquiry(db: Session, client: Client, *, channel: str, customer_name: str | None, customer_contact: str | None,
-                    body: str, language: str, vehicle: Vehicle | None, provider_message_id: str, simulated: bool = True) -> Conversation:
+                    body: str, language: str, vehicle: Vehicle | None, provider_message_id: str,
+                    simulated: bool = True) -> CustomerConversation:
+    from .customer.processing import ingest_inbound, process_message
+
     if vehicle is not None and vehicle.client_id != client.id:
         raise ValueError("Vehicle belongs to another dealership")
-    existing = db.scalar(select(ConversationMessage).where(ConversationMessage.provider_message_id == provider_message_id))
-    if existing:
-        return db.get(Conversation, existing.conversation_id)
-    now = utcnow()
-    conv = Conversation(client_id=client.id, channel=channel, customer_name=customer_name, customer_contact=customer_contact,
-                        language=language if language in ("en", "es") else "en", vehicle_id=vehicle.id if vehicle else None, first_inbound_at=now, simulated=simulated)
-    db.add(conv)
+    hints = {"name": customer_name}
+    if customer_contact:
+        hints["email" if "@" in customer_contact else "phone"] = customer_contact
+    ch = CHANNEL_ALIASES.get(channel, channel if channel in channels.CUSTOMER_CHANNELS else channels.WEBSITE_CHAT)
+    res = ingest_inbound(db, dealership=client, channel=ch, external_conversation_id=f"sim:{provider_message_id}", text=body,
+                         provider_message_id=provider_message_id, contact_hints=hints,
+                         vehicle_id=vehicle.id if vehicle else None, simulated=simulated)
+    if res.created:
+        if language in ("en", "es") and res.conversation.preferred_language != language:
+            res.conversation.preferred_language = language
+        process_message(db, res.message.id)  # synchronous so the caller sees the draft
     db.flush()
-    db.add(ConversationMessage(client_id=client.id, conversation_id=conv.id, direction="inbound", body=body, language=conv.language, provider_message_id=provider_message_id))
-    if ESCALATE_RE.search(body):
-        conv.status, conv.escalated_at = "escalated", now
-    if re.search(r"test drive|prueba de manejo", body, re.IGNORECASE):
-        conv.lead_qualified = True
-        db.add(Appointment(client_id=client.id, conversation_id=conv.id, kind="test_drive"))
-    db.flush()
-    return conv
+    return res.conversation
 
 
-def draft_response(db: Session, conv: Conversation, template_key: str) -> ConversationMessage:
-    vehicle = db.get(Vehicle, conv.vehicle_id) if conv.vehicle_id else None
-    vname = " ".join(str(x) for x in (vehicle.year, vehicle.make, vehicle.model) if x) if vehicle else ("vehicle" if conv.language == "en" else "vehículo")
-    text = APPROVED_RESPONSES[template_key][conv.language].format(vehicle=vname)
-    m = ConversationMessage(client_id=conv.client_id, conversation_id=conv.id, direction="outbound", body=text, language=conv.language, status="pending_approval")
-    db.add(m)
-    db.flush()
-    return m
+def draft_response(db: Session, conv: CustomerConversation, template_key: str) -> ResponseDraft:
+    draft = db.scalar(select(ResponseDraft).where(ResponseDraft.conversation_id == conv.id, ResponseDraft.status == "PENDING_REVIEW")
+                      .order_by(ResponseDraft.id.desc()))
+    if draft is None:
+        raise ValueError("No reply is awaiting review for this conversation (opted out, or already handled)")
+    return draft
 
 
-def approve_and_send_response(db: Session, msg: ConversationMessage, actor: User) -> ConversationMessage:
-    """Human-approved send. Delivered via sandbox unless the client's messaging integration is live."""
-    conv = db.get(Conversation, msg.conversation_id)
-    if conv.status == "escalated":
-        raise ValueError("Escalated conversations must be handled by the dealership")
-    # No customer-messaging channel is implemented yet, so delivery is SIMULATED (Phase 3 adds real channels).
-    msg.status, msg.approved_by_id, msg.sent_at = "sent_simulated", actor.id, utcnow()
-    conv.first_response_at = conv.first_response_at or msg.sent_at
-    audit.record(db, "conversation.response_sent", actor=actor, entity=msg, details={"delivery": "simulated"})
-    return msg
+def approve_and_send_response(db: Session, draft: ResponseDraft, actor: User) -> ResponseDraft:
+    """Staff approval: queue the engine's draft as a staff reply (sandbox unless live delivery is authorized)."""
+    from .customer.outbound import queue_outbound
+
+    conv = db.get(CustomerConversation, draft.conversation_id)
+    if draft.status != "PENDING_REVIEW":
+        raise ValueError(f"Draft is {draft.status}, not awaiting review")
+    if conv.opted_out:
+        raise ValueError("The customer opted out; no reply may be sent")
+    draft.status, draft.reviewed_by_id, draft.reviewed_at = "SENT", actor.id, utcnow()
+    queue_outbound(db, conv, draft.body, sender_type="STAFF", user_id=actor.id, draft=draft,
+                   idempotency_key=f"approve:{draft.id}")
+    audit.event(db, "conversation.response_approved", actor_id=actor.id, client_id=conv.client_id,
+                entity_type="response_draft", entity_id=draft.id)
+    return draft
 
 
-def summarize_and_deliver(db: Session, conv: Conversation) -> str:
-    """Rule-based summary sent to the dealership's contact email (sandboxed unless authorized)."""
+def summarize_and_deliver(db: Session, conv: CustomerConversation) -> str:
+    """Phase 3 lead summary, emailed once to the dealership's contact address (sandboxed unless authorized)."""
+    from .customer.summaries import build_summary, summary_text
+
     client = db.get(Client, conv.client_id)
-    msgs = db.scalars(select(ConversationMessage).where(ConversationMessage.conversation_id == conv.id).order_by(ConversationMessage.id)).all()
-    first = next((m.body for m in msgs if m.direction == "inbound"), "")
-    vehicle = db.get(Vehicle, conv.vehicle_id) if conv.vehicle_id else None
-    summary = (
-        f"Channel: {conv.channel}. Language: {conv.language}. "
-        + (f"Vehicle: {vehicle.year} {vehicle.make} {vehicle.model} (VIN {vehicle.vin}). " if vehicle else "")
-        + f"Customer asked: \"{first[:300]}\". "
-        + ("Test-drive requested. " if conv.lead_qualified else "")
-        + ("ESCALATED — needs dealership follow-up. " if conv.status == "escalated" else "")
-        + f"Messages: {len(msgs)}."
-    )
-    conv.summary = summary
-    if client.contact_email and conv.summary_delivered_at is None:
-        outcome = client_email.send(db, client, to=client.contact_email, subject=f"Lead summary #{conv.id}", body=summary,
+    text = summary_text(build_summary(db, conv))
+    if client.contact_email and not (conv.summary or {}).get("delivered_at"):
+        outcome = client_email.send(db, client, to=client.contact_email, subject=f"Lead summary #{conv.id}", body=text,
                                     key=f"conv_summary:{conv.id}")
         if outcome in ("sent", "simulated"):
-            conv.summary_delivered_at = utcnow()
-    return summary
+            conv.summary = {**(conv.summary or {}), "delivered_at": utcnow().isoformat(timespec="seconds"), "delivery": outcome}
+    return text
+
+
+def summary_delivered(conv: CustomerConversation) -> bool:
+    return bool((conv.summary or {}).get("delivered_at"))

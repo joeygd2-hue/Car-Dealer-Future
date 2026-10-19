@@ -9,7 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
-from ..models import Client, ClientReport, Conversation, Invoice, SeoIssue, SupportTicket, User
+from ..models import Client, ClientReport, Invoice, SeoIssue, SupportTicket, User
+from ..models_customer import CustomerConversation as Conversation
 from ..services import finance, tickets
 from ..services.clients import owned_or_404, scope
 from .deps import check_csrf, flash, render, require_client
@@ -109,7 +110,11 @@ def api_issues(user: User = Depends(require_client), db: Session = Depends(get_d
 @router.get("/api/v1/portal/conversations")
 def api_conversations(user: User = Depends(require_client), db: Session = Depends(get_db)):
     q = scope(select(Conversation), Conversation, user).where(Conversation.simulated.is_(False)).order_by(Conversation.id.desc()).limit(200)
-    return [{"id": c.id, "channel": c.channel, "status": c.status, "language": c.language, "summary": c.summary} for c in db.scalars(q)]
+    from ..services.customer.summaries import summary_text
+
+    return [{"id": c.id, "channel": c.channel, "status": c.status, "language": c.preferred_language,
+             "summary": summary_text(c.summary) if c.summary and "preferred_language" in c.summary else (c.summary or {}).get("legacy_summary")}
+            for c in db.scalars(q)]
 
 
 @router.get("/api/v1/portal/tickets")

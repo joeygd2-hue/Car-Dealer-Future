@@ -15,7 +15,9 @@ from .. import audit
 from ..config import get_settings
 from ..db import Base, utcnow
 from ..jobs import enqueue, handler
-from ..models import Attachment, Client, ClientReport, Conversation, ConversationMessage, User
+from ..models import Attachment, Client, ClientReport, User
+from ..models_customer import CustomerContact, CustomerConversation, CustomerMessage, ResponseDraft, TestDriveAppointment
+from ..models_interim import InterimConversation, InterimConversationMessage
 
 ALLOWED_UPLOAD_TYPES = {
     "application/pdf": ".pdf", "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "text/csv": ".csv", "text/plain": ".txt",
@@ -57,15 +59,34 @@ def attachment_path(att: Attachment) -> str:
 
 
 def purge_conversation_pii(db: Session, older_than_days: int) -> int:
-    """Remove car-buyer contact details and message bodies from old conversations; keep counts for reporting."""
+    """Remove car-buyer contact details and message text from old conversations; keep counts for reporting.
+
+    Covers the Phase 3 tables and the deprecated interim copies. Channel identifiers stay (they are what an
+    opt-out is enforced against) and so do opt-out records themselves.
+    """
     cutoff = utcnow() - timedelta(days=older_than_days)
-    ids = list(db.scalars(select(Conversation.id).where(Conversation.created_at < cutoff, Conversation.pii_purged_at.is_(None))))
+    ids = list(db.scalars(select(CustomerConversation.id).where(CustomerConversation.created_at < cutoff,
+                                                                CustomerConversation.pii_purged_at.is_(None))))
     if ids:
-        db.execute(update(Conversation).where(Conversation.id.in_(ids)).values(customer_name=None, customer_contact=None,
-                                                                              summary="[purged]", pii_purged_at=utcnow()))
-        db.execute(update(ConversationMessage).where(ConversationMessage.conversation_id.in_(ids)).values(body="[purged]"))
-        audit.record(db, "retention.purged_conversations", details={"count": len(ids), "older_than_days": older_than_days})
-    return len(ids)
+        contact_ids = [c for c in db.scalars(select(CustomerConversation.contact_id).where(CustomerConversation.id.in_(ids))) if c]
+        db.execute(update(CustomerConversation).where(CustomerConversation.id.in_(ids)).values(
+            summary={"purged": True}, unresolved_questions=[], next_action=None, pii_purged_at=utcnow()))
+        db.execute(update(CustomerMessage).where(CustomerMessage.conversation_id.in_(ids)).values(body="[purged]", analysis={}))
+        db.execute(update(ResponseDraft).where(ResponseDraft.conversation_id.in_(ids)).values(body="[purged]", fact_snapshot={}))
+        db.execute(update(TestDriveAppointment).where(TestDriveAppointment.conversation_id.in_(ids)).values(
+            customer_name=None, customer_phone=None, customer_email=None, notes=None))
+        if contact_ids:
+            db.execute(update(CustomerContact).where(CustomerContact.id.in_(contact_ids)).values(display_name=None, email=None, phone=None))
+    legacy = list(db.scalars(select(InterimConversation.id).where(InterimConversation.created_at < cutoff,
+                                                                  InterimConversation.pii_purged_at.is_(None))))
+    if legacy:
+        db.execute(update(InterimConversation).where(InterimConversation.id.in_(legacy)).values(
+            customer_name=None, customer_contact=None, summary="[purged]", pii_purged_at=utcnow()))
+        db.execute(update(InterimConversationMessage).where(InterimConversationMessage.conversation_id.in_(legacy)).values(body="[purged]"))
+    if ids or legacy:
+        audit.record(db, "retention.purged_conversations", details={"count": len(ids), "legacy_count": len(legacy),
+                                                                    "older_than_days": older_than_days})
+    return len(ids) + len(legacy)
 
 
 def export_client(db: Session, client_id: int) -> dict:

@@ -13,7 +13,7 @@
 {% for i in issues %}<tr><td>{{ i.finding }}<br><span class="muted">{{ i.url or '' }}</span></td><td>{{ i.severity }}</td><td>{{ i.status|label }}</td><td>{{ i.detection }}</td><td>{{ i.recommended_fix }}</td></tr>{% endfor %}
 </tbody></table>{% else %}<p class="empty">No SEO findings yet.</p>{% endif %}</section>
 <section class="card"><h2>Recent customer conversations</h2>
-{% if conversations %}<ul>{% for c in conversations %}<li>{{ c.created_at }} · {{ c.channel }} · {{ c.language }} · {{ c.status }}{% if c.summary %} — {{ c.summary }}{% endif %}</li>{% endfor %}</ul>{% else %}<p class="empty">No conversations on connected channels.</p>{% endif %}</section>
+{% if conversations %}<ul>{% for c in conversations %}<li>{{ c.created_at }} · {{ c.channel }} · {{ c.preferred_language }} · {{ c.status }}{% if c.next_action %} — {{ c.next_action }}{% endif %}{% if user.client_id %} · <a href="/dealers/{{ c.client_id }}/inbox/{{ c.id }}">open</a>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="empty">No conversations on connected channels.</p>{% endif %}</section>
 <section class="card" id="support"><h2>Support & change requests</h2>
 {% if tickets %}<ul>{% for t in tickets %}<li>#{{ t.id }} {{ t.title }} — {{ t.status|label }}</li>{% endfor %}</ul>{% endif %}
 <form method="post" action="/portal/tickets" class="fgrid"><input type="hidden" name="csrf" value="{{ csrf }}">

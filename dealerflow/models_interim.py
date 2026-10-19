@@ -1,4 +1,6 @@
-"""INTERIM Phase 3 tables (customer conversations, appointments), used by Phase 4 reporting and the
+"""DEPRECATED (superseded by ``models_customer``; kept so no data is dropped without the owner's decision).
+
+INTERIM Phase 3 tables (customer conversations, appointments), used by Phase 4 reporting and the
 end-to-end test until the real Phase 3 models land in dealerflow. Inventory, listings and publishing
 are Phase 2's (models_dealer.py).
 
@@ -24,11 +26,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base, utcnow
 from .models_ops import _Ts
 
-__all__ = ["Appointment", "Conversation", "ConversationMessage"]
+__all__ = ["InterimAppointment", "InterimConversation", "InterimConversationMessage"]
 
 
 
-class Conversation(_Ts, Base):
+class InterimConversation(_Ts, Base):
     """A car buyer's inquiry to a client dealership on a connected channel."""
 
     __tablename__ = "conversations"
@@ -51,7 +53,7 @@ class Conversation(_Ts, Base):
     pii_purged_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
-class ConversationMessage(Base):
+class InterimConversationMessage(Base):
     __tablename__ = "conversation_messages"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -67,7 +69,7 @@ class ConversationMessage(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
-class Appointment(_Ts, Base):
+class InterimAppointment(_Ts, Base):
     __tablename__ = "appointments"
     __table_args__ = (
         CheckConstraint("status in ('requested','confirmed','cancelled','completed','no_show')", name="ck_appointments_status"),

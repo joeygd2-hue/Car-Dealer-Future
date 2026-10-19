@@ -575,3 +575,4 @@ class KnowledgeItem(TimestampMixin, Base):
 from .models_dealer import *  # noqa: E402,F401,F403
 from .models_ops import *  # noqa: E402,F401,F403
 from .models_interim import *  # noqa: E402,F401,F403
+from .models_customer import *  # noqa: E402,F401,F403

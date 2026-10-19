@@ -35,8 +35,19 @@ build-backend = "setuptools.build_meta"
 include = ["dealerflow*"]
 
 [tool.setuptools.package-data]
-dealerflow = ["templates/*.html", "templates/**/*.html", "static/*", "fixtures/*", "migrations/*", "migrations/**/*"]
+dealerflow = ["templates/*.html", "templates/**/*.html", "static/*", "fixtures/*", "evals/*", "migrations/*", "migrations/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+line-length = 140
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F811"]  # pytest fixtures imported at module level and requested by name
+"dealerflow/migrations/versions/*" = ["E501"]

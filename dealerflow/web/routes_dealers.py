@@ -523,8 +523,8 @@ def settings_page(request: Request, ctx: ClientContext = Depends(dealer_ctx())):
 @router.post("/dealers/{client_id}/settings")
 async def settings_save(request: Request, ctx: ClientContext = Depends(dealer_ctx("manage"))):
     f = await request.form()
-    g = lambda k: str(f.get(k) or "").strip()
-    split = lambda k: [x.strip() for x in g(k).split(",") if x.strip()]
+    g = lambda k: str(f.get(k) or "").strip()  # noqa: E731
+    split = lambda k: [x.strip() for x in g(k).split(",") if x.strip()]  # noqa: E731
     s, _ = get_listing_settings(ctx)
     disclaimers = []
     for line in g("disclaimers").splitlines():

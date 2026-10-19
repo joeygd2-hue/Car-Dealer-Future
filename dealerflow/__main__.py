@@ -13,6 +13,7 @@
   live-check send|inbox|meeting  controlled real-provider test (see dealerflow/livecheck.py)
   retention [DAYS]             redact message bodies older than DAYS (default 730) and prune old logs
   audit-verify                 recompute every audit-log seal; exit 1 if any row was altered or is unsealed
+  worker-health                exit 0 if a worker heartbeat is recent (container healthcheck for the worker)
 """
 
 from __future__ import annotations
@@ -191,6 +192,14 @@ def main(argv: list[str]) -> None:
 
         with session_scope() as db:
             print(apply(db, message_days=int(argv[1]) if len(argv) > 1 else 730))
+    elif cmd == "worker-health":
+        from .db import session_scope
+        from .services import agent
+
+        with session_scope() as db:
+            h = agent.health(db)
+        print(h)
+        sys.exit(0 if h["worker_alive"] else 1)
     elif cmd == "audit-verify":
         from .audit import verify_integrity
         from .db import session_scope

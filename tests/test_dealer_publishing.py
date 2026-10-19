@@ -12,7 +12,7 @@ from sqlalchemy import select
 from dealerflow.db import session_scope
 from dealerflow.integrations import http as http_mod
 from dealerflow.integrations.listing_channels import MockListingChannel
-from dealerflow.models import IntegrationLog, Job
+from dealerflow.models import IntegrationLog
 from dealerflow.models_dealer import ChannelPublication, PublishOperation
 from dealerflow.services.dealer_errors import BadRequest, Unprocessable
 from dealerflow.services.listings import service

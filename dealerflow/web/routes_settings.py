@@ -99,7 +99,7 @@ def knowledge_save(request: Request, item_id: str = Form(""), topic: str = Form(
     it.approved_at = utcnow() if want_approved else None
     db.add(it)
     db.flush()
-    audit(db, "knowledge.save", actor_id=user.id, entity_type="knowledge", entity_id=it.id, data={"approved": it.approved})
+    audit(db, "knowledge.save", actor_id=user.id, entity_type="knowledge", entity_id=it.id, data={"approved": it.approved, "answer_changed": changed})
     return RedirectResponse("/settings#knowledge", status_code=303)
 
 

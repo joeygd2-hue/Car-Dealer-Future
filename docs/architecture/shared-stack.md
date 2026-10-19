@@ -146,7 +146,7 @@ Secrets stay in the environment: a feed credential is read from the variable nam
 ## Phase 4 additions (shared by every phase)
 
 Added on branch `claude/blissful-davinci-82py6w` after Phase 2 (migrations `0003` Phase 4, `0004` interim
-Phase 3). Details: `docs/architecture/system-design.md`.
+Phase 3, since replaced by Phase 3's `0005`). Details: `docs/architecture/system-design.md`.
 
 ### Clients, dealership users and the portal
 
@@ -174,14 +174,26 @@ Phase 3). Details: `docs/architecture/system-design.md`.
 | Gate an automation on onboarding | add an entry to `services.onboarding.AUTOMATION_PREREQS`; check `automation_enabled(db, client_id, feature)` before acting |
 | Audit with an entity | `audit.record(db, action, actor=, entity=, details=)` (secret-named keys redacted) |
 
-### Interim Phase 3 tables — Phase 3 must replace these
+### Interim Phase 3 tables (replaced)
 
-`models_interim.py` + migration `0004` define minimal `conversations`, `conversation_messages` and
-`appointments` so Phase 4 reporting and the end-to-end test work before Phase 3 lands in dealerflow. When the
-real Phase 3 models are ported:
+Migration `0005` converted the interim tables into the Phase 3 schema and kept them as a read-only `legacy_*`
+archive (see the Phase 3 section below).
 
-1. Add a migration after `0004` that drops or converts these tables. Do not keep two definitions of a table.
-2. Delete the classes from `models_interim.py` and the functions in `services/dealer_ops.py`.
-3. Update `services/client_reports.build_report_data()` to read your tables (keep: one source per metric,
-   SIMULATED rows excluded from real counts, channel status from `integration_connections`).
-4. Keep `tests/test_e2e_business_journey.py` passing (swap its Phase 3 steps to your APIs).
+## Phase 3 additions (customer conversations)
+
+Ported from `claude/magical-darwin-nncp64` on `claude/mybot-phase3-integration` (migrations `0005` conversations,
+`0006` MFA). Full description: `docs/architecture/phase3-integration.md`.
+
+* Models: `models_conversations.py` (tenant tables with composite `(client_id, id)` foreign keys). Customers of a
+  dealership are `customer_contacts`; never mix them with Phase 1 `prospects`. Opt-outs: `customer_suppressions`
+  (not Phase 1 `suppressions`).
+* Services: `services/conversations/` — `inbox.ingest_inbound()` is the only way to record an inbound customer
+  message; `outbound.queue_outbound()` the only way to send one (both enforce dedupe, opt-outs, pauses, emergency
+  stop and send-time validation). Notifications: `notify.notify()`. Anything that wants to message a customer must go
+  through these, never call a provider directly.
+* Permissions: new `converse` permission in `tenancy.PERMISSIONS` (reply, confirm test drives, resolve escalations).
+* Shared rate limits: `services.rate_limits.try_acquire(db, key, limit, window)` / `hit(key, limit, window)` —
+  database counters shared by every process (used by chat, ADF, login, MFA, the API limiter and auto-replies).
+* Encryption at rest: `dealerflow/crypto.py` (`DF_ENCRYPTION_KEY`), used for MFA secrets and stored attachments.
+* Jobs: `conversation_process`, `conversation_send`, `appointment_reminder`, `appointment_reminder_sweep` (hourly),
+  `rate_counter_purge` (daily).

@@ -77,7 +77,7 @@ def purge_conversation_pii(db: Session, older_than_days: int) -> int:
     """
     from sqlalchemy import func
 
-    from ..models import Appointment, CustomerContact, ResponseDraft
+    from ..models import Appointment, CustomerContact, CustomerIdentity, ResponseDraft
 
     cutoff = utcnow() - timedelta(days=older_than_days)
     last_activity = func.coalesce(Conversation.last_inbound_at, Conversation.created_at)
@@ -98,6 +98,8 @@ def purge_conversation_pii(db: Session, older_than_days: int) -> int:
     if clear:
         db.execute(update(CustomerContact).where(CustomerContact.id.in_(clear)).values(
             display_name=None, email=None, phone=None, pii_purged_at=now))
+        # Identities can hold an email address (ADF leads); a returning customer starts a new contact.
+        db.execute(delete(CustomerIdentity).where(CustomerIdentity.contact_id.in_(clear)))
     audit.record(db, "retention.purged_conversations", details={"count": len(ids), "contacts": len(clear),
                                                                 "older_than_days": older_than_days})
     return len(ids)

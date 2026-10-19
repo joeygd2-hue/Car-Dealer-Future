@@ -39,8 +39,20 @@ Policy and legal sources for each row are in `docs/research/source-register.md` 
 | SEO crawl | Client dealership websites | Written authorization recorded per site | Audits | Tested against an in-memory site | robots.txt, ≥0.5 s delay, page cap, stop on 429, GET/HEAD only, never modifies the site | free |
 | Organic search | Google Search Console | — | Clicks/impressions in client reports | **API not implemented**; CSV export import tested | Authorized property owner exports the performance report | free |
 | Client email | Same provider as outreach (`DF_CLIENT_EMAIL_SENDING_ENABLED`) | as above | Monthly reports, lead summaries | Mock-tested; real sending gated per client | Transactional email to the client's own contact | mailbox plan |
-| Customer messaging (Phase 3) | — | — | Car-buyer inquiries | **Not connected.** Simulated inquiries only | — | — |
+| Customer messaging (Phase 3) | See "Phase 3: customer conversations" below | | | | | |
 | Listing publication (Phase 2) | — | — | Marketplace publishing | See "Phase 2: inventory sources and listing channels" below (Marketplace manual only; Meta catalog code not live-verified) | — | — |
+
+## Phase 3: customer conversations
+
+| Capability | Provider | Auth | Used for | Status | Constraints | Cost |
+|---|---|---|---|---|---|---|
+| Website chat / inquiry form | First-party (`/api/public/chat/{key}`, `/chat/{key}`) | Per-dealership public key; DB rate limits; CORS to the dealer's site | Inquiries in; staff-approved replies out | Implemented and tested (automated + headless-browser). **Replies SIMULATED** unless `DF_CUSTOMER_MESSAGING_LIVE_ENABLED` and the dealer's `website_chat` connection is authorized — never enabled here | Replies need staff approval unless every automation gate passes | free |
+| ADF/XML lead intake | Listing sites / dealer CRMs POST to `/api/public/leads/adf/{secret}` | Secret URL per dealership | Leads in | Implemented and tested with synthetic ADF (incl. XXE refusal); no real lead source connected | Replies are sent by staff in the lead's own channel | free |
+| Facebook Marketplace | Human-assisted (staff paste messages) | none | Drafts for staff to paste back | Implemented and tested | No Marketplace messaging API exists | free |
+| Staff alerts | Phase 4 client e-mail gate | as above | New lead, escalation, test-drive e-mails | Mock-tested (SIMULATED) | Dealership's own contact address | mailbox plan |
+| Claude rephrasing | `integrations.llm.complete` | `DF_ANTHROPIC_API_KEY` | Optional polishing of grounded drafts | Tested with stubs (missing key, invalid key, fabricated output discarded); **no live call** | Output discarded if it adds facts/claims | per-token (see AI row above) |
+| Meta Messenger, Twilio SMS | — | — | — | **Not ported** (Phase 3 had unverified code only; needs Meta App Review / A2P 10DLC) | — | — |
+| Dealership calendar (test drives) | — | — | — | **Not ported**; staff confirm manually (`availability_checked = no_calendar`) | — | — |
 
 ## Explicitly not built
 

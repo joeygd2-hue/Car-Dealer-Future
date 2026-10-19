@@ -12,6 +12,7 @@ from dealerflow.models import (
     Conversation,
     ConversationMessage,
     CustomerContact,
+    CustomerIdentity,
     CustomerSuppression,
     ResponseDraft,
     User,
@@ -37,6 +38,7 @@ def test_retention_purge_removes_customer_text_but_keeps_opt_outs(client):
         assert {x.body for x in db.scalars(select(ResponseDraft))} <= {"[purged]"}
         c = db.get(CustomerContact, conv.contact_id)
         assert c.email is None and c.display_name is None and c.pii_purged_at is not None
+        assert db.scalar(select(func.count()).select_from(CustomerIdentity)) == 0  # visitor ids / ADF emails removed
         assert db.scalar(select(func.count()).select_from(CustomerSuppression)) == 1  # opt-out still honoured
         assert db.get(Conversation, conv.id).pii_purged_at is not None
         assert purge_conversation_pii(db, 365) == 0  # idempotent

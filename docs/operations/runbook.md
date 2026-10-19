@@ -24,6 +24,10 @@ Logs are JSON lines on stdout (`ts`, `level`, `logger`, `msg` + fields). Secret-
 | Stripe events not appearing | Secret mismatch, wrong endpoint, unmapped client | `webhook_events` table; status `failed` rows have `error`; check alerts |
 | SEO audit failed | Site down, 429, robots disallow | Audit row `error`; a ticket is opened; retry later — never bypass robots or rate limits |
 | Budget alert | Usage spike or estimate rates too low | Costs page; compare with provider billing; import billing CSV for verified figures |
+| Customer message shows `uncertain` | Worker died mid-send, so delivery is unknown | It is never resent automatically. Check the channel (or ask the visitor), then on the conversation choose **It was delivered** or **Not delivered — re-queue** (re-queue only when you confirmed it did not arrive) |
+| Customer message `blocked` | Emergency stop, global pause, opt-out, rate limit, onboarding gate, unsafe content | The reason is on the message. Fix the cause and send a new reply; blocked replies are not retried |
+| Need to stop customer replies | — | Responses → **Pause automation** stops automatic and system replies for that dealership. Agent page → **EMERGENCY STOP** blocks every customer send, staff-approved ones included. (The platform-wide pause is the `conversations_global_pause` app setting; there is no UI for it yet) |
+| Staff member lost their MFA device | — | They use a recovery code. If none remain, an admin clears `users.mfa_enabled`, `mfa_secret_encrypted` and `mfa_recovery_hashes` for that user in the database and asks them to re-enrol on first login; record who did it |
 | A client can't log in | Wrong password, inactive, lockout | Lockout clears after 15 minutes; an admin can set a new password or reactivate on the client's page (Dealership users); new dealership users are created in the dealership's settings |
 
 ## Backups and restore
@@ -45,8 +49,11 @@ Never restore over production while the worker is running.
 
 ## Data retention and deletion
 
-* Car-buyer conversations: the daily `retention_purge` job removes names, contact details and message bodies
-  older than `DF_RETENTION_DAYS_CONVERSATIONS` (default 365 days). Counts remain for reporting.
+* Car-buyer conversations: the daily `retention_purge` job removes contact names/details and channel identities,
+  message bodies, drafts, summaries and appointment contact details/notes older than `DF_RETENTION_DAYS_CONVERSATIONS` (default 365 days).
+  Counts remain for reporting. Opt-outs (`customer_suppressions`) are kept so they continue to be honoured.
+* Legacy interim conversation tables (`legacy_*`, from migration `0005`) are not purged by that job; drop them
+  only through the removal plan in `docs/architecture/phase3-integration.md`.
 * Client data export (portability request): `services.maintenance.export_client(db, client_id)` returns every
   row the client owns as JSON.
 * Client deletion: `services.maintenance.delete_client(db, client_id, confirm_name, actor, export_dir)` writes
@@ -60,6 +67,7 @@ Never restore over production while the worker is running.
 | Secret | Effect of rotating |
 |---|---|
 | `DF_SECRET_KEY` | Logs everyone out **and invalidates unsubscribe links already sent** — avoid unless compromised |
+| `DF_ENCRYPTION_KEY` | **Do not simply replace it**: receipts and MFA secrets encrypted with the old key become unreadable. No rotation command exists yet; keep the key backed up. If it is compromised, plan a re-encryption with both keys available |
 | Provider keys/tokens | Update env, restart web + worker, re-verify on the Integrations page |
 | `DF_STRIPE_WEBHOOK_SECRET` | Roll in Stripe with an overlap window, update env, restart |
 | User API keys | Regenerate in Settings |

@@ -14,7 +14,15 @@ human-approved email outreach (English/Spanish), reply import and classification
 suppression enforcement, Zoom and calendar scheduling, click-to-call, daily and weekly reports, and
 a persistent autonomous agent with pause and emergency stop.
 
-**Phase 4 (this branch, merged with Phases 1 and 2):** client onboarding and a portal for dealership users, finance (invoices, payments,
+**Phase 3 (also in this code):** customer conversations for each dealership: a website chat widget and ADF/XML lead
+intake, contacts and leads, a staff inbox with grounded English/Spanish drafts built only from verified Phase 2
+vehicle data, approval and editing, categorization, escalation and handoff, test-drive requests that are never
+confirmed automatically, summaries, notifications and reporting, with opt-outs, rate limits and the emergency stop
+enforced on every send. Replies are **SIMULATED** (recorded, never shown to the visitor) until
+`DF_CUSTOMER_MESSAGING_LIVE_ENABLED=true` and the dealership's chat connection is marked connected. Open a
+dealership → **Inbox**. Also added: TOTP MFA, database-backed rate limits and encrypted receipts.
+
+**Phase 4 (merged with Phases 1, 2 and 3):** client onboarding and a portal for dealership users, finance (invoices, payments,
 credits, expenses with receipts, agreements, MRR/ARR, receivables, CAC, churn, cash flow, reconciliation, CSV
 export), AI/integration usage costs with budgets and alerts, a configurable service catalog, onboarding
 checklist with automation gating, support tickets, an authorized-site SEO audit service, monthly client
@@ -34,11 +42,11 @@ cp .env.example .env              # fill in DF_BUSINESS_* and DF_SENDER_* at lea
 python -m dealerflow migrate      # creates state/dealerflow.db and seeds stages/templates
 python -m dealerflow create-user you@example.com admin
 python -m dealerflow demo         # optional: 8 SIMULATED fixture dealerships, no network
-python -m dealerflow demo-dealer  # optional: a SIMULATED dealership client with fixture inventory (Phase 2)
+python -m dealerflow demo-dealer  # optional: a SIMULATED dealership with fixture inventory and a test chat page
 python -m dealerflow web          # http://127.0.0.1:8000
 python -m dealerflow worker       # second terminal: agent ticks, sending, inbox polling
 python -m dealerflow backup ./backups   # verified backup; `restore FILE --yes` to restore
-pytest                            # 257 tests, no network
+pytest                            # 302 tests, no network
 ```
 
 Docker: `docker compose up --build` runs `migrate`, then `web` and `worker`.
@@ -55,6 +63,7 @@ Docker: `docker compose up --build` runs `migrate`, then `web` and `worker`.
 | [docs/research/feasibility-report.md](docs/research/feasibility-report.md) | Data sources, providers, law: what's allowed |
 | [docs/research/source-register.md](docs/research/source-register.md) | Sources, access dates, confidence |
 | [docs/audit/launch-readiness-audit.md](docs/audit/launch-readiness-audit.md) | **Phase 1.5 audit: verdict, blockers, priorities** (plus deployment, security, integration, compliance, lead-sourcing and pilot docs in `docs/audit/`) |
+| [docs/architecture/phase3-integration.md](docs/architecture/phase3-integration.md) | How Phase 3 was ported: data model, migration `0005`, legacy-table removal plan, routes, workflow |
 | [docs/architecture/system-design.md](docs/architecture/system-design.md) | Processes, tenancy and roles, Phase 4 modules, data model |
 | [docs/security/threat-model.md](docs/security/threat-model.md) | Security review: controls, issues fixed, remaining risks |
 | [docs/operations/deployment.md](docs/operations/deployment.md) | Deploying web + worker, going live in order, production checklist |

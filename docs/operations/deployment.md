@@ -12,14 +12,18 @@ production deployment has been made.
   required for unsubscribe links, Stripe/Zoom/Twilio webhooks and secure cookies.
 * Persistent storage for SQLite (if used) and `DF_ATTACHMENTS_DIR` (expense receipts).
 * Two long-running processes: `web` and `worker`. Run exactly one worker per database unless you have checked
-  that your scale-out plan is safe (job claims are atomic, but rate limiters are per process).
+  that your scale-out plan is safe. Job claims are atomic, and login, API, MFA, public-chat and customer-send
+  limits are database counters shared by every process; the Phase 1 per-provider HTTP limiter is still per process.
 
 ## Steps (single host, Docker Compose)
 
 1. `cp .env.example .env` and set at least: `DF_SECRET_KEY` (≥32 random chars:
    `python -c "import secrets; print(secrets.token_urlsafe(48))"`), `DF_BASE_URL=https://your.domain`,
+   `DF_ENCRYPTION_KEY` (a Fernet key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+   — **back it up separately from the database**; without it encrypted receipts and MFA secrets are unreadable),
    `DF_DATABASE_URL`, `DF_BUSINESS_NAME`, `DF_BUSINESS_POSTAL_ADDRESS`, `DF_SENDER_NAME`, `DF_SENDER_EMAIL`.
-   Leave every provider on `mock` and both sending flags `false` for the first deployment.
+   Leave every provider on `mock` and all three sending flags (`DF_OUTREACH_SENDING_ENABLED`,
+   `DF_CLIENT_EMAIL_SENDING_ENABLED`, `DF_CUSTOMER_MESSAGING_LIVE_ENABLED`) `false` for the first deployment.
 2. `docker compose up -d --build` runs `migrate` (Alembic upgrade + idempotent seed), then `web` and `worker`.
 3. Create the first admin: `docker compose run --rm web python -m dealerflow create-user you@yourco.com admin`.
 4. Put the TLS proxy in front of `127.0.0.1:8000`. Check `https://your.domain/healthz` returns
@@ -33,8 +37,18 @@ Without Docker: `pip install -e ".[postgres]"`, `python -m dealerflow migrate`, 
 ## Migrations
 
 * `python -m dealerflow migrate` applies Alembic revisions (`0001` Phase 1, `0002` Phase 2, `0003` Phase 4,
-  `0004` interim Phase 3 tables) and seeds reference data. The Phase 4 revisions are additive; upgrade →
-  downgrade → upgrade was verified with existing client rows on SQLite and Postgres 16.
+  `0004` interim Phase 3 tables, `0005` Phase 3 conversations, `0006` MFA columns) and seeds reference data.
+* `0005` is the only non-additive revision. It **renames** the interim tables to `legacy_conversations`,
+  `legacy_conversation_messages` and `legacy_appointments` (nothing is dropped), creates the Phase 3 tables, and
+  copies every legacy row into them (ids preserved; contacts, identities `legacy:<id>` and leads created;
+  pending-approval outbound messages become drafts; escalated conversations get an escalation record). The copy is
+  idempotent: `python -m dealerflow convert-legacy-conversations` re-runs it safely after an interrupted upgrade.
+  Verified on SQLite and Postgres 16 with seeded interim data: row counts match, a second run is a no-op,
+  `alembic check` is clean, downgrade → upgrade works.
+* The `legacy_*` tables stay until an operator has compared them with the new tables
+  (`docs/architecture/phase3-integration.md`, "Legacy removal plan"); a later revision will drop them. Do not drop
+  them by hand.
+* Upgrade → downgrade → upgrade for `0003`-`0006` was verified with existing rows on SQLite and Postgres 16.
 * Take a backup before every upgrade (see runbook). Roll back with `alembic downgrade <rev>` using
   `dealerflow.migrate.alembic_config()`, or restore the backup.
 
@@ -61,4 +75,8 @@ Without Docker: `pip install -e ".[postgres]"`, `python -m dealerflow migrate`, 
 - [ ] One worker; `/healthz` monitored (alert if `worker_alive` is false for > 5 minutes)
 - [ ] Logs (JSON lines on stdout) shipped somewhere searchable; alert on `"level": "ERROR"`
 - [ ] SPF, DKIM and DMARC for the sending domain
-- [ ] Admin accounts limited; MFA in front of the app if possible (not built in)
+- [ ] `DF_ENCRYPTION_KEY` set (required in production) and stored in a password manager/secret store, not only
+      on the host
+- [ ] Admin accounts limited; every agency admin/manager and dealership admin enrolled in MFA
+      (Account security). MFA is enforced for those roles in production unless `DF_MFA_ENFORCED=false`
+- [ ] `DF_CUSTOMER_MESSAGING_LIVE_ENABLED=false` until a real customer channel exists and has been reviewed

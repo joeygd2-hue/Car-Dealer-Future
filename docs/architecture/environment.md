@@ -119,15 +119,28 @@ caller ID you own), `DF_AGENT_PHONE` (the phone Twilio rings first).
 | Variable | Default | Meaning |
 |---|---|---|
 | `DF_CLIENT_EMAIL_SENDING_ENABLED` | `false` | Allow real email to client dealerships (monthly reports, lead summaries). Also requires a real email provider and, per client, a `report_email` connection marked connected. Otherwise messages are SIMULATED (mock) or not sent. |
-| `DF_ATTACHMENTS_DIR` | `./state/attachments` (`/data/attachments` in Docker) | Expense receipts. Back it up; use an encrypted volume. |
+| `DF_ATTACHMENTS_DIR` | `./state/attachments` (`/data/attachments` in Docker) | Expense receipts, stored encrypted with `DF_ENCRYPTION_KEY`. Back it up together with the key. |
 | `DF_MAX_UPLOAD_BYTES` | (shared, above) | Also the receipt upload limit (PDF, PNG, JPEG, WEBP, CSV, TXT only). |
-| `DF_API_RATE_LIMIT_PER_MINUTE` | `300` | Per-IP limit for `/api/*` and `/webhooks/*` (per process). |
+| `DF_API_RATE_LIMIT_PER_MINUTE` | `300` | Per-IP limit for `/api/*` and `/webhooks/*`, counted in the database (shared by all web processes). |
 | `DF_CRAWLER_TIMEOUT_SECONDS` | `15` | SEO crawler request timeout. The crawler uses `DF_HTTP_USER_AGENT`, honours robots.txt, waits ≥0.5 s (site setting, default 1 s) and stops on HTTP 429. |
 | `DF_PAGESPEED_API_KEY` | — | Optional Google PageSpeed Insights API key for mobile performance in SEO audits. |
 | `DF_STRIPE_WEBHOOK_SECRET` | — | `whsec_…` signing secret for `POST /webhooks/stripe`. Empty = endpoint rejects everything. Use a test-mode endpoint first. |
 | `DF_AI_ENABLED` | `false` | Optional Claude API use (`pip install -e ".[ai]"`). Nothing in Phase 4 requires it. Uses `DF_ANTHROPIC_API_KEY` and `DF_AI_MODEL` above; estimate rates are in Settings → cost estimates. |
 | `DF_RETENTION_DAYS_CONVERSATIONS` | `365` | Car-buyer conversation PII older than this is purged daily. |
 
+## Phase 3: customer conversations, and security
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DF_CUSTOMER_MESSAGING_LIVE_ENABLED` | `false` | Website-chat replies reach visitors only when this is true **and** the dealership's `customer_messaging`/`website_chat` connection is marked connected. Otherwise replies are SIMULATED (recorded, never shown to the visitor). |
+| `DF_CHAT_RATE_LIMIT_PER_MINUTE` | `30` | Public chat/inquiry messages per dealership + IP per minute (also 8 per visitor). Database counters. |
+| `DF_ENCRYPTION_KEY` | — | Fernet key for MFA secrets and stored receipts. **Required in production.** Generate: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Outside production an unset key is derived from `DF_SECRET_KEY`. Losing it makes MFA secrets and receipts unreadable. |
+| `DF_MFA_ENFORCED` | unset | TOTP MFA for staff admins/managers and dealership admins. Unset = enforced only when `DF_ENV=production`; `true`/`false` to override. |
+
+Claude rephrasing of conversation drafts uses `DF_AI_ENABLED` + `DF_ANTHROPIC_API_KEY` (off by default; drafts are
+always produced by the grounded template engine).
+
 In production (`DF_ENV=production`) the app refuses to start if `DF_SECRET_KEY` is shorter than 32 characters,
-or if `DF_BASE_URL` is not https while `DF_OUTREACH_SENDING_ENABLED` or `DF_CLIENT_EMAIL_SENDING_ENABLED` is true.
+if `DF_ENCRYPTION_KEY` is unset, or if `DF_BASE_URL` is not https while `DF_OUTREACH_SENDING_ENABLED`,
+`DF_CLIENT_EMAIL_SENDING_ENABLED` or `DF_CUSTOMER_MESSAGING_LIVE_ENABLED` is true.
 It logs a warning for SQLite or a non-https base URL.

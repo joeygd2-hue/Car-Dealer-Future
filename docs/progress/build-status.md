@@ -5,10 +5,10 @@
 | **1** | Research, lead generation, CRM, sales operations, persistent outreach agent | **Implemented and tested with simulated providers.** Live integrations not yet verified (no credentials). |
 | **1.5** | Launch-readiness audit | **Done 2026-10-18.** Verdict: not ready for live outreach; blockers in `docs/audit/launch-readiness-audit.md` §7. |
 | **2** | Dealership inventory ingestion, bilingual listings, approvals, publishing | **Implemented in this app and tested with fixtures, SIMULATED channel and mocked HTTP.** Meta catalog not live-verified (no credentials). See the Phase 2 section below. |
-| 3 | Customer response, conversations, portal | On `claude/magical-darwin-nncp64` as a **separate `app` package — not yet ported into dealerflow**. Phase 4 ships interim conversation tables it must replace (`shared-stack.md`). |
+| **3** | Customer response, conversations, appointments | **Ported into dealerflow and tested with SIMULATED delivery** on `claude/mybot-phase3-integration` (from `claude/magical-darwin-nncp64`). Replaces the interim tables (migration `0005`). No live customer channel. See the Phase 3 section below. |
 | **4** | Finance, expenses, usage costs, SEO audits, client reporting, service catalog, onboarding, tickets, client portal, security review | **Implemented and tested with simulated providers**, merged with Phases 1 and 2 on `claude/blissful-davinci-82py6w`. Live integrations not verified. |
 
-Last updated: 2026-10-18 · Phase 1 on `claude/charming-ritchie-358e1g`; Phase 2 on `claude/dealership-inventory-publishing-iq0aqw`; Phases 1+2+4 merged (this file's latest edit) on `claude/blissful-davinci-82py6w`
+Last updated: 2026-10-18 · Phase 1 on `claude/charming-ritchie-358e1g`; Phase 2 on `claude/dealership-inventory-publishing-iq0aqw`; Phases 1+2+4 merged on `claude/blissful-davinci-82py6w`; Phase 3 integrated (this file's latest edit, 2026-10-19) on `claude/mybot-phase3-integration`
 
 ## Starting point
 
@@ -129,7 +129,7 @@ mobile width; staff pages return 403) and as staff (dealership directory).
 
 ### Next steps (Phase 2 scope)
 1. ~~Phase 4: port into this app~~ — done (see Phase 4).
-2. Phase 3 chat: build the client portal and customer messaging on `clients`, `dealer_ctx` and dealership users.
+2. ~~Phase 3: customer messaging on `clients`, `dealer_ctx` and dealership users~~ — done (see Phase 3).
    Marketplace buyer conversations remain manual (no API).
 3. To verify Meta live: Meta app with App Review, a test vehicle catalog, a system-user token in `DF_META_TOKEN_*`,
    then publish one SIMULATED dealership's listing to a test catalog.
@@ -156,7 +156,7 @@ listing/publishing tables, and reads Phase 2's data in monthly reports.
 | Onboarding | 14-step checklist with evidence, activation gate, per-automation prerequisites (steps + verified integrations), tickets (manual/portal/system) | `services/onboarding.py`, `services/tickets.py`, `web/routes_clients.py` |
 | SEO | Authorized sites only; robots-aware polite crawler (stops on 429, GET/HEAD only); checks for titles, descriptions, duplicates, noindex, sitemap/robots, headings, alt text, JSON-LD validity, AutoDealer/LocalBusiness schema, NAP consistency, inventory (Vehicle schema, price), broken internal links, orphan pages, Spanish-content opportunity, PageSpeed (optional); measured vs heuristic labels; issue lifecycle with before/after across audits; Search Console CSV import | `services/seo_*.py`, `web/routes_seo.py` |
 | Client reports | Immutable monthly snapshots with sources (Phase 2 imports, vehicles, listing revisions/reviews, publications API vs staff-attested; interim conversations), channel status (incl. Phase 2 feeds and listing channels), simulated exclusion, attribution disclaimer; publish to portal; download/print; email via gated client email; monthly drafting job | `services/client_reports.py`, `services/client_email.py` |
-| Phase 3 interim | Simulated inquiries, approved bilingual template responses (SIMULATED delivery), lead summaries to the dealership | `models_interim.py`, `services/dealer_ops.py` |
+| Phase 3 interim | *Replaced by Phase 3* (migration `0005`; tables kept as `legacy_*`) | — |
 | Hardening | See `docs/security/threat-model.md` (8 issues fixed) | `web/app.py`, `web/deps.py`, `static/app.js` |
 | Operations | Retention purge, client export and confirmed deletion, backups/restore runbook, deployment guide | `services/maintenance.py`, `docs/operations/` |
 
@@ -183,10 +183,47 @@ drift, on SQLite and Postgres 16.
 ### Next steps
 
 1. ~~Phase 2 integration~~ — done (this branch contains Phases 1, 2 and 4).
-2. **Phase 3**: port the separate `app` package on `claude/magical-darwin-nncp64` into dealerflow, using
-   `clients`, dealership users, `dealer_ctx`/`services/clients.scope()` and the shared job queue; replace the
-   interim conversation tables (`shared-stack.md`).
+2. ~~**Phase 3**: port into dealerflow and replace the interim tables~~ — done (see Phase 3).
 3. Wire the onboarding automation gates into Phase 2's scheduled feed sync and publish jobs (today only client
    `status == active` gates scheduled sync).
 4. Merge into `main`, re-running the full suite.
 4. Verify live integrations one at a time with test accounts (`known-limitations.md`).
+
+
+## Phase 3: customer conversations (integrated 2026-10-19)
+
+Branch `claude/mybot-phase3-integration`, created from `claude/blissful-davinci-82py6w` at `194d247`. Source:
+Phase 3's separate `app` package on `claude/magical-darwin-nncp64`. The deterministic responder (analysis,
+language, safety validation, grounded composition) was copied; everything around it was rewritten on dealerflow's
+tenancy, permissions, job queue, audit log, emergency stop, onboarding gates, client email and AI gateway. The full
+porting map, what was not ported and why, and the data model are in `docs/architecture/phase3-integration.md`.
+
+| Area | Implemented | Where |
+|---|---|---|
+| Data model | 17 tenant-scoped tables (contacts, identities, leads, suppressions, conversations, messages, drafts, escalations, appointments + events, automation settings, evaluation runs, mode authorizations, templates, FAQs, staff notifications, rate counters); composite `(client_id, id)` FKs | `models_conversations.py` |
+| Migration | `0005`: interim tables renamed to `legacy_*`, new tables created, rows converted idempotently (`convert-legacy-conversations`); `0006`: MFA columns | `migrations/versions/`, `legacy_conversations.py` |
+| Intake | Public website chat (per-dealership key, CORS limited to the dealership site, database rate limits, no inline script), ADF/XML leads (defusedxml, 256 KB limit, dedup), Marketplace manual intake | `web/routes_conversations_public.py`, `services/conversations/public.py`, `adf.py` |
+| Processing | Background `conversation_process` job: language, intent, vehicle match against Phase 2 inventory, fact sheet (stale/conflicting facts withheld), grounded draft, safety validation, categorization, escalation, appointment request, summary, new-lead notification | `services/conversations/inbox.py`, `responder/` |
+| Staff | Inbox, conversation view, edit/approve/reject drafts with warning acknowledgement, assign, take over, link vehicle, close, resolve escalations, reconcile uncertain sends; read-only for viewers | `web/routes_conversations.py`, `services/conversations/staff.py` |
+| Sending | Atomic claim, re-checked blockers (emergency stop, opt-out, suppression, pause, onboarding gate, mode authorization), final-text re-validation, database rate limits, `sending` committed before delivery, stale `sending` → `uncertain` (never auto-resent); SIMULATED unless live is enabled and connected | `services/conversations/outbound.py`, `policy.py` |
+| Appointments | Requests stay "pending confirmation" until staff confirm; decline/cancel/complete; reminders (hourly sweep) | `services/conversations/appointments.py` |
+| Automation | Mode A (drafts only) by default; modes B/C need a passing 46-case evaluation and an explicit authorization; per-dealership limits and pause | `services/conversations/evaluation.py`, `staff.py` |
+| API | `/api/v1/dealers/{id}/conversations…`, `/appointments`, `/conversations/simulated-inquiry` | `web/routes_conversations.py` |
+| Reporting | Monthly client reports and portal use the new tables; first-response time counts delivered replies only | `services/client_reports.py` |
+| Data lifecycle | Retention purge (contacts, identities, bodies, drafts, appointment details; opt-outs kept), export, confirmed deletion (fixed a pre-existing FK failure) | `services/maintenance.py` |
+| Security | TOTP MFA + recovery codes (enforced for privileged roles in production), database-backed login/API/MFA/chat/send limits, Fernet-encrypted receipts and MFA secrets, SEO crawler redirect SSRF fix, CSP `img-src https:` for vehicle photos | `security_mfa.py`, `crypto.py`, `services/rate_limits.py`, `web/routes_auth.py` |
+
+### Phase 3 tests
+
+| File | Cases | Covers |
+|---|---|---|
+| `test_conv_pipeline.py` | 9 | One lead + grounded draft per inquiry, returning customer joins the same contact, stale/unverified inventory never quoted, Spanish draft + financing escalated, business details only after approval, test drive recorded not promised, opt-out stops everything, audit has ids but no customer text, 46-case evaluation passes |
+| `test_conv_outbound.py` | 10 | Review/edit/approve is SIMULATED and never reaches the visitor, live chat needs the env switch and a connected channel, emergency stop blocks queued replies, double submit/duplicate jobs send once, crashed send → `uncertain` never auto-resent, unsupported claims need acknowledgement, auto-send needs every gate, facts re-validated at send time, AI off/failing falls back, AI output adding facts discarded |
+| `test_conv_security.py` | 8 | Cross-dealership pages/API/ids → 404, server-side roles, assignment across dealerships refused, bad keys, cross-process chat limit, CORS, ADF dedup + XXE + size limit, no inline script |
+| `test_conv_appointments.py` | 5 | Confirm queues confirmation + reminders, reminder skipped when the appointment changed, customer change request flags without cancelling, opted-out customer gets no appointment messages, viewer cannot confirm |
+| `test_conv_migration.py` | 1 | Interim rows survive the `0005` upgrade (counts, drafts, escalations), cross-dealership row refused, re-run no-op, no drift, downgrade/upgrade — on SQLite, and on Postgres when `DF_TEST_PG_URL` is set |
+| `test_conv_pages.py` | 2 | Every Phase 3 page renders per role; review/edit/approve through the HTML forms |
+| `test_conv_data_lifecycle.py` | 2 | Retention purge keeps opt-outs; export and deletion with conversations |
+| `test_security_hardening.py` | 8 | MFA enrolment/login/replay/recovery, enforcement, shared lockout and API limits, encrypted receipts, SEO SSRF, deleted users' sessions, production key check |
+
+Results (2026-10-19, commit recorded in the final report): RESULTS_PLACEHOLDER

@@ -38,7 +38,9 @@ class _ApiRateLimiter:
 
 api_limiter = _ApiRateLimiter()
 
-CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
+# img-src allows https images: dealer inventory photos are referenced on the dealer's own image host (Phase 2 stores
+# URLs, not files). Images cannot run script; scripts stay 'self' only.
+CSP = ("default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
        "frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'")
 
 

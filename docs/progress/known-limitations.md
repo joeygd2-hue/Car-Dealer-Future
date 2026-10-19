@@ -1,4 +1,4 @@
-# Known limitations (Phases 1, 1.5 audit and 4)
+# Known limitations (Phases 1, 1.5 audit, 2, 3 and 4)
 
 Last updated 2026-10-18 (after the launch-readiness audit; see `docs/audit/launch-readiness-audit.md` for
 blockers and priorities). Be explicit with anyone relying on this system: **no real email, calendar, Zoom,
@@ -42,8 +42,9 @@ Controlled live verification is ready to run: `python -m dealerflow live-check` 
 - **Booking approval is always manual** (manager), including for agent-handled meeting requests.
 - **Daily cap is per UTC day**, not local day.
 - **The suppression list cannot be edited from the UI** (by design). Removing an entry needs a direct database change.
-- **The rate limiter is in-process.** Running several worker processes multiplies the per-provider HTTP limits.
-  The job claim is still safe across processes. Run one worker.
+- **The Phase 1 per-provider HTTP rate limiter is in-process.** Running several worker processes multiplies those
+  limits. Login, API, MFA, public-chat and customer-send limits are database counters shared by all processes, and
+  the job claim is safe across processes. Run one worker.
 - **SQLite is the default.** Under concurrent web and worker writes, SQLite serialises them (WAL mode, 30 s timeout).
   Use Postgres for anything beyond one or two users; the suite passes on Postgres 16.
 - **Proposals are records only**: there's no document generation or e-signature.
@@ -65,9 +66,12 @@ Controlled live verification is ready to run: `python -m dealerflow live-check` 
 - **Secrets are not encrypted at rest (production blocker S1).** They can now come from files (`DF_SECRETS_DIR`,
   Docker/Compose secrets) instead of `.env`. The mitigation plan is in `docs/audit/security-findings.md`.
   OAuth refresh tokens are never stored in the database.
-- Data at rest (database, backups) is unencrypted; use an encrypted volume and encrypted off-host backups.
-- No multi-factor authentication. Passwords use PBKDF2-SHA256 (390k iterations). Failed logins are rate-limited per email+IP
-  (in-memory, so it resets on restart).
+- The database and backups are unencrypted; use an encrypted volume and encrypted off-host backups. Expense receipts
+  and MFA secrets are encrypted by the app (Fernet, `DF_ENCRYPTION_KEY`); there is no key-rotation command yet.
+- TOTP multi-factor authentication with recovery codes is built in (Account security), enforced for agency
+  admins/managers and dealership admins in production. There is no self-service MFA reset (an admin clears it in the
+  database, see the runbook) and no WebAuthn. Passwords use PBKDF2-SHA256 (390k iterations). Failed logins are
+  rate-limited per email+IP in the database (shared by processes, survives restarts).
 - The session cookie is `Secure` only when `DF_ENV=production`; run behind HTTPS.
 - API keys are per user, shown once and stored hashed. There is no expiry; regenerate to revoke.
 
@@ -118,15 +122,12 @@ PageSpeed, Search Console, Claude API or client email call has been made.**
 | Claude API | Stubbed-client test only | API key; `DF_AI_ENABLED=true`. Nothing in Phase 4 depends on it |
 | Client email (reports, lead summaries) | Mock only | Real provider (Phase 1), `DF_CLIENT_EMAIL_SENDING_ENABLED=true`, and per-client authorized `report_email` connection |
 | Listing publication channels (Phase 2) | See the Phase 2 table above | Phase 2 |
-| Customer messaging channels (Phase 3) | None; inquiries are simulated | Phase 3 |
+| Customer messaging channels (Phase 3) | See the Phase 3 section below | — |
 
 ### Functional gaps
 
-* **Interim Phase 3 tables** (`models_interim.py`: conversations, messages, appointments; migration `0004`) are
-  minimal stand-ins until Phase 3 is integrated. Inventory, listings and publishing use the Phase 2 tables, and
-  monthly reports read them.
-* Phase 3 lives in a separate `app` package (`claude/magical-darwin-nncp64`) with its own auth and models; it is
-  not integrated, so the client portal shows only Phase 4 data plus interim conversations.
+* Phase 3 is integrated (migration `0005`); the interim tables survive as `legacy_*` until the removal plan in
+  `docs/architecture/phase3-integration.md` is carried out.
 * Finance is single-currency for reporting (USD); other currencies are excluded and counted, not converted.
   No sales tax handling. Expense categories are management categories, not tax advice.
 * Invoices are not emailed or sent to clients; there is no PDF invoice. Reports are HTML (print to PDF).
@@ -136,15 +137,36 @@ PageSpeed, Search Console, Claude API or client email call has been made.**
 * SEO checks are rule-based; no AI recommendations are generated yet (`detection='ai'` is reserved). JavaScript-
   rendered sites are seen as raw HTML only. External links are not checked (internal only).
 * Gross margin covers only directly allocated costs; overhead allocation is not modelled.
-* Automations listed on the client page are gates only: the Phase 2/3 automation workers they protect do not
-  are not yet wired into the Phase 2 import/publish code paths (`inventory_sync`, `listing_publish`) and the
-  Phase 3 responder does not exist (`inquiry_auto_response`); `seo_monitoring` does not schedule
-  audits yet — audits are started by staff; `monthly_report_email` is implemented.
+* Some automations listed on the client page are gates only: they are not yet wired into the Phase 2
+  import/publish code paths (`inventory_sync`, `listing_publish`); `inquiry_auto_response` gates Phase 3 automatic
+  replies, and `seo_monitoring` does not schedule audits yet — audits are started by staff; `monthly_report_email` is implemented.
 * Client data deletion and export are service functions (no UI) — deliberate, see the runbook.
 
 ### Phase 4 security notes
 
-See `docs/security/threat-model.md`. Open items: in-process rate limiting (single process only), no MFA,
-attachments unencrypted at rest on local disk, no external penetration test, `style-src 'unsafe-inline'` kept
-for Phase 1 templates. **The platform is not production-ready** until live integrations are verified, MFA or
-an identity-aware proxy is in place, backups are tested, and the Phase 3 code is integrated.
+See `docs/security/threat-model.md`. Resolved with the Phase 3 integration: shared (database) rate limits, TOTP
+MFA, encrypted receipts. Still open: no external penetration test, `style-src 'unsafe-inline'` kept for Phase 1
+templates, no PostgreSQL row-level security, no encryption-key rotation. **The platform is not production-ready**
+until live integrations are verified, backups are tested on the production host, and a pilot dealership has been
+onboarded with a reviewed customer channel.
+
+## Phase 3 (customer conversations)
+
+Last updated 2026-10-19. Every Phase 3 test ran with SIMULATED delivery and synthetic customers. **No message has
+been delivered to a real customer, and no real lead source has been connected.**
+
+| Item | Status / what's needed |
+|---|---|
+| Website chat delivery | The widget and API work, but staff and automatic replies are recorded as SIMULATED and never shown to the visitor until `DF_CUSTOMER_MESSAGING_LIVE_ENABLED=true` **and** the dealership has a `customer_messaging`/`website_chat` connection marked connected. That live path has only been exercised in automated tests; it has not been reviewed for a real dealership site |
+| ADF/XML lead intake | Parser and endpoint tested with synthetic ADF; no real lead provider has posted to it. Replies to ADF leads are drafted only and sent by staff outside the platform |
+| Facebook Marketplace messages | No API exists. Staff paste buyer messages into Marketplace intake; replies are copied back by hand |
+| Messenger, SMS, email replies to buyers | **Not available.** Phase 3's Meta Messenger and Twilio SMS adapters were code-only and never verified, so they were not ported (they need Meta App Review / A2P 10DLC registration). Buyer replies by email are not built. Notification preferences, the daily digest, the pilot allowlist console and the HMAC-sealed audit log were not ported either |
+| Calendar for test drives | No calendar integration: appointment requests are recorded as "pending confirmation" and staff confirm them; the app never claims a slot is free (`availability_checked = "no_calendar"`) |
+| AI drafting | Off by default. Drafts are deterministic and grounded in the fact sheet; the optional rephrase uses the shared AI gateway (`DF_AI_ENABLED`) and is re-validated, but has only been tested with a stubbed client |
+| Response modes B/C | Require a passing evaluation run (46 synthetic cases, all passing) plus an explicit authorization; tested only on synthetic data |
+| Language | English and Spanish only; other languages get a staff handoff |
+| Vehicle facts | Price/mileage/availability come from Phase 2 data and are withheld when stale (`stale_inventory_hours`) or conflicting; no live DMS check |
+| Global pause | `conversations_global_pause` app setting is enforced but has no UI toggle (use emergency stop or the per-dealership pause) |
+| Legacy tables | `legacy_conversations`, `legacy_conversation_messages`, `legacy_appointments` kept after conversion; drop only via the documented removal plan |
+| Reporting | Response-time metrics count only delivered replies, so SIMULATED replies do not improve first-response time |
+| Notifications | In-app plus e-mail through the gated client-email path (mock by default); no push or SMS alerts to staff |

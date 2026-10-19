@@ -172,9 +172,10 @@ def test_report_reflects_data_and_states_channels_and_attribution(client, db, t)
     assert len(done["approved"]) == 1
     pubs = client.get(f"/api/v1/dealers/{cid}/publications", headers=hd).json()
     assert [(p["channel"], p["status"]) for p in pubs] == [("facebook_marketplace", "manual_required")]
-    sim = client.post(f"/api/v1/clients/{cid}/inquiries/simulated", headers=h, json={"body": "Is it available for a test drive?",
-                                                                                   "provider_message_id": "m1"}).json()
+    sim = client.post(f"/api/v1/dealers/{cid}/conversations/simulated-inquiry", headers=h,
+                      json={"text": "Is it available for a test drive?", "visitor_id": "visitor-m1"}).json()
     assert sim["simulated"] is True
+    drain()
     client.post(f"/api/v1/clients/{cid}/integrations", headers=t["h"]["manager"], json={"kind": "inventory_feed", "provider": "csv", "status": "connected",
                                                                                       "note": "Dealer emailed CSV export"})
     start, end = date.today().replace(day=1), date.today()
@@ -230,15 +231,20 @@ def test_monthly_reports_job(db, t):
 
 
 def test_lead_summary_reaches_the_correct_dealership(client, db, t):
+    """A new lead's summary goes to that dealership only (Phase 3 notifications; SIMULATED e-mail)."""
     from dealerflow.integrations.email import MockEmailProvider
+    from tests.dealer_helpers import drain
 
     cid, h = t["alpha"].id, t["h"]["rep"]
-    conv = client.post(f"/api/v1/clients/{cid}/inquiries/simulated", headers=h, json={"body": "¿Está disponible para una prueba de manejo?",
-                                                                                    "language": "es", "provider_message_id": "es-1"}).json()
-    draft = client.post(f"/api/v1/clients/{cid}/conversations/{conv['conversation_id']}/draft", headers=h, json={"template": "test_drive"}).json()
-    assert draft["language"] == "es" and "prueba de manejo" in draft["body"] and draft["status"] == "pending_approval"
-    # Bravo's staff path cannot touch Alpha's conversation.
-    assert client.post(f"/api/v1/clients/{t['bravo'].id}/conversations/{conv['conversation_id']}/messages/{draft['message_id']}/approve", headers=h).status_code == 404
-    res = client.post(f"/api/v1/clients/{cid}/conversations/{conv['conversation_id']}/messages/{draft['message_id']}/approve", headers=h).json()
-    assert res["summary_delivered"] is True and "Test-drive requested" in res["summary"]
+    conv = client.post(f"/api/v1/dealers/{cid}/conversations/simulated-inquiry", headers=h,
+                       json={"text": "¿Está disponible para una prueba de manejo?", "visitor_id": "visitor-es-1"}).json()
+    drain()
+    detail = client.get(f"/api/v1/dealers/{cid}/conversations/{conv['conversation_id']}", headers=h).json()
+    draft = next(d for d in detail["drafts"] if d["is_draft"])
+    assert detail["language"] == "es" and "prueba de manejo" in draft["body"]
+    # Bravo's workspace cannot see or answer Alpha's conversation.
+    assert client.get(f"/api/v1/dealers/{t['bravo'].id}/conversations/{conv['conversation_id']}", headers=h).status_code == 404
+    assert client.post(f"/api/v1/dealers/{t['bravo'].id}/conversations/{conv['conversation_id']}/reply", headers=h,
+                       json={"body": draft["body"], "draft_id": draft["id"]}).status_code == 404
     assert [m.to for m, _ in MockEmailProvider.outbox] == ["owner@alpha.example"]
+    assert MockEmailProvider.outbox[0][1].simulated and "New lead" in MockEmailProvider.outbox[0][0].subject

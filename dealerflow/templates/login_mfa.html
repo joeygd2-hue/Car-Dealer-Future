@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block title %}Verify sign-in{% endblock %}{% block content %}
+<div class="card" style="max-width:380px;margin:40px auto"><h1>Verify it's you</h1>
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+<p class="small muted">Enter the 6-digit code from your authenticator app, or one of your recovery codes.</p>
+<form method="post" action="/login/mfa"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Code</label><input name="code" required autocomplete="one-time-code" inputmode="numeric" maxlength="20" style="width:100%" autofocus>
+<p><button>Verify</button> <a class="small" href="/login">Start over</a></p></form></div>{% endblock %}

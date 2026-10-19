@@ -12,6 +12,11 @@ from .config import get_settings
 HERE = Path(__file__).resolve().parent
 
 
+def include_object(obj, name, type_, reflected, compare_to) -> bool:
+    """``legacy_*`` tables are the read-only archive kept by migration 0005; they have no model on purpose."""
+    return not (type_ == "table" and reflected and compare_to is None and str(name).startswith("legacy_"))
+
+
 def alembic_config(url: str | None = None) -> Config:
     cfg = Config()
     cfg.set_main_option("script_location", str(HERE / "migrations"))

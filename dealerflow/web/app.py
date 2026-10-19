@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -17,25 +18,22 @@ from ..config import get_settings
 from ..logging_setup import configure_logging
 from ..services.dealer_errors import DealerError
 from ..tenancy import TenantViolation
-from .deps import DealerHome, NotAuthenticated, back_to, flash, templates
+from .deps import DealerHome, MfaSetupRequired, NotAuthenticated, back_to, flash, templates
 
 log = logging.getLogger("dealerflow.web")
 
 
 class _ApiRateLimiter:
-    """Per-IP sliding window for /api/ and webhook routes. Single-process; use a shared store when scaling out."""
+    """Per-IP fixed window for /api/ and webhook routes, counted in the database so the limit is shared by every web
+    process (services/rate_limits.py). ``hits`` is kept only for backward compatibility (unused)."""
 
     def __init__(self) -> None:
         self.hits: dict[str, list[float]] = {}
 
-    def allow(self, key: str, limit: int, window: float = 60.0) -> bool:
-        now = time.monotonic()
-        q = [t for t in self.hits.get(key, []) if now - t < window]
-        allowed = len(q) < limit
-        if allowed:
-            q.append(now)
-        self.hits[key] = q
-        return allowed
+    def allow(self, key: str, limit: int, window: int = 60) -> bool:
+        from ..services.rate_limits import hit
+
+        return hit(f"api:{key}", limit, window)
 
 
 api_limiter = _ApiRateLimiter()
@@ -67,7 +65,7 @@ def create_app() -> FastAPI:
         path = request.url.path
         if path.startswith(("/api/", "/webhooks/")):
             ip = request.client.host if request.client else "unknown"
-            if not api_limiter.allow(ip, get_settings().api_rate_limit_per_minute):
+            if not await run_in_threadpool(api_limiter.allow, ip, get_settings().api_rate_limit_per_minute):
                 return JSONResponse({"detail": "Rate limit exceeded"}, status_code=429, headers={"Retry-After": "60"})
         response = await call_next(request)
         response.headers["X-Request-ID"] = rid
@@ -93,6 +91,13 @@ def create_app() -> FastAPI:
         if request.url.path.startswith("/api/"):
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
         return RedirectResponse(f"/login?next={request.url.path}", status_code=303)
+
+    @app.exception_handler(MfaSetupRequired)
+    async def _mfa_setup(request: Request, exc: MfaSetupRequired):
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": "Multi-factor authentication must be set up first"}, status_code=403)
+        flash(request, "Set up multi-factor authentication to continue (required for your role).", "warn")
+        return RedirectResponse("/account/security", status_code=303)
 
     @app.exception_handler(DealerHome)
     async def _dealer_home(request: Request, exc: DealerHome):
@@ -130,10 +135,13 @@ def create_app() -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parents[1] / "static")), name="static")
     from . import forms  # noqa: F401  (registers template filters)
-    from . import (routes_agent, routes_api, routes_auth, routes_clients, routes_crm, routes_dealer_api, routes_dealers, routes_finance,
-                   routes_ops_api, routes_outreach, routes_portal, routes_public, routes_seo, routes_settings)
+    from . import (routes_agent, routes_api, routes_auth, routes_clients, routes_conversations, routes_conversations_public,
+                   routes_crm, routes_dealer_api, routes_dealers, routes_finance, routes_ops_api, routes_outreach, routes_portal,
+                   routes_public, routes_seo, routes_settings)
 
-    for mod in (routes_auth, routes_public, routes_crm, routes_outreach, routes_agent, routes_settings, routes_api,
-                routes_dealers, routes_dealer_api, routes_clients, routes_finance, routes_seo, routes_portal, routes_ops_api):
+    for mod in (routes_auth, routes_public, routes_conversations_public, routes_crm, routes_outreach, routes_agent, routes_settings,
+                routes_api, routes_dealers, routes_dealer_api, routes_conversations, routes_clients, routes_finance, routes_seo,
+                routes_portal, routes_ops_api):
         app.include_router(mod.router)
+    app.include_router(routes_conversations.api)
     return app

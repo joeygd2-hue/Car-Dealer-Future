@@ -12,6 +12,7 @@
   restore FILE --yes           replace the database with a backup (stop web + worker first)
   live-check send|inbox|meeting  controlled real-provider test (see dealerflow/livecheck.py)
   retention [DAYS]             redact message bodies older than DAYS (default 730) and prune old logs
+  convert-legacy-conversations re-run the idempotent copy of interim conversation rows (migration 0005)
 """
 
 from __future__ import annotations
@@ -73,6 +74,17 @@ def _demo_dealer() -> None:
             c = Client(name="DEMO Fixture Motors (SIMULATED)", slug="demo-fixture-motors", city="Sugar Land", state="TX", simulated=True)
             db.add(c)
             db.flush()
+        # Phase 3: approved business details and intake keys so the demo chat page (/chat/<key>) works.
+        import secrets as _secrets
+
+        from .db import utcnow as _now
+
+        c.phone, c.address_line, c.postal_code = c.phone or "(281) 555-0100", c.address_line or "100 Fixture Ln", c.postal_code or "77478"
+        c.business_hours = c.business_hours or {**{str(d): ["09:00", "19:00"] for d in range(6)}, "6": None}
+        c.business_info_approved_at = c.business_info_approved_at or _now()
+        c.public_chat_key = c.public_chat_key or _secrets.token_urlsafe(18)
+        c.adf_intake_key = c.adf_intake_key or _secrets.token_urlsafe(24)
+        print(f"demo chat page: /chat/{c.public_chat_key}")
         cid = c.id
     ctx = system_context(cid)
     try:
@@ -131,6 +143,12 @@ def main(argv: list[str]) -> None:
         print(run_once())
     elif cmd == "demo":
         _demo()
+    elif cmd == "convert-legacy-conversations":
+        from .db import get_engine
+        from .legacy_conversations import convert
+
+        with get_engine().begin() as conn:
+            print(convert(conn))
     elif cmd == "demo-dealer":
         _demo_dealer()
     elif cmd == "check-integrations":

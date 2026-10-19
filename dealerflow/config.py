@@ -144,6 +144,18 @@ class Settings(BaseSettings):
     ai_enabled: bool = False  # optional general Claude API use (integrations.llm.complete); listings use listing_ai_enabled
     retention_days_conversations: int = 365
 
+    # --- Phase 3: customer conversations -------------------------------------------------------
+    # Website-chat replies reach visitors only when this is true AND the dealership's customer_messaging/website_chat
+    # connection is marked connected. Otherwise every reply is recorded as SIMULATED and never shown to the visitor.
+    customer_messaging_live_enabled: bool = False
+
+    # --- Security ------------------------------------------------------------------------------------
+    # Fernet key for MFA secrets and stored attachments (required in production; see dealerflow/crypto.py).
+    encryption_key: SecretStr = SecretStr("")
+    # TOTP MFA for staff admins/managers and dealership admins. Unset = enforced only when DF_ENV=production.
+    mfa_enforced: bool | None = None
+    chat_rate_limit_per_minute: int = 30  # per dealership + IP, shared across processes (database counters)
+
     @property
     def listing_ai_available(self) -> bool:
         return self.listing_ai_enabled and bool(self.anthropic_api_key.get_secret_value())
@@ -156,12 +168,19 @@ class Settings(BaseSettings):
     def working_day_list(self) -> list[int]:
         return [int(d) for d in self.working_days.split(",") if d.strip()]
 
+    @property
+    def mfa_required(self) -> bool:
+        return self.mfa_enforced if self.mfa_enforced is not None else self.env == "production"
+
     def production_problems(self) -> list[str]:
         """Configuration that blocks startup with DF_ENV=production (see production_warnings for advisories)."""
         problems = []
+        if not self.encryption_key.get_secret_value().strip():
+            problems.append("DF_ENCRYPTION_KEY must be set (Fernet key; MFA secrets and attachments are encrypted with it)")
         if len(self.secret_key.get_secret_value()) < 32:
             problems.append("DF_SECRET_KEY must be a random value of at least 32 characters (python -c 'import secrets; print(secrets.token_urlsafe(48))')")
-        if (self.outreach_sending_enabled or self.client_email_sending_enabled) and not self.base_url.startswith("https://"):
+        if ((self.outreach_sending_enabled or self.client_email_sending_enabled or self.customer_messaging_live_enabled)
+                and not self.base_url.startswith("https://")):
             problems.append("DF_BASE_URL must be https:// before real email is enabled (unsubscribe links must work for recipients)")
         return problems
 

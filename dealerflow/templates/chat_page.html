@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block title %}Chat with {{ client.name }}{% endblock %}{% block content %}
+<div class="card" style="max-width:560px;margin:24px auto">
+<h1>{{ client.name }}</h1>
+{% if client.simulated %}<p><span class="pill sim">SIMULATED dealership — test data only</span></p>{% endif %}
+<p class="small muted">Ask about a vehicle, our hours or a test drive. A member of our team reviews replies; we never ask for
+Social Security, bank or card numbers here. Reply STOP at any time to stop messages.</p>
+<div id="chat-log" class="chatlog" data-key="{{ key }}" aria-live="polite"></div>
+<form id="chat-form" class="chatform">
+<label>Your name (optional)</label><input name="name" maxlength="100" autocomplete="name" style="width:100%">
+<label>Email or phone so we can reply (optional)</label>
+<div class="row"><input name="email" type="email" maxlength="200" autocomplete="email" placeholder="email">
+<input name="phone" maxlength="40" autocomplete="tel" placeholder="phone"></div>
+<label>Stock number or VIN (optional)</label><input name="vehicle_stock" maxlength="50" style="width:100%">
+<label>Message</label><textarea name="text" required maxlength="2000" rows="3" style="width:100%"></textarea>
+<p><button>Send</button> <span id="chat-status" class="small muted"></span></p></form>
+<p class="small muted">Replies appear here once a team member sends them.</p></div>
+<script src="/static/chat.js" defer></script>
+{% endblock %}

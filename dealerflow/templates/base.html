@@ -1,14 +1,14 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block title %}dealerflow{% endblock %} · dealerflow</title><link rel="stylesheet" href="/static/app.css"><script src="/static/copy.js" defer></script><script src="/static/app.js" defer></script></head><body>
 {% if user %}<header><span class="brand">dealerflow</span><nav>
-{% if user.client_id %}<a href="/dealers/{{ user.client_id }}">Inventory</a><a href="/dealers/{{ user.client_id }}/listings">Listings</a><a href="/dealers/{{ user.client_id }}/publishing">Publishing</a><a href="/dealers/{{ user.client_id }}/imports">Imports</a><a href="/dealers/{{ user.client_id }}/reports">Reports</a><a href="/dealers/{{ user.client_id }}/settings">Settings</a><a href="/portal">Monthly reports &amp; billing</a>{% else %}
+{% if user.client_id %}<a href="/dealers/{{ user.client_id }}/inbox">Inbox</a><a href="/dealers/{{ user.client_id }}/appointments">Appointments</a><a href="/dealers/{{ user.client_id }}">Inventory</a><a href="/dealers/{{ user.client_id }}/listings">Listings</a><a href="/dealers/{{ user.client_id }}/publishing">Publishing</a><a href="/dealers/{{ user.client_id }}/imports">Imports</a><a href="/dealers/{{ user.client_id }}/reports">Reports</a><a href="/dealers/{{ user.client_id }}/settings">Settings</a><a href="/portal">Monthly reports &amp; billing</a>{% else %}
 <a href="/">Dashboard</a><a href="/agent">Agent</a><a href="/prospects">Prospects</a><a href="/import">Import / discover</a>
 <a href="/outreach">Outreach</a><a href="/inbox">Inbox</a><a href="/meetings">Meetings</a><a href="/tasks">Tasks</a>
 <a href="/reports/weekly">Weekly report</a><a href="/integrations">Integrations</a><a href="/settings">Settings</a>
 <a href="/dealers">Dealerships</a><a href="/clients">Client accounts</a><a href="/tickets">Tickets</a><a href="/seo">SEO</a><a href="/client-reports">Client reports</a>
 {% if role_at_least(user.role, 'manager') %}<a href="/finance">Finance</a><a href="/costs">Costs</a><a href="/packages">Packages</a>{% endif %}
 {% if role_at_least(user.role, 'manager') %}<a href="/audit">Audit log</a>{% endif %}{% endif %}</nav>
-<span class="right small">{{ user.email }} ({{ user.client_role.replace("_", " ") if user.client_id else user.role }})<form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Log out</button></form></span></header>{% endif %}
+<span class="right small"><a href="/account/security">Account security</a> · {{ user.email }} ({{ user.client_role.replace("_", " ") if user.client_id else user.role }})<form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Log out</button></form></span></header>{% endif %}
 <main>
 {% if user and not user.client_id and (providers.email == 'mock' or providers.calendar == 'mock' or providers.zoom == 'mock') %}
 <div class="banner small">SIMULATED providers active: email={{ providers.email }}, calendar={{ providers.calendar }}, zoom={{ providers.zoom }}, calls={{ providers.call }}. Nothing marked SIMULATED reached a real person.</div>{% endif %}

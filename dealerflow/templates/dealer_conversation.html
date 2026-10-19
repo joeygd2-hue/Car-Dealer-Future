@@ -1,0 +1,59 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav %}{% block title %}Conversation #{{ conv.id }} · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'inbox', user) }}
+<h1>Conversation #{{ conv.id }}{% if conv.simulated %} <span class="pill sim">SIMULATED</span>{% endif %}{% if conv.opted_out %} <span class="pill bad">customer opted out</span>{% endif %}</h1>
+<p class="small muted">{{ conv.channel.replace('_',' ') }} · {{ 'Spanish' if conv.preferred_language == 'es' else 'English' }} · status {{ conv.status.replace('_',' ') }}
+{% if conv.human_takeover %} · <strong>staff took over (no automation)</strong>{% endif %}{% if conv.human_requested %} · customer asked for a person{% endif %}</p>
+<p class="small {{ 'muted' if not live[0] else '' }}">Delivery: {% if sendable %}{% if live[0] %}<span class="pill ok">live</span> replies reach the visitor's chat{% else %}<span class="pill sim">SIMULATED</span> {{ live[1] }}{% endif %}{% else %}replies on this channel are sent by staff outside the platform; the platform records them{% endif %}</p>
+<div class="split"><div>
+<div class="card"><h2>Messages</h2><ul class="thread">{% for m in messages %}
+<li class="{{ m.direction }}"><div class="small muted">{{ {'customer':'Customer','staff':'Staff','ai_auto':'Automatic reply','system':'System'}.get(m.sender_type, m.sender_type) }} ·
+{{ m.created_at.strftime('%Y-%m-%d %H:%M') }} UTC{% if m.direction == 'outbound' %} · <span class="pill {{ 'ok' if m.delivery_status in ('sent','manual_external') else ('sim' if m.delivery_status == 'simulated' else ('bad' if m.delivery_status in ('failed','blocked','uncertain') else 'warn')) }}">{{ m.delivery_status.replace('_',' ') }}</span>{% endif %}</div>
+<div>{{ m.body }}</div>{% if m.delivery_error and m.direction == 'outbound' %}<div class="small muted">{{ m.delivery_error }}</div>{% endif %}
+{% if m.delivery_status == 'uncertain' and ctx.can('converse') %}<p class="small"><strong>Delivery unknown.</strong> Check whether the customer received it before deciding.</p>
+<div class="row"><form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/messages/{{ m.id }}/reconcile"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="delivered" value="1"><button class="secondary">It was delivered</button></form>
+<form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/messages/{{ m.id }}/reconcile" data-confirm="Re-send this reply? Only do this if you confirmed the customer did NOT receive it."><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="delivered" value="0"><button class="secondary">Not delivered — re-queue</button></form></div>{% endif %}
+</li>{% else %}<li class="muted">No messages.</li>{% endfor %}</ul></div>
+
+{% if send_warnings %}<div class="flash error"><strong>Check before sending.</strong> This text contains things the verified records don't support:
+<ul class="reasons">{% for w in send_warnings %}<li>{{ w }}</li>{% endfor %}</ul></div>{% endif %}
+{% if ctx.can('converse') and not conv.opted_out %}
+<div class="card draftbox"><h2>{% if pending %}Suggested reply — DRAFT, not sent{% else %}Write a reply{% endif %}</h2>
+{% if pending %}<p class="small muted">Prepared {{ 'with Claude rephrasing, validated against' if pending.generated_by == 'template+llm' else 'from' }} verified records only (engine {{ pending.engine_version }}, confidence {{ '%.2f'|format(pending.confidence) }}). Nothing is sent until you approve it.</p>
+{% if pending.facts_used %}<p class="small">Facts used: {{ pending.facts_used|join(', ') }}</p>{% endif %}
+{% if pending.unresolved %}<p class="small" style="color:var(--warn)">Needs confirmation: {{ pending.unresolved|join(', ') }}</p>{% endif %}
+{% if pending.escalation_reasons %}<p class="small" style="color:var(--bad)">Escalation: {{ pending.escalation_reasons|join(', ') }}</p>{% endif %}
+<details class="small"><summary>Why this was not sent automatically</summary><ul class="reasons">{% for r in pending.decision_reasons %}<li>{{ r }}</li>{% endfor %}</ul></details>{% endif %}
+<form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/send"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="draft_id" value="{{ pending.id if pending else (draft_id or '') }}">
+<label>Reply (edit as needed)</label><textarea name="body" rows="5" maxlength="5000" required>{{ unsent_body or (pending.body if pending else '') }}</textarea>
+{% if send_warnings %}<label class="row"><input type="checkbox" name="acknowledge_warnings" value="yes" required> I checked these statements and want to send anyway (recorded in the audit log)</label>{% endif %}
+{% if sendable %}<label class="row small"><input type="checkbox" name="manual_external" value="yes"> I already sent this myself outside the platform (record only)</label>{% endif %}
+<p class="row"><button>{{ 'Approve and send' if sendable else 'Record as sent by me' }}</button>{% if not sendable %}<span class="small muted">Copy the text into {{ conv.channel.replace('_',' ') }} yourself.</span>{% endif %}</p></form>
+{% if pending %}<form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/drafts/{{ pending.id }}/reject"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Reject draft</button></form>{% endif %}
+</div>{% elif conv.opted_out %}<div class="card"><p>The customer opted out. The platform will not send messages on this conversation.</p></div>
+{% elif pending %}<div class="card draftbox"><h2>Suggested reply — DRAFT, not sent</h2><p>{{ pending.body }}</p>
+<p class="small muted">Read-only: your role cannot send replies.</p></div>{% endif %}
+</div>
+
+<div><div class="card"><h2>Summary</h2>{% set s = conv.summary or {} %}
+<dl class="kv"><dt>Customer</dt><dd>{% if contact %}{{ contact.display_name or '—' }}{% if contact.email %}<br>{{ contact.email }}{% endif %}{% if contact.phone %}<br>{{ contact.phone }}{% endif %}{% else %}—{% endif %}</dd>
+<dt>Vehicle</dt><dd>{% if vehicle %}<a href="/dealers/{{ client.id }}/vehicles/{{ vehicle.id }}">{{ vehicle_title(vehicle) }}</a>{% if vehicle.stock_number %} ({{ vehicle.stock_number }}){% endif %}{% else %}not identified{% endif %}</dd>
+<dt>Topics</dt><dd>{{ (s.main_questions or [])|join(', ') or '—' }}</dd>
+<dt>Told customer</dt><dd>{{ (s.verified_information_provided or [])|join('; ') or '—' }}</dd>
+<dt>Unresolved</dt><dd>{{ (s.unresolved_questions or [])|join('; ') or '—' }}</dd>
+<dt>Test drive</dt><dd>{{ (s.appointment_status or 'none').replace('_',' ') }}</dd>
+<dt>Next step</dt><dd>{{ s.recommended_next_step or conv.next_action or '—' }}</dd>
+{% if s.legacy_summary %}<dt>Earlier summary</dt><dd>{{ s.legacy_summary }}</dd>{% endif %}</dl></div>
+{% for e in escalations if e.status != 'resolved' %}<div class="card" style="border-color:var(--bad)"><h2>Needs attention</h2><p class="small">{{ e.reasons|join(', ') }}</p>
+<p class="small">{{ e.recommended_action }}</p>{% if ctx.can('converse') %}<form method="post" action="/dealers/{{ client.id }}/escalations/{{ e.id }}/resolve"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Mark resolved</button></form>{% endif %}</div>{% endfor %}
+{% if appointments %}<div class="card"><h2>Test drive</h2><ul class="small">{% for a in appointments %}<li>{{ a.status.replace('_',' ') }}{% if a.requested_start %} · requested {{ local(a.requested_start).strftime('%a %b %d %H:%M') }}{% endif %}{% if a.confirmed_start %} · confirmed {{ local(a.confirmed_start).strftime('%a %b %d %H:%M') }}{% endif %}</li>{% endfor %}</ul>
+<a href="/dealers/{{ client.id }}/appointments">Open appointments</a></div>{% endif %}
+{% if ctx.can('converse') %}<div class="card"><h2>Actions</h2>
+<form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/assign" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><select name="user_id"><option value="">unassigned</option>{% for u in members %}<option value="{{ u.id }}" {% if conv.assigned_user_id == u.id %}selected{% endif %}>{{ u.email }}</option>{% endfor %}</select><button class="secondary">Assign</button></form>
+{% if stock %}<form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/vehicle" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><select name="vehicle_id"><option value="">no vehicle</option>{% for v in stock %}<option value="{{ v.id }}" {% if conv.vehicle_id == v.id %}selected{% endif %}>{{ vehicle_title(v) }}</option>{% endfor %}</select><button class="secondary">Link vehicle</button></form>{% endif %}
+<form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/takeover"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="on" value="{{ '0' if conv.human_takeover else '1' }}"><button class="secondary">{{ 'Hand back to automation' if conv.human_takeover else 'Take over (stop automation)' }}</button></form>
+{% if conv.status != 'closed' %}<form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/close"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Close conversation</button></form>{% endif %}
+</div>{% endif %}
+<div class="card small muted"><h2>Previous drafts</h2>{% for d in drafts if d.status != 'pending_review' %}<p>#{{ d.id }} {{ d.status.replace('_',' ') }}{% if d.decision == 'auto_send' %} (automatic){% endif %}</p>{% else %}<p>None.</p>{% endfor %}</div>
+</div></div>
+{% endblock %}

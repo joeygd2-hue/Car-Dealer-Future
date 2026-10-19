@@ -1,0 +1,35 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav %}{% block title %}Inbox · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'inbox', user) }}<h1>Customer inbox</h1>
+{% if stopped %}<div class="flash error">Platform EMERGENCY STOP is active: nothing is sent to customers.</div>{% endif %}
+{% if paused_all %}<div class="flash warn">Conversation automation is paused platform-wide.</div>{% endif %}
+{% if rs.paused %}<div class="flash warn">Automation is paused for this dealership{% if rs.paused_reason %}: {{ rs.paused_reason }}{% endif %}.</div>{% endif %}
+<p class="small muted">Response mode: <strong>{{ mode_labels.get(mode, mode) }}</strong>. Drafts are written only from verified inventory and
+approved business details; staff review and approve every reply unless automation is fully authorized.
+Replies on website chat are <strong>SIMULATED</strong> (recorded, not shown to the visitor) until live customer messaging is authorized.</p>
+<div class="split"><div>
+<form method="get" class="row card"><label>Status <select name="status"><option value="">all</option>
+{% for s in ['open','awaiting_staff','awaiting_customer','escalated','closed'] %}<option value="{{ s }}" {% if f_status == s %}selected{% endif %}>{{ s.replace('_',' ') }}</option>{% endfor %}</select></label>
+<label>Channel <select name="channel"><option value="">all</option>{% for c in channels %}<option value="{{ c }}" {% if f_channel == c %}selected{% endif %}>{{ c.replace('_',' ') }}</option>{% endfor %}</select></label>
+<label class="row"><input type="checkbox" name="mine" value="1" {% if mine %}checked{% endif %}> assigned to me</label><button class="secondary">Filter</button></form>
+<div class="card"><div class="tablewrap"><table><thead><tr><th>Customer</th><th>Vehicle</th><th>Channel</th><th>Status</th><th>Drafts</th><th>Updated</th></tr></thead><tbody>
+{% for c in convs %}{% set ct = contacts.get(c.contact_id) %}<tr>
+<td><a href="/dealers/{{ client.id }}/conversations/{{ c.id }}">{{ (ct.display_name if ct and ct.display_name) or ('Conversation #' ~ c.id) }}</a>
+{% if c.simulated %} <span class="pill sim">SIMULATED</span>{% endif %}{% if c.opted_out %} <span class="pill bad">opted out</span>{% endif %}</td>
+<td class="small">{{ vehicles.get(c.vehicle_id, '—') }}</td><td class="small">{{ c.channel.replace('_',' ') }} · {{ c.preferred_language|upper }}</td>
+<td><span class="pill {{ 'bad' if c.status == 'escalated' else ('warn' if c.status == 'awaiting_staff' else '') }}">{{ c.status.replace('_',' ') }}</span>
+{% if c.appointment_status not in ('none','') %} <span class="pill warn">test drive: {{ c.appointment_status.replace('_',' ') }}</span>{% endif %}</td>
+<td>{% if pending.get(c.id) %}<span class="pill warn">{{ pending[c.id] }} to review</span>{% endif %}</td><td class="small">{{ c.updated_at.strftime('%Y-%m-%d %H:%M') }} UTC</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No conversations yet. Website inquiries, ADF leads and logged Marketplace messages appear here.</td></tr>{% endfor %}
+</tbody></table></div></div></div>
+<div><div class="card"><h2>Notifications</h2>{% if notes %}<ul class="small">{% for n in notes %}<li>{% if n.link %}<a href="{{ n.link }}">{{ n.subject }}</a>{% else %}{{ n.subject }}{% endif %}</li>{% endfor %}</ul>
+<form method="post" action="/dealers/{{ client.id }}/notifications/read"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Mark all read</button></form>
+{% else %}<p class="small muted">Nothing new.</p>{% endif %}</div>
+{% if ctx.can('converse') %}<div class="card"><h2>Log a Marketplace message</h2>
+<p class="small muted">Facebook Marketplace has no messaging API. Paste a buyer's message you read in Facebook; a draft reply is prepared for you to copy back into Facebook yourself.</p>
+<form method="post" action="/dealers/{{ client.id }}/marketplace/intake"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Buyer / thread label</label><input name="thread_label" required maxlength="120" style="width:100%" placeholder="e.g. Maria G. – Civic">
+<label>Buyer name (optional)</label><input name="buyer_name" maxlength="100" style="width:100%">
+<label>Vehicle</label><select name="vehicle_id" style="width:100%"><option value="">— not sure —</option>{% for v in stock %}<option value="{{ v.id }}">{{ vehicle_title(v) }}{% if v.stock_number %} ({{ v.stock_number }}){% endif %}</option>{% endfor %}</select>
+<label>Message</label><textarea name="text" required maxlength="2000" rows="3" style="width:100%"></textarea><p><button>Log message</button></p></form></div>{% endif %}
+</div></div>
+{% endblock %}

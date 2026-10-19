@@ -14,7 +14,8 @@ Who can do what:
   rep = import, generate, edit, publish; manager/admin = also settings and channel connections.
   Staff approve listings only if that dealership's settings allow agency approval.
 - Dealership users (``users.client_id`` set) see only their own client and nothing else in the app.
-  dealer_viewer = read only; dealer_reviewer = edit, approve, publish, import; dealer_admin = also settings.
+  dealer_viewer = read only; dealer_reviewer = edit, approve, publish, import, reply to customers;
+  dealer_admin = also settings (including response automation).
 """
 
 from __future__ import annotations
@@ -38,6 +39,8 @@ PERMISSIONS: dict[str, dict[str, tuple[str, ...]]] = {
     "approve": {"staff": ("rep", "manager", "admin"), "dealer": ("dealer_admin", "dealer_reviewer")},
     "publish": {"staff": ("rep", "manager", "admin"), "dealer": ("dealer_admin", "dealer_reviewer")},
     "manage": {"staff": ("manager", "admin"), "dealer": ("dealer_admin",)},
+    # Phase 3: reply to customers, confirm test drives, resolve escalations.
+    "converse": {"staff": ("rep", "manager", "admin"), "dealer": ("dealer_admin", "dealer_reviewer")},
 }
 
 

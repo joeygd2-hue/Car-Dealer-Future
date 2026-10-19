@@ -146,16 +146,19 @@ def build_report_data(db: Session, client: Client, start: date, end: date) -> di
             "simulated_excluded": simulated_pubs,
         },
         "inquiries": {
-            "received": metric(len(convs), "conversations", "Connected channels only; excludes SIMULATED test conversations"),
+            "received": metric(len(convs), "conversations", "Website chat, ADF leads and logged Marketplace messages; excludes SIMULATED test conversations"),
             "simulated_excluded": len(all_convs) - len(convs),
             "by_channel": by_channel,
             "median_first_response_minutes": metric(round(median(response_minutes), 1) if response_minutes else None, "conversations",
-                                                    f"Based on {len(response_minutes)} conversations with both timestamps" if response_minutes else "No conversations with both timestamps"),
+                                                    (f"Based on {len(response_minutes)} conversations; only replies that reached the customer count"
+                                                     if response_minutes else "No conversation had a reply that reached the customer")),
             "qualified_leads": metric(sum(1 for c in convs if c.lead_qualified), "conversations"),
-            "escalations": metric(sum(1 for c in convs if c.escalated_at), "conversations"),
+            "escalations": metric(sum(1 for c in convs if c.escalation_status != "none"), "conversations"),
+            "opted_out": metric(sum(1 for c in convs if c.opted_out), "conversations"),
         },
         "appointments": {
-            "test_drive_requests": metric(count(Appointment, Appointment.kind == "test_drive", Appointment.requested_at >= s, Appointment.requested_at < e), "appointments"),
+            "test_drive_requests": metric(count(Appointment, Appointment.kind == "test_drive", Appointment.requested_at >= s, Appointment.requested_at < e), "appointments",
+                                          "Requests from customers; a request is not a booking"),
             "confirmed": metric(count(Appointment, Appointment.status.in_(("confirmed", "completed")), Appointment.requested_at >= s, Appointment.requested_at < e), "appointments"),
         },
         "seo": {

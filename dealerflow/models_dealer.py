@@ -86,10 +86,21 @@ class Client(Base):
     response_rules: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default=text("'{}'"))
     activated_at: Mapped[datetime | None] = mapped_column(DateTime)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Phase 3: customer conversations. ``business_hours`` holds {"0": ["09:00", "19:00"], ..., "6": null}
+    # (Monday = 0). Phone, address and hours are used in customer replies only once someone approves them.
+    business_info_approved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    business_info_approved_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", name="fk_clients_business_info_approved_by", use_alter=True))
+    public_chat_key: Mapped[str | None] = mapped_column(String(64))  # website chat / inquiry form key (public)
+    adf_intake_key: Mapped[str | None] = mapped_column(String(64))  # ADF/XML lead intake secret
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
-    __table_args__ = (CheckConstraint("status in ('onboarding','active','paused','offboarded')", name="ck_clients_status"),)
+    __table_args__ = (
+        CheckConstraint("status in ('onboarding','active','paused','offboarded')", name="ck_clients_status"),
+        UniqueConstraint("public_chat_key", name="uq_clients_public_chat_key"),
+        UniqueConstraint("adf_intake_key", name="uq_clients_adf_intake_key"),
+    )
 
 
 class InventorySource(TenantMixin, Base):

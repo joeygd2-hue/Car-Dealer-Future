@@ -25,7 +25,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy import false
+from sqlalchemy import false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base, utcnow
@@ -81,6 +81,13 @@ class User(TimestampMixin, Base):
     # dealership workspace (/dealers/...). Staff users leave both columns NULL.
     client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", use_alter=True, name="fk_users_client_id"), index=True)
     client_role: Mapped[str | None] = mapped_column(String(20))  # dealer_admin | dealer_reviewer | dealer_viewer
+    # TOTP MFA (ported from Phase 3). Secrets are Fernet-encrypted (dealerflow/crypto.py); recovery codes are stored as
+    # SHA-256 hashes and are single-use; the last accepted time step is kept so a code cannot be replayed.
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    mfa_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    mfa_pending_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    mfa_last_counter: Mapped[int | None] = mapped_column(Integer)
+    mfa_recovery_hashes: Mapped[list[Any]] = mapped_column(JSON, default=list, server_default=text("'[]'"), nullable=False)
 
     @property
     def is_client(self) -> bool:
@@ -574,4 +581,4 @@ class KnowledgeItem(TimestampMixin, Base):
 # Phase 2-4 models live in their own modules; importing them here registers them with Alembic.
 from .models_dealer import *  # noqa: E402,F401,F403
 from .models_ops import *  # noqa: E402,F401,F403
-from .models_interim import *  # noqa: E402,F401,F403
+from .models_conversations import *  # noqa: E402,F401,F403

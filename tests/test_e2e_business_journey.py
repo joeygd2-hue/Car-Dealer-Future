@@ -87,13 +87,27 @@ def test_complete_business_journey(client, db, admin):
     assert {(p["channel"], p["status"]) for p in pubs} == {("facebook_marketplace", "manual_required")}
     assert client.get(f"/api/v1/dealers/{other['id']}/listings", headers=h_dealer).status_code == 404
 
-    # 9-10. Spanish inquiry -> approved Spanish response -> summary to this dealership only.
-    conv = client.post(f"/api/v1/clients/{cid}/inquiries/simulated", headers=h_rep,
-                       json={"body": "Hola, ¿puedo hacer una prueba de manejo del Accord?", "language": "es", "provider_message_id": "e2e-1"}).json()
-    d = client.post(f"/api/v1/clients/{cid}/conversations/{conv['conversation_id']}/draft", headers=h_rep, json={"template": "test_drive"}).json()
-    assert d["language"] == "es"
-    res = client.post(f"/api/v1/clients/{cid}/conversations/{conv['conversation_id']}/messages/{d['message_id']}/approve", headers=h_rep).json()
-    assert res["summary_delivered"] and MockEmailProvider.outbox[-1][0].to == "owner@brazos.example"
+    # 9-10. Phase 3: a Spanish website inquiry about the imported vehicle -> grounded Spanish draft -> dealership
+    # reviews and approves -> SIMULATED delivery -> lead summary reaches this dealership only.
+    assert client.post(f"/dealers/{cid}/responses/keys", headers=h_dealer, follow_redirects=False).status_code == 303
+    db.expire_all()
+    key = db.get(Client, cid).public_chat_key
+    r = client.post(f"/api/public/chat/{key}/messages", json={"visitor_id": "visitor-e2e-01", "client_message_id": "e2e-1",
+                                                               "text": "Hola, ¿puedo hacer una prueba de manejo del Accord?"})
+    assert r.status_code == 200, r.text
+    drain()
+    conv = client.get(f"/api/v1/dealers/{cid}/conversations", headers=h_dealer).json()[0]
+    d = next(x for x in client.get(f"/api/v1/dealers/{cid}/conversations/{conv['id']}", headers=h_dealer).json()["drafts"] if x["is_draft"])
+    vehicle = client.get(f"/api/v1/dealers/{cid}/vehicles", headers=h_dealer).json()["items"][0]
+    assert conv["language"] == "es" and conv["vehicle_id"] == vehicle["id"] and vehicle["model"] == "Accord"
+    assert "prueba de manejo" in d["body"] and "confirmada" not in d["body"]  # asks for a time; promises nothing
+    res = client.post(f"/api/v1/dealers/{cid}/conversations/{conv['id']}/reply", headers=h_dealer,
+                      json={"body": d["body"], "draft_id": d["id"]}).json()
+    assert res["status"] == "queued"
+    drain()
+    sent = client.get(f"/api/v1/dealers/{cid}/conversations/{conv['id']}", headers=h_dealer).json()["messages"][-1]
+    assert sent["delivery_status"] == "simulated"  # no live customer channel: nothing reached a real visitor
+    assert MockEmailProvider.outbox[-1][0].to == "owner@brazos.example" and "New lead" in MockEmailProvider.outbox[-1][0].subject
 
     # 11. Revenue and expenses.
     today = date.today()

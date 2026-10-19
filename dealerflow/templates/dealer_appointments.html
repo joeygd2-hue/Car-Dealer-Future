@@ -1,0 +1,24 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav %}{% block title %}Appointments · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'appointments', user) }}<h1>Test-drive requests</h1>
+<p class="small muted">A request is <strong>not a booking</strong>. No dealership calendar is connected, so check your own calendar, then confirm
+the time (the customer is told only after you confirm) or decline it. Times are shown in {{ client.timezone }}.</p>
+<div class="card"><div class="tablewrap"><table><thead><tr><th>#</th><th>Customer</th><th>Vehicle</th><th>Requested</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+{% for a in appts %}<tr><td><a href="/dealers/{{ client.id }}/conversations/{{ a.conversation_id }}">{{ a.id }}</a></td>
+<td class="small">{{ a.customer_name or '—' }}{% if a.customer_phone %}<br>{{ a.customer_phone }}{% endif %}{% if a.customer_email %}<br>{{ a.customer_email }}{% endif %}</td>
+<td class="small">{{ vehicles.get(a.vehicle_id, '—') }}</td>
+<td class="small">{% if a.requested_start %}{{ local(a.requested_start).strftime('%a %b %d, %H:%M') }}{% else %}no time proposed yet{% endif %}
+{% if a.confirmed_start %}<br><strong>confirmed {{ local(a.confirmed_start).strftime('%a %b %d, %H:%M') }}</strong>{% endif %}</td>
+<td><span class="pill {{ 'ok' if a.status == 'confirmed' else ('warn' if a.status in ('requested','pending_confirmation','reschedule_requested') else '') }}">{{ a.status.replace('_',' ') }}</span></td>
+<td>{% if ctx.can('converse') %}
+{% if a.status in ('requested','pending_confirmation','reschedule_requested') %}
+<form method="post" action="/dealers/{{ client.id }}/appointments/{{ a.id }}/confirm" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="datetime-local" name="start_local" value="{{ local(a.requested_start).strftime('%Y-%m-%dT%H:%M') if a.requested_start else '' }}" required><button>Confirm</button></form>
+<form method="post" action="/dealers/{{ client.id }}/appointments/{{ a.id }}/decline" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="note" placeholder="reason (internal)" maxlength="300"><button class="secondary">Decline</button></form>
+{% elif a.status == 'confirmed' %}
+<form method="post" action="/dealers/{{ client.id }}/appointments/{{ a.id }}/completed" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Completed</button></form>
+<form method="post" action="/dealers/{{ client.id }}/appointments/{{ a.id }}/no_show" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">No-show</button></form>
+<form method="post" action="/dealers/{{ client.id }}/appointments/{{ a.id }}/cancel" class="inline" data-confirm="Cancel this confirmed test drive? The customer is told (if the channel allows)."><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Cancel</button></form>
+{% endif %}{% endif %}
+<details class="small"><summary>History</summary><ul>{% for e in events.get(a.id, []) %}<li>{{ e.created_at.strftime('%m-%d %H:%M') }} {{ e.event.replace('_',' ') }} ({{ e.actor }})</li>{% endfor %}</ul></details></td></tr>
+{% else %}<tr><td colspan="6" class="muted">No test-drive requests.</td></tr>{% endfor %}</tbody></table></div></div>
+{% endblock %}

@@ -75,7 +75,7 @@ class DealerHome(Exception):
 
 # Dealership (client) users may only use their own workspace. Everything else is staff-only.
 # /portal holds Phase 4 reports, invoices, SEO findings and support requests for the same dealership.
-DEALER_ALLOWED_PREFIXES = ("/dealers", "/api/v1/dealers", "/portal", "/api/v1/portal", "/logout")
+DEALER_ALLOWED_PREFIXES = ("/dealers", "/api/v1/dealers", "/portal", "/api/v1/portal", "/logout", "/account/")
 
 
 def _restrict_dealer_user(request: Request, user: User) -> None:
@@ -90,10 +90,11 @@ def _restrict_dealer_user(request: Request, user: User) -> None:
 
 
 def password_version(user: User) -> str:
-    """Short fingerprint of the password hash; changing the password ends every existing session."""
+    """Short fingerprint of the credentials; changing the password (or MFA) ends every existing session."""
     import hashlib
 
-    return hashlib.sha256(user.password_hash.encode()).hexdigest()[:16]
+    # The MFA secret is part of the fingerprint: enabling, disabling or resetting MFA also ends other sessions.
+    return hashlib.sha256((user.password_hash + "|" + (user.mfa_secret_encrypted or "")).encode()).hexdigest()[:16]
 
 
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:
@@ -109,7 +110,7 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if not uid:
         raise NotAuthenticated()
     user = db.get(User, uid)
-    if not user or not user.active:
+    if not user or not user.active or user.client_role == "deleted":  # "deleted": anonymised when its client was deleted
         request.session.clear()
         raise NotAuthenticated()
     if time.time() - request.session.get("t", 0) > get_settings().session_max_age_seconds:
@@ -119,8 +120,20 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         request.session.clear()  # password changed since this session started
         raise NotAuthenticated()
     request.state.api = False
+    if get_settings().mfa_required and requires_mfa(user) and not user.mfa_enabled \
+            and not request.url.path.startswith(("/account/", "/logout")):
+        raise MfaSetupRequired()
     _restrict_dealer_user(request, user)
     return user
+
+
+class MfaSetupRequired(Exception):
+    """A privileged user must enrol in MFA before using the app (only /account/security and /logout are allowed)."""
+
+
+def requires_mfa(user: User) -> bool:
+    """Roles that can change settings, users, finance or automation must use MFA when it is enforced."""
+    return (user.client_id is None and user.role in ("admin", "manager")) or user.client_role == "dealer_admin"
 
 
 def require_client(user: User = Depends(current_user)) -> User:
@@ -171,22 +184,39 @@ def flash(request: Request, message: str, kind: str = "info") -> None:
 
 
 class LoginLimiter:
-    """At most 5 failed logins per email+IP in 15 minutes."""
+    """At most 5 failed logins per email+IP per 15-minute window, counted in the database so the limit holds across
+    every web process (services/rate_limits.py). ``fails`` is kept only for backward compatibility (unused)."""
 
-    def __init__(self, limit: int = 5, window: float = 900):
+    def __init__(self, limit: int = 5, window: int = 900):
         self.limit, self.window = limit, window
         self.fails: dict[str, list[float]] = defaultdict(list)
 
+    @staticmethod
+    def _key(key: str) -> str:
+        import hashlib
+
+        return "login:" + hashlib.sha256(key.encode()).hexdigest()[:40]  # never store e-mail addresses in counters
+
     def blocked(self, key: str) -> bool:
-        now = time.time()
-        self.fails[key] = [t for t in self.fails[key] if now - t < self.window]
-        return len(self.fails[key]) >= self.limit
+        from ..db import session_scope
+        from ..services.rate_limits import current
+
+        with session_scope() as db:
+            return current(db, self._key(key), self.window) >= self.limit
 
     def fail(self, key: str) -> None:
-        self.fails[key].append(time.time())
+        from ..services.rate_limits import hit
+
+        hit(self._key(key), 1_000_000, self.window)
 
     def reset(self, key: str) -> None:
-        self.fails.pop(key, None)
+        from sqlalchemy import delete
+
+        from ..db import session_scope
+        from ..models import RateCounter
+
+        with session_scope() as db:
+            db.execute(delete(RateCounter).where(RateCounter.key == self._key(key)))
 
 
 login_limiter = LoginLimiter()

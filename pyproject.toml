@@ -18,6 +18,8 @@ dependencies = [
   "beautifulsoup4>=4.12",  # SEO audits and website research parsing
   "email-validator>=2.1",  # pydantic EmailStr in the Phase 4 API
   "xlrd>=2.0",
+  "defusedxml>=0.7.1",  # Phase 3 ADF/XML lead intake (refuses DTDs/entities)
+  "cryptography>=42",  # Fernet encryption for MFA secrets and stored attachments
 ]
 
 [project.optional-dependencies]
@@ -33,7 +35,7 @@ build-backend = "setuptools.build_meta"
 include = ["dealerflow*"]
 
 [tool.setuptools.package-data]
-dealerflow = ["templates/*.html", "templates/**/*.html", "static/*", "fixtures/*", "migrations/*", "migrations/**/*"]
+dealerflow = ["templates/*.html", "templates/**/*.html", "static/*", "fixtures/*", "evals/*.json", "migrations/*", "migrations/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

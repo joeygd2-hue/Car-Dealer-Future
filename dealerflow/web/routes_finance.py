@@ -5,14 +5,14 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db, utcnow
 from ..models import Alert, Attachment, BankTransaction, Budget, Client, Expense, ExpenseCategory, Invoice, ServicePackage, User
 from ..services import finance, packages, usage
-from ..services.maintenance import attachment_path, store_attachment
+from ..services.maintenance import read_attachment, store_attachment
 from .deps import check_csrf, flash, render, require
 from .forms import parse_date, parse_money
 
@@ -169,7 +169,10 @@ def attachment(att_id: int, user: User = Depends(require("manager")), db: Sessio
     att = db.get(Attachment, att_id)
     if att is None:
         raise HTTPException(404, "Attachment not found")
-    return FileResponse(attachment_path(att), media_type=att.content_type, filename=att.filename)
+    from urllib.parse import quote
+
+    return Response(read_attachment(att), media_type=att.content_type,
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(att.filename)}"})
 
 
 @router.get("/finance/reconciliation")

@@ -62,9 +62,11 @@ class Crawler:
         self.max_pages = max_pages
         self.delay = max(0.5, delay_seconds)
         self.ua = s.http_user_agent
+        # Redirects are followed manually so every hop passes the SSRF guard (see _request).
         self.client = client or httpx.Client(
-            timeout=s.crawler_timeout_seconds, follow_redirects=True, headers={"User-Agent": self.ua}
+            timeout=s.crawler_timeout_seconds, follow_redirects=False, headers={"User-Agent": self.ua}
         )
+        self.blocked_hosts: list[str] = []
         self.sleep = sleep
         self.robots = robotparser.RobotFileParser()
         self._last = 0.0
@@ -75,10 +77,28 @@ class Crawler:
             self.sleep(self.delay - gap)
         self._last = time.monotonic()
 
+    def _request(self, method: str, url: str, max_redirects: int = 5) -> httpx.Response:
+        """GET/HEAD with manual redirects. Each hop must resolve to a public address (no internal/metadata hosts)."""
+        from .dealer_errors import BadRequest
+        from .netguard import assert_public_url
+
+        for _ in range(max_redirects + 1):
+            try:
+                assert_public_url(url, require_https=False)
+            except BadRequest as exc:
+                self.blocked_hosts.append(urlparse(url).hostname or url)
+                raise httpx.RequestError(f"blocked: {exc.message}") from exc
+            resp = self.client.request(method, url, headers={"User-Agent": self.ua}, follow_redirects=False)
+            if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location"):
+                url = urljoin(url, resp.headers["location"])
+                continue
+            return resp
+        raise httpx.TooManyRedirects("too many redirects")
+
     def _get(self, url: str) -> httpx.Response | None:
         self._wait()
         try:
-            return self.client.get(url, headers={"User-Agent": self.ua})
+            return self._request("GET", url)
         except httpx.HTTPError:
             return None
 
@@ -181,9 +201,9 @@ class Crawler:
             for u in unchecked[:check_links_limit]:
                 self._wait()
                 try:
-                    r = self.client.head(u, headers={"User-Agent": self.ua})
+                    r = self._request("HEAD", u)
                     if r.status_code in (405, 501):
-                        r = self.client.get(u, headers={"User-Agent": self.ua})
+                        r = self._request("GET", u)
                     link_status[u] = r.status_code
                     if r.status_code == 429:
                         break

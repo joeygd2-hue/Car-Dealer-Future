@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% block title %}Account security{% endblock %}{% block content %}
+<h1>Account security</h1>
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+<div class="card"><h2>Multi-factor authentication</h2>
+{% if recovery_codes %}<div class="flash warn"><strong>Save these recovery codes now.</strong> Each works once if you lose your phone; they are not shown again.
+<pre>{% for c in recovery_codes %}{{ c }}
+{% endfor %}</pre></div>{% endif %}
+{% if user.mfa_enabled %}<p><span class="pill ok">enabled</span> Sign-in asks for a code from your authenticator app. {{ user.mfa_recovery_hashes|length }} recovery codes left.</p>
+<form method="post" action="/account/mfa/disable" class="grid"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Password<input type="password" name="password" required autocomplete="current-password"></label>
+<label>Current code<input name="code" required inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>
+<button class="secondary">Turn off MFA</button></form>
+{% elif enrolling %}<p>Add this account to your authenticator app (Google Authenticator, 1Password, Authy…), then enter the 6-digit code it shows.</p>
+<p class="small">Setup key: <code>{{ secret }}</code></p><p class="small">Or open this link on the phone: <code style="overflow-wrap:anywhere">{{ uri }}</code></p>
+<form method="post" action="/account/mfa/confirm" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input name="code" required inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="123456"><button>Confirm and turn on</button></form>
+{% else %}<p><span class="pill warn">not enabled</span>{% if settings.mfa_required %} MFA is required for administrators and managers.{% endif %}</p>
+<form method="post" action="/account/mfa/start"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Set up MFA</button></form>{% endif %}
+</div>
+<p class="small muted">API keys are separate credentials and are not covered by MFA: keep them in a secrets manager and rotate them if exposed.</p>
+{% endblock %}

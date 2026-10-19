@@ -4,7 +4,7 @@ x-app: &app
   build: .
   env_file: .env            # non-secret settings only
   volumes: ["./state:/data", "./backups:/backups"]
-  secrets: [df_secret_key]  # add df_smtp_password, df_google_refresh_token, ... as needed
+  secrets: [df_secret_key, df_encryption_key]  # add df_smtp_password, df_google_refresh_token, ... as needed
   environment:
     DF_SECRETS_DIR: /run/secrets
 
@@ -30,3 +30,7 @@ secrets:
     # One file per secret, named like the variable in lower case. The container runs as uid 10001:
     #   chown 10001:10001 secrets/* && chmod 400 secrets/*
     file: ./secrets/df_secret_key
+  df_encryption_key:
+    # Fernet key for MFA secrets and stored receipts (required in production):
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" > secrets/df_encryption_key
+    file: ./secrets/df_encryption_key

@@ -101,7 +101,7 @@ def inbox(request: Request, status: str = "", channel: str = "", mine: int = 0, 
     }
     vehicles = {v.id: v for v in db.scalars(select(Vehicle).where(Vehicle.removed_at.is_(None)))}
     settings = get_settings_row(db, ctx.client_id)
-    return page(request, ctx, "inbox.html", convs=convs, vehicles=vehicles, vtitle=vehicle_title, stats=stats,
+    return page(request, ctx, "customer_inbox.html", convs=convs, vehicles=vehicles, vtitle=vehicle_title, stats=stats,
                 channels=channels.CUSTOMER_CHANNELS, f_status=status, f_channel=channel, mine=mine,
                 mode=effective_mode(db, settings), settings=settings)
 

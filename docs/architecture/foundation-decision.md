@@ -7,7 +7,7 @@ force-push has been performed. Awaiting owner approval.**_
 
 | Branch (head) | Package | Phases | Tests (exact, this run) | Migrations | Tables | Lint |
 |---|---|---|---|---|---|---|
-| `claude/magical-darwin-nncp64` (this milestone) | `app/` | 3 + 3.5 (+ a Phase-1-style outreach agent built on request) | **182 passed** (an intermittent failure was traced to a real concurrency bug and fixed — reproducibility report R5) | `4122abfb2c23` → `44a34c76e0bf` | 48 | ruff clean |
+| `claude/magical-darwin-nncp64` (this milestone) | `app/` | 3 + 3.5 (+ a Phase-1-style outreach agent built on request) | **184 passed** (an intermittent failure was traced to a real concurrency race and fixed — reproducibility report R5) | `4122abfb2c23` → `44a34c76e0bf` | 48 | ruff clean |
 | `claude/charming-ritchie-358e1g` (`427b137`) | `dealerflow/` | 1 (+ "1.5" launch-readiness hardening) | **136 passed**, 0 skipped | `0001` | 25 | none configured (ruff: 2 core errors) |
 | `claude/dealership-inventory-publishing-iq0aqw` (`f174a06`) | `dealerflow/` | 1 (older) + 2 | **146 passed**, 0 skipped | `0001` → `0002` (phase 2) | 39 | none (2 core errors) |
 | `claude/blissful-davinci-82py6w` (`c13f022`) | `dealerflow/` | 1 (older) + 4 + interim 2/3 stand-ins | **174 passed, 1 failed** with `[dev]` (test needs optional `anthropic`); 175/175 with `[dev,ai]` | `0001` → `0002` (phase 4 core) → `0003` (interim 2/3) | 56 | none |

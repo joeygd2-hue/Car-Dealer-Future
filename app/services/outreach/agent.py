@@ -263,10 +263,12 @@ def send_job(db: Session, payload: dict, job) -> dict:
     if msg is None:
         return {"skipped": "missing"}
     if msg.status == "SENDING":
-        wait = send_gate.in_flight_owner_may_be_alive(db, SEND_KIND, msg.id)
-        if wait is not None:  # a live worker may be sending it right now (duplicate job): re-check later
-            raise jobs.RetryLater(wait, "another worker is sending this message")
-        send_gate.resolve_in_flight(db, SEND_KIND, msg.id)
+        verdict, wait, attempt = send_gate.check_sending_row(db, SEND_KIND, msg.id)
+        if verdict != "crashed":  # owner may be alive or just finished: never overwrite its outcome
+            raise jobs.RetryLater(wait, "another worker is sending (or just sent) this message")
+        if not send_gate.take_over_crashed(db, attempt, OutreachMessage, "status", msg.id):
+            return {"skipped": "owner finished"}
+        db.refresh(msg)
         return _uncertain(db, msg, "worker stopped mid-send; delivery unknown")
     claimed = db.execute(sa_update(OutreachMessage).where(OutreachMessage.id == mid, OutreachMessage.status == "APPROVED")
                          .values(status="SENDING").execution_options(synchronize_session=False)).rowcount

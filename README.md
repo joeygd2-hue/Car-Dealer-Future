@@ -30,7 +30,7 @@ uv run python -m app.worker                 # persistent worker (scheduler + job
 ## Tests & quality
 
 ```bash
-uv run pytest            # 181 tests (unit, HTTP security, migrations, worker recovery, sandbox end-to-end)
+uv run pytest            # 184 tests (unit, HTTP security, migrations, worker recovery, sandbox end-to-end)
 uv run ruff check .
 SMOKE_BASE_URL=http://127.0.0.1:8000 uv run python -m scripts.smoke_e2e   # against running web + worker (32 checks)
 ```

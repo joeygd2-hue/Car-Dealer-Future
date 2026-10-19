@@ -24,7 +24,7 @@ SMOKE_BASE_URL=http://127.0.0.1:8000 uv run python -m scripts.smoke_e2e
 | R3 | `alembic upgrade head` failed on a fresh checkout (`./data/` missing) | migrations impossible without manual `mkdir` | `migrations/env.py` creates the SQLite directory | `test_upgrade_creates_missing_sqlite_directory` |
 | R4 | `seed_demo` silently created the schema with `create_all()` when migrations hadn't run | unversioned database; later `alembic upgrade` would fail | seed refuses an unmigrated database | `test_seed_refuses_unmigrated_database` |
 
-| R5 | **Production bug surfaced by an intermittent test failure** (1 in ~6 clean-clone suite runs): when two jobs existed for the same message, the second treated a *live* in-progress send (`SENDING`) as a crashed one and marked it `UNCERTAIN`. Exactly one copy was sent (the no-duplicate guarantee held), but a healthy send was falsely flagged and its final status depended on which worker wrote last. Affected customer, outreach and notification senders. | false "delivery uncertain" alerts; status race | a `SENDING` row is declared crashed only when its in-flight attempt is older than the worker lease; otherwise the job defers (`RetryLater`) | `test_duplicate_job_does_not_mark_a_live_send_uncertain` (fails on the old code, verified) |
+| R5 | **Production race surfaced by an intermittent test failure** (≈1 in 50–150 runs under load): a second job for the same message saw `SENDING` and declared the owner crashed → `UNCERTAIN`, even while the owner was mid-send or had just finished, overwriting a successful outcome. No duplicate was ever sent, but a healthy send was falsely flagged and its final status depended on timing. Root cause: the two reads ("row is SENDING", "is there an in-flight attempt?") are not one atomic snapshot (SQLite legacy-transaction reads; PostgreSQL READ COMMITTED behaves the same). Affected customer, outreach and notification senders. | false "delivery uncertain" alerts; lost success status | (1) a `SENDING` row with a *young* in-flight attempt defers; (2) a `SENDING` row with *no* in-flight attempt is re-checked, never overwritten; (3) the crash takeover is a pair of conditional UPDATEs (attempt still `IN_FLIGHT` **and** row still `SENDING`) inside a savepoint | `test_duplicate_job_does_not_mark_a_live_send_uncertain`; deterministic interleaving `test_owner_finishing_between_checks_is_not_overwritten[customer|outreach]` — **all verified failing on the previous code** |
 | R6 | Two race tests could fail spuriously under SQLite write-lock contention (a thread that hit "database is locked" was dropped/gave up) | flaky CI | tests retry like the real worker loop and report thread failures explicitly; assertions unchanged | the tests themselves |
 
 R1–R4 were invisible in the development environment because it had no `.env` and an existing `data/` directory.
@@ -37,7 +37,7 @@ R5 only appears under timing contention, which is why it took repeated runs to c
 | Fresh migration `4122abfb2c23 → 44a34c76e0bf`, `alembic check` | OK, "No new upgrade operations detected" |
 | Seed | OK |
 | `ruff check .` | clean |
-| `pytest` | 182 passed after R5/R6 (see the stress note below) |
+| `pytest` | 184 passed after R5/R6 |
 | Separate web + worker processes, `smoke_e2e.py` | **32/32 checks passed**, including a `kill -9` of the worker mid-run and a replacement worker; 0 tracebacks in web/worker logs |
 
 ### What the 32 smoke checks verify

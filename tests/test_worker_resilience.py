@@ -128,7 +128,19 @@ def test_two_workers_cannot_send_the_same_outreach_message(db, world):
     sent = [r for r in db.scalars(select(SandboxRecord).where(SandboxRecord.kind == "EMAIL_OUT"))
             if r.payload["to"] == msg.to_address]
     assert len(sent) == 1, errors
-    assert db.get(OutreachMessage, msg.id).status == "SIMULATED"
+    from app.models import AuditLog
+
+    final = db.get(OutreachMessage, msg.id)
+    evidence = {
+        "attempts": [(a.id, a.status, a.created_at.isoformat(), a.error) for a in db.scalars(
+            select(SendAttempt).where(SendAttempt.kind == "OUTREACH_EMAIL", SendAttempt.ref_id == msg.id))],
+        "jobs": [(j.idempotency_key, j.status, j.attempts, (j.last_error or "")[:160]) for j in db.scalars(
+            select(Job).where(Job.type == "outreach.send"))],
+        "audit": [(a.id, a.action, a.details) for a in db.scalars(
+            select(AuditLog).where(AuditLog.entity_id == str(msg.id), AuditLog.action.like("%send%")))],
+        "errors": [repr(e) for e in errors], "msg_error": final.error,
+    }
+    assert final.status == "SIMULATED", evidence
 
 
 def test_distributed_counter_never_exceeds_limit_under_concurrency(db):
@@ -249,3 +261,53 @@ def test_duplicate_job_does_not_mark_a_live_send_uncertain(db, world):
     assert db.get(Message, msg.id).delivery_status == "SENDING"  # untouched: worker A owns it
     deferred = db.scalar(select(Job).where(Job.idempotency_key == "duplicate-job"))
     assert deferred.status == "QUEUED" and deferred.attempts == 0 and "another worker" in deferred.last_error
+
+
+@pytest.mark.parametrize("kind", ["customer", "outreach"])
+def test_owner_finishing_between_checks_is_not_overwritten(db, world, monkeypatch, kind):
+    """Deterministic reproduction of the race behind the intermittent failure: worker B reads the row as
+    SENDING, worker A then completes the send, and only afterwards does B look for A's in-flight attempt.
+    B must not overwrite A's successful outcome with UNCERTAIN."""
+    if kind == "customer":
+        conv = _conv(db, world, "toctou-1")
+        row = queue_outbound(db, conv, "Hi", sender_type="STAFF", user_id=world["a"]["staff"].id)
+        model, status_col, done, attempt_kind = Message, "delivery_status", "SIMULATED", "CUSTOMER_MESSAGE"
+        job_type = "outbound.send"
+    else:
+        from app.models import Campaign
+        from app.services.outreach import agent
+        from tests.test_outreach_agent import tick_all
+
+        st = agent.get_state(db)
+        st.send_window_start_hour, st.send_window_end_hour, st.send_weekdays = 0, 24, list(range(7))
+        db.add(Campaign(name="T", status="ACTIVE", content_approved_at=utcnow(), daily_send_limit=50))
+        agent.start(db, user_id=world["platform"].id)
+        db.commit()
+        tick_all(db, 3)
+        row = db.scalar(select(OutreachMessage).where(OutreachMessage.status == "PENDING_APPROVAL"))
+        agent.approve_message(db, row, user_id=world["platform"].id)
+        model, status_col, done, attempt_kind = OutreachMessage, "status", "SIMULATED", "OUTREACH_EMAIL"
+        job_type = "outreach.send"
+    db.commit()
+    # Worker A has claimed the row and opened its in-flight attempt.
+    db.execute(update(model).where(model.id == row.id).values({status_col: "SENDING"}))
+    att = SendAttempt(kind=attempt_kind, ref_id=row.id, channel="EMAIL", recipient="x", live=False,
+                      status="IN_FLIGHT", reasons=[])
+    db.add(att)
+    db.commit()
+    real = send_gate.in_flight_attempt
+
+    def a_finishes_first(session, k, ref_id):
+        # Worker A completes in its own session *between* B's two reads.
+        with dbmod.SessionLocal() as other:
+            other.execute(update(SendAttempt).where(SendAttempt.id == att.id).values(status="SIMULATED"))
+            other.execute(update(model).where(model.id == row.id).values({status_col: done}))
+            other.commit()
+        return real(session, k, ref_id)
+
+    monkeypatch.setattr(send_gate, "in_flight_attempt", a_finishes_first)
+    jobs.enqueue(db, job_type, {"message_id": row.id}, idempotency_key=f"toctou-{kind}")
+    db.commit()
+    Worker(worker_id="worker-b", poll_seconds=0).run_once()
+    db.expire_all()
+    assert getattr(db.get(model, row.id), status_col) == done

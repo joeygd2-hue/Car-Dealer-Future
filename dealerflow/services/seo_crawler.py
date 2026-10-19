@@ -4,6 +4,8 @@
 * Same-host only, HTML only, bounded page count, fixed delay between requests.
 * Never submits forms, never authenticates, never bypasses access controls:
   401/403/429 responses are recorded and the crawl backs off (429 stops it).
+* SSRF guard: every request, including each redirect hop, must resolve only to public addresses
+  (``netguard.assert_public_url``); redirects are followed by hand so no hop skips the check.
 """
 from __future__ import annotations
 
@@ -16,6 +18,8 @@ from urllib.parse import urldefrag, urljoin, urlparse
 import httpx
 
 from ..config import get_settings
+from .dealer_errors import BadRequest
+from .netguard import assert_public_url
 
 HTML_TYPES = ("text/html", "application/xhtml+xml")
 SKIP_EXT = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".zip", ".mp4", ".css", ".js", ".ico", ".xml", ".json")
@@ -63,11 +67,12 @@ class Crawler:
         self.delay = max(0.5, delay_seconds)
         self.ua = s.http_user_agent
         self.client = client or httpx.Client(
-            timeout=s.crawler_timeout_seconds, follow_redirects=True, headers={"User-Agent": self.ua}
+            timeout=s.crawler_timeout_seconds, follow_redirects=False, headers={"User-Agent": self.ua}
         )
         self.sleep = sleep
         self.robots = robotparser.RobotFileParser()
         self._last = 0.0
+        self.blocked_urls: list[str] = []  # refused by the SSRF guard
 
     def _wait(self) -> None:
         gap = time.monotonic() - self._last
@@ -75,12 +80,25 @@ class Crawler:
             self.sleep(self.delay - gap)
         self._last = time.monotonic()
 
+    MAX_REDIRECTS = 5
+
     def _get(self, url: str) -> httpx.Response | None:
-        self._wait()
-        try:
-            return self.client.get(url, headers={"User-Agent": self.ua})
-        except httpx.HTTPError:
-            return None
+        for _ in range(self.MAX_REDIRECTS + 1):
+            try:
+                assert_public_url(url, require_https=False)
+            except BadRequest:
+                self.blocked_urls.append(url)
+                return None
+            self._wait()
+            try:
+                resp = self.client.get(url, headers={"User-Agent": self.ua}, follow_redirects=False)
+            except httpx.HTTPError:
+                return None
+            if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location"):
+                url = urljoin(str(resp.url), resp.headers["location"])
+                continue
+            return resp
+        return None
 
     def load_robots(self) -> tuple[bool, list[str]]:
         robots_url = urljoin(self.base, "/robots.txt")
@@ -179,11 +197,16 @@ class Crawler:
         unchecked = [u for u in sorted(discovered_links) if u not in link_status and self.allowed(u)]
         if stopped is None:
             for u in unchecked[:check_links_limit]:
+                try:
+                    assert_public_url(u, require_https=False)
+                except BadRequest:
+                    self.blocked_urls.append(u)
+                    continue
                 self._wait()
                 try:
-                    r = self.client.head(u, headers={"User-Agent": self.ua})
+                    r = self.client.head(u, headers={"User-Agent": self.ua}, follow_redirects=False)
                     if r.status_code in (405, 501):
-                        r = self.client.get(u, headers={"User-Agent": self.ua})
+                        r = self.client.get(u, headers={"User-Agent": self.ua}, follow_redirects=False)
                     link_status[u] = r.status_code
                     if r.status_code == 429:
                         break

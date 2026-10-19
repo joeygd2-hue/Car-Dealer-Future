@@ -242,3 +242,42 @@ def test_lead_summary_reaches_the_correct_dealership(client, db, t):
     res = client.post(f"/api/v1/clients/{cid}/conversations/{conv['conversation_id']}/messages/{draft['message_id']}/approve", headers=h).json()
     assert res["summary_delivered"] is True and "Test-drive requested" in res["summary"]
     assert [m.to for m, _ in MockEmailProvider.outbox] == ["owner@alpha.example"]
+
+
+def test_crawler_refuses_private_addresses_and_checks_every_redirect_hop(monkeypatch):
+    """SSRF guard: a dealer site (or a redirect from it) that resolves to an internal address is never fetched."""
+    import socket
+
+    import httpx
+
+    from dealerflow.services.seo_crawler import Crawler
+
+    real = socket.getaddrinfo
+
+    def fake_dns(host, *a, **k):
+        if host == "internal.dealer-site.com":
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))]
+        if host == "public.dealer-site.com":
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+        return real(host, *a, **k)
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_dns)
+    fetched: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        fetched.append(str(request.url))
+        if request.url.host == "public.dealer-site.com" and request.url.path == "/":
+            return httpx.Response(302, headers={"location": "http://internal.dealer-site.com/latest/meta-data/"})
+        return httpx.Response(404)
+
+    mk = lambda: httpx.Client(transport=httpx.MockTransport(handler))  # noqa: E731
+    direct = Crawler("http://internal.dealer-site.com", max_pages=3, delay_seconds=1, client=mk(), sleep=lambda s: None).crawl()
+    assert not [u for u in fetched if "internal" in u]
+    assert direct.pages[0].status_code is None
+
+    fetched.clear()
+    c = Crawler("https://public.dealer-site.com", max_pages=3, delay_seconds=1, client=mk(), sleep=lambda s: None)
+    c.crawl()
+    assert any("public.dealer-site.com" in u for u in fetched)
+    assert not [u for u in fetched if "internal" in u], fetched
+    assert any("internal.dealer-site.com" in u for u in c.blocked_urls)

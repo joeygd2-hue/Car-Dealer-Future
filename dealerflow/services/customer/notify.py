@@ -30,6 +30,7 @@ from ...integrations.errors import (
     ExternalActionsHalted,
     IntegrationDisabled,
     IntegrationError,
+    PermanentError,
     RateLimitedError,
 )
 from ...jobs import DeferJob, enqueue, handler, on_failure
@@ -152,6 +153,8 @@ def _deliver(db: Session, client: Client, n: DealerNotification) -> tuple[SendRe
         return SendResult("FAILED", error=str(exc), retryable=isinstance(exc, ExternalActionsHalted)), live
     except RateLimitedError as exc:
         return SendResult("FAILED", error=str(exc), retryable=True), live
+    except PermanentError as exc:  # the provider rejected the request outright (4xx): definitively not delivered
+        return SendResult("FAILED", error=str(exc)), live
     except IntegrationError as exc:
         return SendResult("FAILED", error=f"provider error after the request was sent: {exc}", uncertain=True), live
     if outcome == "sent":

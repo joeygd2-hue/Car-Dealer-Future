@@ -72,3 +72,24 @@ explicit owner decision**.
 ## Gate
 Phase 3 tests ported for this scope pass, the 46-case evaluation passes its thresholds, and every earlier
 test still passes.
+
+## Result
+Commits `46f0eef` (services, migration 0005), `05f6217` (UI + public endpoints), a fix restoring Phase 1's
+`templates/inbox.html` that 3b had overwritten (caught by `test_web`; now byte-identical to Phase 1), the ported
+tests, and a fix found by them: a permanent email-provider rejection (4xx) was recorded as UNCERTAIN instead of
+FAILED (`services/customer/notify.py`).
+
+- Evaluation: **46/46 synthetic EN/ES cases, every metric 1.0** (thresholds: factual, escalation recall and
+  opt-out 1.0; others 0.95).
+- Ported Phase 3 tests: **94 pass** (55 engine/language/pipeline/accuracy/ADF, 39 automation modes,
+  appointments/notifications, outbound/webhooks, portal security, send-race/worker resilience), plus 3 new
+  (migration copy, 2 smoke). Assertion counts are unchanged except where noted below.
+- Full suite on SQLite: **355 passed**.
+
+Not ported, because the feature does not exist in this build (listed as known limitations):
+- Per-dealership test-drive calendar (calendar failure test; event-id and busy-slot checks in the confirmation
+  test). Appointments report availability as NO_CALENDAR and are confirmed by staff.
+- Messenger Send API / Twilio SMS send adapters (adapter tests). Those channels receive (signed webhooks) but
+  reply through the sandbox; the live adapters are stage 4 scope.
+- Outreach-agent and old-worker internals from `test_worker_resilience.py` (dealerflow keeps Phase 1's queue and
+  agent, which have their own tests).

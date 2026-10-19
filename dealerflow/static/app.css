@@ -43,3 +43,4 @@ dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:3px 12px;margin:6px
 .msg.out{align-self:flex-end;background:var(--card)}.msg .meta{font-size:12px;color:var(--muted);margin-top:4px}
 .notice{padding:8px 12px;border:1px solid var(--warn);border-radius:6px;margin-bottom:12px}.grid2{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:14px}
 @media (max-width:860px){.grid2{grid-template-columns:1fr}}form.inline{display:inline}.mono{font-family:ui-monospace,monospace;font-size:12px}
+.pilotbar{background:#fff4d6;color:#6b4e00;font-size:12px;padding:3px 12px;text-align:center}

@@ -151,7 +151,10 @@ def check_budgets_job(db: Session, payload: dict) -> dict:
 
 @handler("retention_purge")
 def retention_job(db: Session, payload: dict) -> dict:
-    return {"purged": purge_conversation_pii(db, get_settings().retention_days_conversations)}
+    from .. import sessions
+
+    return {"purged": purge_conversation_pii(db, get_settings().retention_days_conversations),
+            "expired_sessions_removed": sessions.purge_expired(db)}
 
 
 @handler("monthly_reports")

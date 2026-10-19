@@ -12,6 +12,7 @@
   restore FILE --yes           replace the database with a backup (stop web + worker first)
   live-check send|inbox|meeting  controlled real-provider test (see dealerflow/livecheck.py)
   retention [DAYS]             redact message bodies older than DAYS (default 730) and prune old logs
+  audit-verify                 recompute every audit-log seal; exit 1 if any row was altered or is unsealed
 """
 
 from __future__ import annotations
@@ -36,7 +37,8 @@ def _migrate() -> None:
 
 def _create_user(email: str, role: str) -> None:
     from .db import session_scope
-    from .models import STAFF_ROLES as ROLES, User
+    from .models import STAFF_ROLES as ROLES
+    from .models import User
     from .security import hash_password
 
     if role not in ROLES:
@@ -92,6 +94,8 @@ def _demo_dealer() -> None:
         headers, rows = parse_csv(data)
         run = run_import(ctx, src, headers, rows, trigger="manual", file_name="demo_inventory.csv", file_bytes=data)
         ctx.db.commit()
+        _demo_customer_messaging(ctx.db, cid)
+        ctx.db.commit()
         print(f"dealership {cid}: import {run.status}; run the worker (or run-jobs) to generate listing drafts")
     finally:
         ctx.close()
@@ -107,6 +111,33 @@ def _check() -> None:
             print(f"{label}: {factory().check()}")
         except Exception as exc:  # noqa: BLE001
             print(f"{label}: FAILED — {type(exc).__name__}: {exc}")
+
+
+def _demo_customer_messaging(db, cid: int) -> None:
+    """Phase 3 demo setup: approved hours/contact, a website-chat key and a SANDBOX website-chat connection."""
+    import secrets
+
+    from sqlalchemy import select
+
+    from .models_customer import ResponseAutomationSettings
+    from .models_dealer import Client
+    from .models_ops import IntegrationConnection
+
+    c = db.get(Client, cid)
+    c.phone, c.address_line, c.postal_code = c.phone or "(281) 555-0100", c.address_line or "100 Fixture Ln", c.postal_code or "77478"
+    c.business_hours = c.business_hours or {str(d): (None if d == 6 else ["09:00", "19:00"]) for d in range(7)}
+    c.business_info_approved = True
+    s = db.scalar(select(ResponseAutomationSettings).where(ResponseAutomationSettings.client_id == cid))
+    if s is None:
+        s = ResponseAutomationSettings(client_id=cid)
+        db.add(s)
+    s.chat_widget_key = s.chat_widget_key or secrets.token_urlsafe(24)
+    if not db.scalar(select(IntegrationConnection).where(IntegrationConnection.client_id == cid,
+                                                         IntegrationConnection.kind == "customer_messaging")):
+        db.add(IntegrationConnection(client_id=cid, kind="customer_messaging", provider="website_chat", status="sandbox",
+                                     authorization_note="DEMO: sandbox only, replies are SIMULATED"))
+    db.flush()
+    print(f"website chat test page: /chat/{s.chat_widget_key}")
 
 
 def main(argv: list[str]) -> None:
@@ -140,8 +171,10 @@ def main(argv: list[str]) -> None:
 
         print(backup(argv[1] if len(argv) > 1 else "./backups"))
     elif cmd == "live-check":
-        from . import handlers  # noqa: F401
-        from . import livecheck
+        from . import (
+            handlers,  # noqa: F401
+            livecheck,
+        )
 
         sub = argv[1] if len(argv) > 1 else ""
         if sub == "send":
@@ -158,6 +191,14 @@ def main(argv: list[str]) -> None:
 
         with session_scope() as db:
             print(apply(db, message_days=int(argv[1]) if len(argv) > 1 else 730))
+    elif cmd == "audit-verify":
+        from .audit import verify_integrity
+        from .db import session_scope
+
+        with session_scope() as db:
+            rep = verify_integrity(db)
+        print(rep)
+        sys.exit(0 if rep["ok"] else 1)
     elif cmd == "restore":
         from .backup import restore
 

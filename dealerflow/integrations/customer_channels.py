@@ -4,8 +4,9 @@ Resolution rule (``resolve``): a reply is delivered for real only when ALL hold 
   * ``DF_LIVE_CUSTOMER_MESSAGING_ENABLED=true`` (default false);
   * the client has a ``customer_messaging`` integration connection for that provider with status ``connected``
     (set by staff only after verification / documented authorization — Phase 4 onboarding);
-  * the provider is first-party website chat. Messenger and Twilio live adapters (with encrypted per-client
-    credentials) are not wired in this build, so they always resolve to the sandbox.
+  * for Messenger / Twilio, the provider credentials are present in the environment variables the connection's
+    ``config`` names (``token_env``; Twilio also ``account_sid_env``). Secrets are never stored in the database.
+Live sends also pass the send gate (emergency stop; pilot-mode allowlist) in ``services/customer/outbound.py``.
 Otherwise the SANDBOX channel is used: nothing leaves the system, the attempt is written to
 ``integration_log`` as simulated and the message is marked SIMULATED.
 """
@@ -13,9 +14,11 @@ Otherwise the SANDBOX channel is used: nothing leaves the system, the attempt is
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from dataclasses import dataclass, field
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -109,6 +112,73 @@ class ManualOnlyChannel:
         return SendResult(FAILED, error=f"{self.provider} replies must be sent manually by staff", retryable=False)
 
 
+class MessengerChannel:
+    """Meta Send API (Page). Requires App Review for pages_messaging; tested only against mocked HTTP."""
+
+    supports_send = True
+
+    def __init__(self, page_id: str, page_access_token: str, graph_version: str, client: httpx.Client | None = None):
+        self.url = f"https://graph.facebook.com/{graph_version}/{page_id}/messages"
+        self.token = page_access_token
+        self.client = client or httpx.Client(timeout=15)
+
+    def send_text(self, recipient_id: str, text: str, *, human_agent: bool = False) -> SendResult:
+        body: dict = {"recipient": {"id": recipient_id}, "message": {"text": text},
+                      "messaging_type": "MESSAGE_TAG" if human_agent else "RESPONSE"}
+        if human_agent:  # staff reply after the 24 h window (needs the Human Agent permission)
+            body["tag"] = "HUMAN_AGENT"
+        try:
+            resp = self.client.post(self.url, params={"access_token": self.token}, json=body)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:  # never reached the provider
+            return SendResult(FAILED, error=f"connection error: {exc}", retryable=True)
+        except httpx.HTTPError as exc:  # timeout / dropped connection after sending: outcome unknown
+            return SendResult(FAILED, error=f"delivery uncertain: {exc}", uncertain=True)
+        data = _json(resp)
+        if resp.status_code == 200 and data.get("message_id"):
+            return SendResult(SENT, provider_message_id=data["message_id"])
+        err = data.get("error", {}) if isinstance(data.get("error"), dict) else {}
+        retryable = resp.status_code >= 500 or resp.status_code == 429 or err.get("code") in (1, 2, 4, 32, 613)
+        return SendResult(FAILED, error=f"Meta API {resp.status_code}: {err.get('message', resp.text[:200])}", retryable=retryable)
+
+
+class TwilioSmsChannel:
+    """Twilio Messages API. Requires A2P 10DLC registration; tested only against mocked HTTP."""
+
+    supports_send = True
+
+    def __init__(self, account_sid: str, auth_token: str, from_number: str, client: httpx.Client | None = None):
+        self.sid, self.token, self.from_number = account_sid, auth_token, from_number
+        self.client = client or httpx.Client(timeout=15)
+
+    def send_text(self, recipient_id: str, text: str, *, human_agent: bool = False) -> SendResult:
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{self.sid}/Messages.json"
+        try:
+            resp = self.client.post(url, auth=(self.sid, self.token), data={"To": recipient_id, "From": self.from_number, "Body": text})
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            return SendResult(FAILED, error=f"connection error: {exc}", retryable=True)
+        except httpx.HTTPError as exc:
+            return SendResult(FAILED, error=f"delivery uncertain: {exc}", uncertain=True)
+        data = _json(resp)
+        if resp.status_code in (200, 201) and data.get("sid"):
+            return SendResult(SENT, provider_message_id=data["sid"])
+        # 21610 = recipient replied STOP: permanent; the caller records the opt-out.
+        return SendResult(FAILED, error=f"Twilio {resp.status_code} code={data.get('code')}: {data.get('message', '')}",
+                          retryable=resp.status_code >= 500 or resp.status_code == 429)
+
+
+def _json(resp: httpx.Response) -> dict:
+    try:
+        data = resp.json()
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _env(conn: IntegrationConnection, key: str) -> str:
+    name = (conn.config or {}).get(key) or ""
+    return os.environ.get(name, "") if name.startswith("DF_") else ""
+
+
 @dataclass
 class ResolvedChannel:
     adapter: object
@@ -130,10 +200,17 @@ def resolve(db: Session, client_id: int, channel: str) -> ResolvedChannel:
     live_switch = get_settings().live_customer_messaging_enabled
     if channel == WEBSITE_CHAT and live_switch and conn is not None and conn.status == "connected":
         return ResolvedChannel(FirstPartyChat(), True, "first-party website chat (connection authorized)")
+    if live_switch and conn is not None and conn.status == "connected" and conn.external_account_id:
+        if channel == META_MESSENGER and _env(conn, "token_env"):
+            return ResolvedChannel(MessengerChannel(conn.external_account_id, _env(conn, "token_env"), get_settings().meta_graph_api_version),
+                                   True, "live Messenger (connection authorized)")
+        if channel == TWILIO_SMS and _env(conn, "token_env") and _env(conn, "account_sid_env"):
+            return ResolvedChannel(TwilioSmsChannel(_env(conn, "account_sid_env"), _env(conn, "token_env"), conn.external_account_id),
+                                   True, "live Twilio SMS (connection authorized)")
     if not live_switch:
         why = "DF_LIVE_CUSTOMER_MESSAGING_ENABLED is false"
     elif conn is None or conn.status != "connected":
         why = f"no authorized {PROVIDER_NAME.get(channel, channel)} connection for this dealership"
     else:
-        why = f"live {PROVIDER_NAME.get(channel, channel)} delivery is not available in this build"
+        why = f"credentials for {PROVIDER_NAME.get(channel, channel)} are not set (config token_env / account_sid_env must name DF_* variables)"
     return ResolvedChannel(SandboxCustomerChannel(db, channel, failure_mode), False, f"sandbox: {why}")

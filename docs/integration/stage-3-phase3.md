@@ -84,7 +84,7 @@ FAILED (`services/customer/notify.py`).
 - Ported Phase 3 tests: **94 pass** (55 engine/language/pipeline/accuracy/ADF, 39 automation modes,
   appointments/notifications, outbound/webhooks, portal security, send-race/worker resilience), plus 3 new
   (migration copy, 2 smoke). Assertion counts are unchanged except where noted below.
-- Full suite on SQLite: **355 passed**.
+- Full suite: **SQLite 355 passed; PostgreSQL 16 354 passed, 1 skipped** (the SQLite-only backup test).
 
 Not ported, because the feature does not exist in this build (listed as known limitations):
 - Per-dealership test-drive calendar (calendar failure test; event-id and busy-slot checks in the confirmation

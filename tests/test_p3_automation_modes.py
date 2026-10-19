@@ -2,12 +2,12 @@
 
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 import pytest
 
 from dealerflow.db import utcnow
-from dealerflow.models import Client, IntegrationConnection
+from dealerflow.models import AutomationSetting, Client, IntegrationConnection
 from dealerflow.models_conversations import EvaluationRun, ModeAuthorization, ResponseDraft
 from dealerflow.models_conversations import ConversationMessage as Message
 from dealerflow.models_conversations import ResponseAutomationSettings as AutomationSettings
@@ -32,6 +32,7 @@ def enable_mode_b(db, world, key="a"):
                              authorized_by_id=world[key]["admin"].id))
     s = db.scalar(select(AutomationSettings).where(AutomationSettings.client_id == d.id))
     s.mode = "B_FAQ_AUTOMATION"
+    db.add(AutomationSetting(client_id=d.id, feature="inquiry_auto_response", enabled=True))  # Phase 4 onboarding gate
     for intent, body in (("price", "The listed price for the {vehicle} is {price}."),
                          ("availability", "The {vehicle} is currently available."),
                          ("greeting", "Hi{name}! Thanks for contacting {dealer_name}.")):
@@ -187,3 +188,25 @@ def test_emergency_stop_blocks_already_queued_auto_message(db, world):
     db.expire_all()
     msgs = outbound(db, cid)
     assert len(msgs) == 1 and msgs[0].delivery_status == "BLOCKED" and "emergency stop" in msgs[0].delivery_error
+
+
+def test_mode_b_needs_the_onboarding_automation_for_a_real_dealership(db, world):
+    enable_mode_b(db, world)
+    db.execute(update(AutomationSetting).values(enabled=False))
+    db.commit()
+    _, cid, _ = chat(world["a"]["d"], "onb-1", "How much is the Civic?")
+    run_worker()
+    d = last_draft(db, cid)
+    assert d.decision == "DRAFT_ONLY" and any("inquiry_auto_response" in r for r in d.decision_reasons)
+    assert outbound(db, cid) == []
+
+
+def test_simulated_dealership_may_exercise_mode_b_without_onboarding(db, world):
+    enable_mode_b(db, world)
+    db.execute(update(AutomationSetting).values(enabled=False))
+    db.get(Client, world["a"]["d"].id).simulated = True
+    db.commit()
+    _, cid, _ = chat(world["a"]["d"], "onb-2", "How much is the Civic?")
+    run_worker()
+    assert last_draft(db, cid).decision == "AUTO_SEND"
+    assert [m.delivery_status for m in outbound(db, cid)] == ["SIMULATED"]

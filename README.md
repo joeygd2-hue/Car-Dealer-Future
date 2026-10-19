@@ -1,8 +1,8 @@
 # Car-Dealer-Future: dealerflow
 
 One FastAPI application for a business that sells marketing automation to independent used-car dealerships around
-Sugar Land and Houston, Texas. Phases 1, 2 and 4 run here together (one login, database, job queue, outreach agent and
-audit log); Phase 3 (customer conversations) is not integrated yet.
+Sugar Land and Houston, Texas. Phases 1, 2, 3 and 4 run here together (one login, database, job queue, outreach
+agent and audit log).
 
 **Phase 1:** lead discovery and import, deduplication, explainable scoring, CRM pipeline,
 human-approved email outreach (English/Spanish), reply import and classification, opt-out and
@@ -14,6 +14,12 @@ validation and sync history; English and Spanish listings generated only from ve
 approval and revision history; publishing via a manual Facebook Marketplace workflow (no API exists for it), the Meta
 vehicle catalog (guarded) and CSV export; per-dealership reports. Staff open **Inventory & listings**; dealership users
 get their own workspace.
+
+**Phase 3:** car-buyer conversations per dealership: an embeddable website chat, Messenger and Twilio SMS webhooks,
+ADF/XML lead intake and pasted Marketplace messages land in one inbox; a grounded English/Spanish responder drafts
+replies only from verified inventory and dealer-approved information, escalates everything else with a summary, and
+records test-drive requests for staff to confirm. Automated replies (Modes B/C) need a passing evaluation and the
+dealership admin's authorization. **Every customer channel is a sandbox in this build: no reply reaches a customer.**
 
 **Phase 4:** dealership clients created from won prospects, with onboarding checklist and automation gating, a scoped
 client portal, finance (invoices, payments, credits, expenses with receipts, agreements, MRR/ARR, receivables, CAC,
@@ -34,7 +40,8 @@ cp .env.example .env              # fill in DF_BUSINESS_* and DF_SENDER_* at lea
 python -m dealerflow migrate      # creates state/dealerflow.db and seeds stages/templates
 python -m dealerflow create-user you@example.com admin
 python -m dealerflow demo         # optional: 8 SIMULATED fixture dealerships, no network
-python -m dealerflow demo-dealer  # optional: a SIMULATED dealership client with fixture inventory (Phase 2)
+python -m dealerflow demo-dealer  # optional: a SIMULATED dealership client with fixture inventory (Phase 2);
+                                  # its website chat test page is linked from the dealership's Customer replies tab
 python -m dealerflow web          # http://127.0.0.1:8000
 python -m dealerflow worker       # second terminal: agent ticks, sending, inbox polling
 python -m dealerflow backup ./backups   # verified backup; `restore FILE --yes` to restore

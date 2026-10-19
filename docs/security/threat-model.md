@@ -26,7 +26,7 @@ outbound sending reputation; the ability to send email or book meetings in the b
 |---|---|---|
 | Authentication | PBKDF2 password hashes (390k iterations); signed session cookie (HttpOnly, SameSite=Lax, Secure in production, 12 h max age); per-user API keys stored as SHA-256; failed-login limiter (5 / 15 min per email+IP); per-IP API rate limit (default 300/min) | `test_web.py`, `test_phase4_security.py::test_api_rate_limit` |
 | Authorization | Ordered staff roles; `client` role confined centrally in `current_user` to `/portal`, `/api/v1/portal` and its own `/dealers/{id}` workspace (dealership role `client_role` decides import/edit/approve/publish/manage there; missing role = denied); settings/CLI cannot create unbound client users | `test_client_users_are_confined_to_the_portal` (15 paths), `test_role_matrix_*`, `test_staff_user_creation_cannot_make_unbound_client_users`, `test_settings_cannot_convert_a_portal_user_to_staff`, `test_admin_resets_portal_password_only_within_that_client` |
-| Client isolation | `services.tenancy.scope()` / `owned_or_404()` on every portal query; Phase 2 workspaces use tenant-scoped sessions (`tenancy.tenant_session`), refuse cross-client writes at flush, and composite `(client_id, id)` FKs (also for interim conversations → vehicles); 404 for out-of-scope ids; drafts never visible; portal tickets bound to the user's client; staff Phase 2/3 routes check the URL client owns the row | `test_portal_lists_and_direct_ids_are_isolated`, `test_drafts_never_visible_in_portal`, e2e step 14, `test_lead_summary_reaches_the_correct_dealership` |
+| Client isolation | `services.tenancy.scope()` / `owned_or_404()` on every portal query; Phase 2 workspaces use tenant-scoped sessions (`tenancy.tenant_session`), refuse cross-client writes at flush, and composite `(client_id, id)` FKs (also every Phase 3 conversation table → contacts, vehicles, messages, drafts, appointments); 404 for out-of-scope ids; drafts never visible; portal tickets bound to the user's client; staff Phase 2/3 routes check the URL client owns the row | `test_portal_lists_and_direct_ids_are_isolated`, `test_drafts_never_visible_in_portal`, e2e step 14, `test_lead_summary_reaches_the_correct_dealership`, `test_p3_workspace_security.py`, `test_conversation_rows_cannot_reference_another_dealerships_rows` |
 | CSRF | Token on every cookie-authenticated POST (form field or `X-CSRF-Token`); Bearer API calls exempt | `test_csrf_required_for_form_posts`, `test_cookie_json_post_needs_csrf_header` |
 | Redirects | `safe_next()` blocks `//host` and `/\host`; client users always land in `/portal` | `test_open_redirect_variants_blocked`, `test_client_users_cannot_log_in_to_staff_pages_via_next` |
 | Browser hardening | CSP (`script-src 'self'`, `img-src 'self' data: https:` for dealer-hosted vehicle photos, `frame-ancestors 'none'`, `form-action 'self'`, `object-src 'none'`), X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy, HSTS in production, `Cache-Control: no-store` on app pages; inline event handlers moved to `static/app.js` | `test_security_headers_and_no_inline_script`, `test_csp_allows_dealer_photo_urls_but_no_inline_or_external_script` |
@@ -41,6 +41,32 @@ outbound sending reputation; the ability to send email or book meetings in the b
 | Production config | Startup refused with a weak `DF_SECRET_KEY`, or with non-https `DF_BASE_URL` when real email is enabled; warnings for SQLite/http | `test_production_refuses_insecure_config` |
 | Errors | Generic 500 body; exception details only in logs | — |
 | Dependencies | `pip-audit` reported no known vulnerabilities (2026-10-18) | manual run |
+
+## Phase 3 customer conversations (integrated 2026-10-19)
+
+New boundaries: anonymous website visitors (`/api/chat/{key}`), Meta and Twilio webhooks, ADF lead posts, and
+car-buyer PII (names, phones, emails, message text).
+
+| Area | Control | Test |
+|---|---|---|
+| Public chat API | Per-dealership unguessable key (`clients.public_chat_key`, 24 random bytes); CORS only for the app's own origin and the dealership's website; per-IP and per-visitor rate limits (DB counters, shared across app instances); dedupe by client message id; the visitor sees only messages actually sent, never drafts; another visitor id sees nothing | `test_website_chat_api_dedupe_rate_limit_and_privacy` |
+| Webhooks | Meta `X-Hub-Signature-256` HMAC (refused when `DF_META_APP_SECRET` is unset), verify token for subscription; Twilio `X-Twilio-Signature` over the public URL, token read only from a `DF_TWILIO_TOKEN_*` env var named by the connection; routing by the connection's account id (unknown pages ignored); event ids stored once (`webhook_events`), without message text | `test_meta_webhook_signature_tenant_routing_and_dedupe`, `test_twilio_webhook_requires_valid_signature`, `test_twilio_token_env_must_be_namespaced`, `test_raw_webhook_events_do_not_store_message_text` |
+| ADF leads | Per-connection bearer token, only its SHA-256 stored; XML parsed with defusedxml (DTDs, entities and external references refused) | `test_adf_endpoint_auth_dedupe_and_vehicle_link`, `test_adf_rejects_entity_expansion`, `test_adf_rejects_external_entities` |
+| Data deletion | Meta signed-request callback (HMAC-SHA256) deletes the contact and everything recorded about them; retention purge clears text after `DF_RETENTION_DAYS_CONVERSATIONS` | `test_meta_data_deletion_callback`, `test_retention_purge_removes_customer_text_but_keeps_counts` |
+| Accuracy | Replies only from verified inventory (freshness, Phase 2 stale/conflict flags), approved business info, templates and FAQs; output validator rejects invented numbers, claims and promises; the final message is re-checked against current facts at send time; staff messages with unverified claims need an acknowledgement (audited) | `test_p3_response_engine.py`, `test_p3_accuracy_hardening.py` |
+| Automation | Mode A default; Mode B/C need a passing evaluation, a dealership `dealer_admin` authorization statement, onboarding `inquiry_auto_response` for real dealerships, and respect global/dealership/channel pauses, takeover, opt-out, rate limits, business hours | `test_p3_automation_modes.py`, `test_agency_staff_cannot_authorize_automation_for_a_dealership` |
+| Send safety | Emergency stop and global pause block queued sends; send ledger (`send_attempts`): IN_FLIGHT before the provider call, UNCERTAIN after a crash or timeout, never re-sent automatically; duplicate jobs defer while the owner's lease is live | `test_p3_worker_resilience.py`, `test_emergency_stop_blocks_already_queued_auto_message`, `test_emergency_stop_blocks_notification_email` |
+| Opt-out | STOP/ALTO etc. suppress the contact, block queued messages (staff and reminders included) | `test_opt_out_stops_everything`, `test_opt_out_blocks_pending_reminder` |
+| Sensitive data | SSNs/card numbers redacted from stored message text and escalated | `test_sensitive_data_redacted_and_escalated` |
+
+Issues found and fixed while integrating Phase 3: the 24-hour and 2-hour appointment reminders shared one
+idempotency key, so the second reminder raised an integrity error (now labelled keys, and `queue_outbound` returns
+the existing message for a duplicate key); `maintenance.delete_client` failed for clients with Phase 2/3 rows
+(composite keys have no cascade; rows are now deleted children-first); the Phase 1 Twilio webhook check now uses the
+shared signature helper.
+
+Not carried over from Phase 3 (open risks): MFA, self-service password reset, server-side session store, HMAC-chained
+audit log, pilot allowlist. See `docs/audit/launch-readiness-audit.md` §7, blockers 9–14.
 
 ## Issues found and fixed in Phase 4
 

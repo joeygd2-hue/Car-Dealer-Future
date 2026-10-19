@@ -111,6 +111,19 @@ caller ID you own), `DF_AGENT_PHONE` (the phone Twilio rings first).
 | `DF_META_LIVE_PUBLISHING_ALLOWED` | `false` | Global switch; nothing is sent to Meta unless true **and** the dealership connection is authorised |
 | `DF_META_GRAPH_API_VERSION` / `DF_META_GRAPH_BASE_URL` | `v24.0` / `https://graph.facebook.com` | Graph API target (confirm the current version before going live) |
 | `DF_META_TOKEN_<NAME>` | — | A dealership's Meta system-user token; the connection stores only this variable's name |
+## Phase 3: customer conversations
+
+Every customer channel and the test-drive calendar are sandboxes in this build; no variable below makes a reply
+reach a customer.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DF_CONVERSATION_AI_ENABLED` | `false` | Let Claude rephrase grounded replies (also needs `DF_AI_ENABLED` and a key). A rephrase that adds or drops a fact is discarded. |
+| `DF_META_APP_SECRET` | — | Verifies `X-Hub-Signature-256` on `/webhooks/meta` and signed data-deletion requests. Webhooks are refused while unset. |
+| `DF_META_VERIFY_TOKEN` | — | Answers Meta's webhook subscription challenge. |
+| `DF_TWILIO_TOKEN_*` | — | Auth token for one dealership's Twilio number; the connection's `config.auth_token_env` names it (must start `DF_TWILIO_TOKEN_`). |
+| `DF_RETENTION_DAYS_CONVERSATIONS` | `365` | After this, customer message, draft, appointment and contact text is purged (counts stay). |
+
 ## Phase 4: clients, finance, SEO, reporting (and the shared AI switch)
 
 | Variable | Default | Meaning |

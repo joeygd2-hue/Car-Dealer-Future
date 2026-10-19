@@ -117,15 +117,10 @@ PageSpeed, Search Console, Claude API or client email call has been made.**
 | Claude API | Stubbed-client test only | API key; `DF_AI_ENABLED=true`. Nothing in Phase 4 depends on it |
 | Client email (reports, lead summaries) | Mock only | Real provider (Phase 1), `DF_CLIENT_EMAIL_SENDING_ENABLED=true`, and per-client authorized `report_email` connection |
 | Listing publication channels (Phase 2) | Facebook Marketplace is manual by design (no API); Meta catalog is mocked-HTTP only | See the Phase 2 table above |
-| Customer messaging channels (Phase 3) | None; inquiries are simulated | Phase 3 |
+| Customer messaging channels (Phase 3) | Sandbox only (see the Phase 3 section) | Live adapters, provider accounts and approvals |
 
 ### Functional gaps
 
-* **Interim Phase 3 tables** (`models_interim.py`, migration `0004`: conversations, messages, appointments) are
-  minimal stand-ins until Phase 3 is ported. Inventory, listing and publishing figures in client reports come from
-  the real Phase 2 tables (the interim Phase 2 tables were removed during integration).
-* Phase 3 lives in a separate `app` package (`claude/magical-darwin-nncp64`) with its own auth and models; it is
-  not integrated, so the portal's conversation list shows only interim (SIMULATED) conversations.
 * Finance is single-currency for reporting (USD); other currencies are excluded and counted, not converted.
   No sales tax handling. Expense categories are management categories, not tax advice.
 * Invoices are not emailed or sent to clients; there is no PDF invoice. Reports are HTML (print to PDF).
@@ -137,7 +132,7 @@ PageSpeed, Search Console, Claude API or client email call has been made.**
 * Gross margin covers only directly allocated costs; overhead allocation is not modelled.
 * Automations on the client page: `inventory_sync` now gates Phase 2 scheduled feed syncs; `monthly_report_email`
   is implemented. `listing_publish` gates nothing yet (Phase 2 never publishes automatically; every API publish is a
-  person's click on an authorised connection). `inquiry_auto_response` waits for Phase 3. `seo_monitoring` does not
+  person's click on an authorised connection). `inquiry_auto_response` now gates Phase 3 Mode B/C auto-replies for non-SIMULATED dealerships. `seo_monitoring` does not
   schedule audits yet; staff start them.
 * Client data deletion and export are service functions (no UI) — deliberate, see the runbook.
 
@@ -147,3 +142,36 @@ See `docs/security/threat-model.md`. Open items: in-process rate limiting (singl
 attachments unencrypted at rest on local disk, no external penetration test, `style-src 'unsafe-inline'` kept
 for Phase 1 templates. **The platform is not production-ready** until live integrations are verified, MFA or
 an identity-aware proxy is in place, backups are tested, and Phase 3 is integrated.
+
+## Phase 3 (customer conversations)
+
+Ported into this app on `claude/phase3-integration` (2026-10-19). Every conversation test ran with sandbox channels,
+a sandbox calendar, the mock email provider and synthetic data. **No customer message, notification email,
+calendar event, Meta, Twilio or Claude call has reached a real service.**
+
+### What does not exist yet
+
+| Gap | Effect | What's needed |
+|---|---|---|
+| Live customer channels | Every reply (staff, Mode B/C, appointment confirmations, reminders) is recorded `SIMULATED`; nothing reaches the customer. The website-chat widget therefore never shows a reply (it shows only messages actually sent) | Port or rebuild the Messenger and Twilio send adapters (Phase 3's were not ported), a live-authorization step per dealership and channel, then test accounts |
+| Live inbound webhooks | `/webhooks/meta` and `/webhooks/twilio/sms` verify signatures and route by connection, but have only been exercised with self-signed test payloads | Meta app with App Review (`pages_messaging`), a public HTTPS URL, `DF_META_APP_SECRET` / `DF_META_VERIFY_TOKEN`; Twilio number + token in a `DF_TWILIO_TOKEN_*` variable, A2P 10DLC registration |
+| Live calendar | Availability = the dealership's own confirmed appointments; events are simulated | A Google/Microsoft calendar adapter and per-dealership authorization |
+| Conversation AI | Off (`DF_CONVERSATION_AI_ENABLED=false`): replies come from the deterministic grounded engine. When on, AI may only rephrase and is rejected if it adds or drops facts | `DF_AI_ENABLED`, an API key, and a fresh passing evaluation |
+| Phase 3's own security layer | Its MFA, password reset, server-side sessions and HMAC-chained audit log were **not** ported; the unified app uses Phase 1 sessions and audit log | MFA and self-service reset for dealership admins before Mode B/C is used with real customers |
+| Pilot allowlist | Phase 3's pilot allowlist was not ported (nothing can go live anyway) | Reintroduce with the live adapters |
+
+### Behaviour to know
+
+* Mode B/C auto-replies need: a passing evaluation (same engine version, within 30 days), an authorization by one of
+  the dealership's own `dealer_admin` users, approved templates/FAQs, no pause/takeover/opt-out, rate limits, business
+  hours rules, and (for non-SIMULATED dealerships) the Phase 4 `inquiry_auto_response` automation, which requires a
+  `connected` customer-messaging integration, so real dealerships stay draft-only in this build.
+* A send whose outcome is unknown (timeout, worker crash after the provider call) is marked `UNCERTAIN` and never
+  re-sent automatically; a person reconciles it on the conversation page.
+* Marketplace buyer messages are pasted in by staff (no API); replies to Marketplace and ADF leads are sent by staff
+  outside the platform and recorded.
+* Conversations of a SIMULATED dealership are SIMULATED and excluded from client reports.
+* Retention purge replaces message, draft, appointment and contact text with `[purged]` / NULL after
+  `DF_RETENTION_DAYS_CONVERSATIONS`; counts and statuses stay for reports.
+* Form POSTs in the dealership workspace report errors (including another dealership's ids) as a flash message and
+  a redirect, not a 404 status; the JSON API returns 404.

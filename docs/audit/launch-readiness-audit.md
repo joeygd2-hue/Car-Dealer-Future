@@ -101,10 +101,21 @@ S2 no MFA, S6 base image not pinned or scanned, S7 TLS proxy not deployed, S8 da
 | 2 | **Live integration verification** (`live-check` steps) | Nothing proves real email, calendar or Zoom work yet | You (credentials, test inboxes) | P0 |
 | 3 | **Production host**: HTTPS proxy, `DF_BASE_URL`, MFA proxy (S2/S7), nightly encrypted backups | Unsubscribe links and webhooks need public HTTPS; protects the admin UI | You (choose host/domain) + me | P0 |
 | 4 | **Attorney review**: templates, Chapter 302, TxDMV list use, business-cell DNC | Legal exposure | You | P0 for calls; P1 for email |
-| 5 | **Phase branches diverged**: Phases 3 and 4 built separate apps | Four apps would mean four auth systems, databases and outreach agents, contradicting "one application" | You decide; then a merge task | P1, before Phase 2/3 work continues |
+| 5 | ~~**Phase branches diverged**~~ **Resolved in code 2026-10-19:** Phases 1, 1.5, 2, 3 and 4 run in one app on `claude/phase3-integration` (not yet merged into `main`) | Four apps would have meant four auth systems, databases and outreach agents | You: review and merge | P1 |
 | 6 | Pin and scan the base image (S6); data-at-rest encryption (S8) | Supply chain and PII | Me | P1 |
-| 7 | Service delivery for the first client (concierge vs Phase 3) | Can't sell what can't be delivered | You | P1, before the pilot |
+| 7 | Service delivery for the first client (concierge vs Phase 3) | Can't sell what can't be delivered. Phase 3 is integrated but every customer channel is a sandbox: replies stay in the platform | You | P1, before the pilot |
 | 8 | Contact verification workflow at scale (only 33 of 191 Fort Bend dealers have a business email) | Limits pilot volume | Me (UI to speed up verification) | P2 |
+
+### Phase 3 production blockers (added 2026-10-19, Phase 3 integration)
+
+| # | Blocker | Why it matters | Priority |
+|---|---|---|---|
+| 9 | **No live customer channel**: Messenger/Twilio send adapters were not ported; every reply is SIMULATED, so website-chat visitors never see a reply | Customer conversations cannot be delivered | P0 before offering conversation handling |
+| 10 | **MFA and self-service password reset for dealership admins** (Phase 3 had them; the unified app does not) | A dealer admin authorizes automated replies to real customers | P0 before Mode B/C with real customers |
+| 11 | **Meta App Review, Twilio A2P 10DLC, public HTTPS webhooks** | Required by the providers; webhooks verified only with self-signed payloads | P0 for those channels |
+| 12 | **Customer-message legal review** (TCPA/Texas SMS consent wording, opt-out keywords, Spanish copy, data-deletion page) | Legal exposure on SMS and Messenger | P0 for SMS |
+| 13 | Tamper-evident audit log (Phase 3 had an HMAC chain; the unified log is append-only by convention) | Evidence for authorization and send decisions | P1 |
+| 14 | PostgreSQL row-level security not configured; tenancy relies on ORM scoping + composite keys | Defence in depth for car-buyer PII | P1 |
 
 **Recommendation on Phase 2:** don't start new Phase 2 feature work on this branch until #5 is decided. The Phase 2
 branch has already merged onto `dealerflow`; Phases 3 and 4 have not. Items 1–4 must be done before any live

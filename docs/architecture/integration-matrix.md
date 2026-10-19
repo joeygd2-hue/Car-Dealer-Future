@@ -39,7 +39,8 @@ Policy and legal sources for each row are in `docs/research/source-register.md` 
 | SEO crawl | Client dealership websites | Written authorization recorded per site | Audits | Tested against an in-memory site | robots.txt, ≥0.5 s delay, page cap, stop on 429, GET/HEAD only, never modifies the site | free |
 | Organic search | Google Search Console | — | Clicks/impressions in client reports | **API not implemented**; CSV export import tested | Authorized property owner exports the performance report | free |
 | Client email | Same provider as outreach (`DF_CLIENT_EMAIL_SENDING_ENABLED`) | as above | Monthly reports, lead summaries | Mock-tested; real sending gated per client | Transactional email to the client's own contact | mailbox plan |
-| Customer messaging (Phase 3) | — | — | Car-buyer inquiries | **Not connected.** Simulated inquiries only | — | — |
+| Customer messaging (Phase 3) | Website chat (built in), Messenger, Twilio SMS, ADF/XML leads, Marketplace (manual paste) | Meta app secret + verify token; Twilio token per number; ADF bearer token per connection | Car-buyer conversations | **Inbound webhooks signature-tested with self-signed payloads; outbound is sandbox only** (no live send adapter in this build) | Meta App Review, A2P 10DLC, TCPA consent | Twilio per message |
+| Test-drive calendar (Phase 3) | Sandbox | — | Availability and booking for appointment requests | **Sandbox only** (busy = confirmed appointments) | — | — |
 | Listing publication (Phase 2) | — | — | Marketplace publishing | **Not connected.** Every publish attempt is `manual_required` | — | — |
 
 ## Explicitly not built

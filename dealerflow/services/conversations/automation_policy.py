@@ -110,6 +110,13 @@ def decide(db: Session, conv: Conversation, plan: ReplyPlan, fs: FactSheet, now:
     if mode == MODE_DRAFT_ONLY:
         reasons.append("draft-only mode (Mode A)" if settings.mode == MODE_DRAFT_ONLY
                        else f"{settings.mode} lacks a valid authorization + passing evaluation; using draft-only")
+    if mode != MODE_DRAFT_ONLY and not conv.simulated:
+        from ..onboarding import automation_enabled
+
+        # Phase 4 onboarding gate: a real dealership must also have the "inquiry_auto_response" automation enabled
+        # (onboarding steps done + a connected customer-messaging integration). SIMULATED conversations are exempt.
+        if not automation_enabled(db, conv.client_id, "inquiry_auto_response"):
+            reasons.append("onboarding automation 'inquiry_auto_response' is not enabled for this client")
     reasons += automation_blockers(db, conv, settings)
     if conv.channel not in SENDABLE_CHANNELS:
         reasons.append(f"{conv.channel} replies are sent manually by staff")

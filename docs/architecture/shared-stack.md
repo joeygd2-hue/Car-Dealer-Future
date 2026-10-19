@@ -4,10 +4,10 @@
 before Phase 1, so no earlier stack existed to keep. Every later phase (2–4) extends this one
 application. **Do not create a second app, database, login system or navigation.**
 
-> **Branch status (2026-10-19):** Phases 1, 1.5, 2 and 4 run in this one `dealerflow` app (integration branch
-> `claude/phase4-integration`). Phase 3 (`claude/magical-darwin-nncp64`) is still a separate `app/` package with its
-> own models and auth and must be ported here; until then `models_interim.py` stands in for its tables.
-> See `docs/audit/launch-readiness-audit.md` §7 (blocker #5).
+> **Branch status (2026-10-19):** Phases 1, 1.5, 2, 3 and 4 run in this one `dealerflow` app (integration branch
+> `claude/phase3-integration`, cut from `claude/phase4-integration` plus the fixes from `claude/mybot-unification`).
+> Phase 3's separate `app/` package (`claude/magical-darwin-nncp64`) was ported onto the shared models; the interim
+> conversation tables are gone (migration `0005`). See "Phase 3 additions" below.
 
 ## Stack
 
@@ -153,7 +153,8 @@ Built on branch `claude/blissful-davinci-82py6w`, integrated into this app on `c
 
 **Migration chain:** `0001` Phase 1 → `0002` Phase 4 core (`clients`, finance, SEO, reporting, `users.client_id`) →
 `0003` Phase 2 (inventory, listings, publishing; `clients.simulated`, `users.client_role`) → `0004` interim Phase 3
-tables. The revisions were renumbered during integration (nothing had been deployed).
+tables → `0005` Phase 3 customer conversations (drops the `0004` tables). The revisions were renumbered during
+integration (nothing had been deployed). `0004` stays in the chain so an existing database upgrades cleanly.
 
 ### Clients and the `client` role
 
@@ -182,17 +183,47 @@ tables. The revisions were renumbered during integration (nothing had been deplo
 | Fetch a user-supplied URL server-side | `services.netguard.assert_public_url()` (wraps the one SSRF check in `integrations.website`) on every request and redirect |
 | Audit with an entity | `audit.record(db, action, actor=, entity=, details=)` (secret-named keys redacted) |
 
-### Interim Phase 3 tables — Phase 3 must replace these
+## Phase 3 additions: customer conversations
 
-`models_interim.py` + migration `0004` define minimal `conversations`, `conversation_messages` and `appointments`
-(SIMULATED inquiries, approved responses, lead summaries in `services/dealer_ops.py`), used by Phase 4 reporting and
-the end-to-end test until the Phase 3 engine is ported. A conversation references a Phase 2 vehicle through
-`(client_id, vehicle_id)`. The interim Phase 2 tables Phase 4 once shipped are gone: reports read `import_runs`,
-`listing_revisions`, `listing_reviews` and `channel_publications`. When Phase 3 is ported:
+Ported from `claude/magical-darwin-nncp64` (`98fa3d3`) on `claude/phase3-integration`. Phase 3 had its own app,
+auth, dealership and vehicle models; only its conversation domain was kept and mapped onto the shared models.
 
-1. Replace migration `0004` (or add one that drops these tables). Do not keep two definitions of a table.
-2. Delete the replaced classes from `models_interim.py` and the functions in `services/dealer_ops.py`, and the
-   `/api/v1/clients/{cid}/inquiries|conversations` endpoints in `web/routes_ops_api.py`.
-3. Point `services/client_reports.build_report_data()` inquiries/appointments at your tables (one source per metric,
-   SIMULATED rows excluded from real counts).
-4. Keep `tests/test_e2e_business_journey.py` passing (swap its Phase 3 steps to your APIs).
+| Phase 3 original | In this app |
+|---|---|
+| `Dealership`, `BusinessHours`, `Membership` | `clients` (+ `public_chat_key`, `business_info_approved_at/_by_id`, `business_hours` JSON `{"0".."6": ["09:00","19:00"] or null}`), `users.client_role` |
+| `Vehicle` (own inventory) | Phase 2 `vehicles` (+ `verified_at`, `data_conflict_note`); freshness = latest of `verified_at` / `last_seen_at`, and Phase 2's `stale` flag and `*_conflict` / implausible-value validation codes withhold prices |
+| `IntegrationConnection` (own) | shared `integration_connections` (+ `external_account_id`, `paused`, `config`); customer channels use `kind="customer_messaging"`, the test-drive calendar `kind="calendar"` |
+| Its sessions, MFA, password reset, audit HMAC chain | Not ported: Phase 1 login/CSRF/roles and `audit.record` |
+| Its own LLM client | `integrations.llm.complete()` via an adapter, only when `DF_CONVERSATION_AI_ENABLED` and the AI master switch are on |
+| Its notification email | Phase 4 `services.client_email.send()` (SIMULATED by default) behind the send gate |
+| Its webhook-event table | Phase 4 `webhook_events` (ids only, never message text) |
+| Pilot allowlist, live Messenger/Twilio senders, outreach agent | Not ported. Every customer channel is a sandbox adapter |
+
+**Tables** (`models_conversations.py`, all `TenantMixin` with composite `(client_id, id)` keys): `customer_contacts`,
+`customer_identities`, `customer_leads`, `contact_suppressions`, `conversations`, `conversation_messages`,
+`response_drafts`, `escalations`, `appointments`, `appointment_events`, `response_automation_settings`,
+`mode_authorizations`, `response_templates`, `dealer_faqs`, `notification_preferences`, `notifications`. Not
+tenant-scoped: `evaluation_runs` (nullable `client_id`), `rate_counters`, `send_attempts` (send ledger).
+
+**Services** (`services/conversations/`): `inbox` (ingest, dedupe, process), `responder/` (grounded EN/ES engine,
+`ENGINE_VERSION` 1.0.0), `automation_policy` (Modes A/B/C), `outbound` (send job, final-content re-check),
+`send_gate` (emergency stop + IN_FLIGHT/UNCERTAIN ledger), `rate_limits`, `escalation`, `summaries`, `appointments`,
+`notifications`, `channels` (sandbox channels and calendar, webhook signature checks), `adf` (defusedxml),
+`evaluation` (46 synthetic cases). Jobs: `conversations.process_message`, `.outbound_send`, `.notification_email`,
+`.appointment_reminder`, `.dispatch_reminders`, `.daily_digests`.
+
+**Routes:** dealership workspace `/dealers/{id}/inbox|conversations|appointments|replies|notifications` (permission
+`respond` to act, `manage` for settings; Mode B/C needs one of the dealership's own `dealer_admin` users); agency
+`/conversations`; dealer API `GET /api/v1/dealers/{id}/conversations[/{conv}]`, `POST …/conversations/{conv}/reply`,
+`GET …/appointments`, `POST …/appointments/{id}/confirm`; public (no session, no CSRF, own checks) `/api/chat/{key}`,
+`/chat/{key}`, `/webhooks/meta` (+ `/data-deletion`), `/webhooks/twilio/sms`, `/api/leads/adf/{connection_id}`.
+
+**Phase 4 re-pointed:** `client_reports` count inquiries/appointments from `conversations`, `conversation_messages`,
+`escalations` and `appointments` (SIMULATED excluded); the staff simulated-inquiry endpoint calls
+`inbox.ingest_inbound(simulated=True)`; `maintenance.purge_conversation_pii` clears message/draft/appointment/contact
+text; `maintenance.delete_client` deletes tenant rows explicitly, children first. `models_interim.py` and
+`services/dealer_ops.py` were removed.
+
+Secrets for Phase 3: `DF_META_APP_SECRET`, `DF_META_VERIFY_TOKEN` (env); a Twilio auth token is read from the
+variable named in the connection's `config.auth_token_env`, which must start `DF_TWILIO_TOKEN_`; an ADF intake token
+is shown once and only its SHA-256 is stored.

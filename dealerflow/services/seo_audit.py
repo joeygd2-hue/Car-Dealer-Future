@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import audit as audit_log
+from ..audit import track_integration
 from ..config import get_settings
 from ..db import utcnow
 from ..jobs import enqueue, handler, on_failure
@@ -79,13 +80,18 @@ def run_audit(db: Session, audit: SeoAudit, http_client: httpx.Client | None = N
     if sleep is not None:
         kwargs["sleep"] = sleep
     crawler = Crawler(site.base_url, **kwargs)
-    crawl = crawler.crawl()
+    # Through the integration gate: the emergency stop and a disabled provider stop crawls too.
+    with track_integration(db, "seo_crawler", "crawl") as log:
+        crawl = crawler.crawl()
+        log["detail"] = f"{len(crawl.pages)} page(s) from {crawler.base}"
     business = {"name": client.name, "phone": client.phone, "address": client.address_line, "city": client.city}
     findings, parsed = run_checks(crawl, crawler.base, business)
 
     perf = None
     try:
-        perf = pagespeed(site.base_url, pagespeed_client)
+        if get_settings().pagespeed_api_key.get_secret_value():
+            with track_integration(db, "google_pagespeed", "audit"):
+                perf = pagespeed(site.base_url, pagespeed_client)
         if perf and "error" not in perf:
             usage.record_usage(db, provider="google:pagespeed", category="seo", metric="requests", quantity=1, client_id=client.id, ref=f"psi:{audit.id}")
             score = perf.get("performance_score")

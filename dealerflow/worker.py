@@ -74,6 +74,11 @@ def main(poll_seconds: float = 10.0) -> None:
     from . import handlers  # noqa: F401
     from .services import agent
 
+    from .config import get_settings
+
+    s = get_settings()
+    if s.env == "production" and s.production_problems():  # same start-up check as the web app
+        raise SystemExit("Refusing to start the worker: " + "; ".join(s.production_problems()))
     signal.signal(signal.SIGTERM, _handle)
     signal.signal(signal.SIGINT, _handle)
     worker_id = f"{socket.gethostname()}:{os.getpid()}"

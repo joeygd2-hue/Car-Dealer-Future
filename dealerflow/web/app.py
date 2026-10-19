@@ -35,6 +35,8 @@ class _ApiRateLimiter:
         if allowed:
             q.append(now)
         self.hits[key] = q
+        if len(self.hits) > 10_000:  # bound memory: drop keys with no recent hits
+            self.hits = {k: v for k, v in self.hits.items() if v and now - v[-1] < window}
         return allowed
 
 

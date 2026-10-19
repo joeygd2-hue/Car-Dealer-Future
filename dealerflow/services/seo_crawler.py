@@ -62,8 +62,9 @@ class Crawler:
         self.max_pages = max_pages
         self.delay = max(0.5, delay_seconds)
         self.ua = s.http_user_agent
+        # Redirects are followed manually so every hop passes the SSRF guard (services.netguard).
         self.client = client or httpx.Client(
-            timeout=s.crawler_timeout_seconds, follow_redirects=True, headers={"User-Agent": self.ua}
+            timeout=s.crawler_timeout_seconds, follow_redirects=False, headers={"User-Agent": self.ua}
         )
         self.sleep = sleep
         self.robots = robotparser.RobotFileParser()
@@ -75,10 +76,26 @@ class Crawler:
             self.sleep(self.delay - gap)
         self._last = time.monotonic()
 
+    def _fetch(self, method: str, url: str, max_redirects: int = 5) -> httpx.Response | None:
+        """Request ``url``, following redirects by hand; any hop to a non-public address is refused."""
+        from .netguard import UnsafeURL, assert_public_url
+
+        for _ in range(max_redirects + 1):
+            try:
+                assert_public_url(url, require_https=False)
+            except UnsafeURL:
+                return None
+            resp = self.client.request(method, url, headers={"User-Agent": self.ua}, follow_redirects=False)
+            if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location"):
+                url = urljoin(str(resp.url), resp.headers["location"])
+                continue
+            return resp
+        return None
+
     def _get(self, url: str) -> httpx.Response | None:
         self._wait()
         try:
-            return self.client.get(url, headers={"User-Agent": self.ua})
+            return self._fetch("GET", url)
         except httpx.HTTPError:
             return None
 
@@ -181,11 +198,11 @@ class Crawler:
             for u in unchecked[:check_links_limit]:
                 self._wait()
                 try:
-                    r = self.client.head(u, headers={"User-Agent": self.ua})
-                    if r.status_code in (405, 501):
-                        r = self.client.get(u, headers={"User-Agent": self.ua})
-                    link_status[u] = r.status_code
-                    if r.status_code == 429:
+                    r = self._fetch("HEAD", u)
+                    if r is not None and r.status_code in (405, 501):
+                        r = self._fetch("GET", u)
+                    link_status[u] = r.status_code if r is not None else None
+                    if r is not None and r.status_code == 429:
                         break
                 except httpx.HTTPError:
                     link_status[u] = None

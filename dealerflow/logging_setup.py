@@ -25,6 +25,12 @@ class JsonFormatter(logging.Formatter):
             out[k] = "[redacted]" if any(h in k.lower() for h in _SECRET_HINTS) else v
         if record.exc_info:
             out["exc"] = self.formatException(record.exc_info)
+        # Strip secrets and personal data (tokens, keys, emails, phones, card numbers) from every text value.
+        from .sensitive import redact
+
+        for k, v in list(out.items()):
+            if k not in ("ts", "level", "logger") and isinstance(v, str):
+                out[k] = redact(v)
         return json.dumps(out, default=str)
 
 

@@ -178,3 +178,79 @@ def test_secrets_can_come_from_files_not_the_environment(tmp_path, monkeypatch):
     monkeypatch.delenv("DF_SMTP_PASSWORD", raising=False)
     get_settings.cache_clear()
     assert get_settings().smtp_password.get_secret_value() == "from-a-secret-file"
+
+
+# --- Phase 4 weaknesses fixed at merge ----------------------------------------------------------
+
+def test_seo_crawler_refuses_redirect_to_internal_address(monkeypatch):
+    import httpx
+
+    from dealerflow.services import seo_crawler
+
+    monkeypatch.setattr(netguard, "_resolve", lambda host, port: [(0, 0, 0, "", ("10.0.0.7" if host == "internal.dealer-site.com"
+                                                                                else "93.184.216.34", port))])
+    seen = []
+
+    def handler(req):
+        seen.append(str(req.url))
+        if req.url.host == "dealer-site.com":
+            return httpx.Response(302, headers={"location": "http://internal.dealer-site.com/admin"})
+        return httpx.Response(200, text="<html>secret</html>")
+
+    c = seo_crawler.Crawler("https://dealer-site.com", max_pages=3, delay_seconds=0.5,
+                            client=httpx.Client(transport=httpx.MockTransport(handler)), sleep=lambda s: None)
+    assert c._get("https://dealer-site.com/") is None
+    assert not any("internal" in u for u in seen)
+
+
+def test_emergency_stop_blocks_seo_crawl(db):
+    from dealerflow.integrations.errors import ExternalActionsHalted
+    from dealerflow.models import SeoAudit, SeoSite
+    from dealerflow.services import seo_audit
+
+    cid = make_client()
+    site = SeoSite(client_id=cid, base_url="https://alpha.example", authorized=True, authorization_note="test")
+    db.add(site)
+    db.flush()
+    a = SeoAudit(client_id=cid, site_id=site.id, status="queued")
+    db.add(a)
+    db.commit()
+    _emergency_stop()
+    calls = []
+    monkeypatch_client = __import__("httpx").Client(transport=__import__("httpx").MockTransport(
+        lambda r: calls.append(r) or __import__("httpx").Response(200, text="<html></html>")))
+    with pytest.raises(ExternalActionsHalted):
+        seo_audit.run_audit(db, db.get(SeoAudit, a.id), http_client=monkeypatch_client, sleep=lambda s: None)
+    assert calls == []
+
+
+def test_logs_redact_emails_and_tokens():
+    import logging
+
+    from dealerflow.logging_setup import JsonFormatter
+
+    rec = logging.makeLogRecord({"msg": "sent to owner@dealer-site.com", "name": "t", "levelname": "INFO",
+                                 "detail": "Authorization: Bearer abc.def.ghi failed for 281-555-0199"})
+    out = JsonFormatter().format(rec)
+    assert "owner@dealer-site.com" not in out and "abc.def.ghi" not in out and "555-0199" not in out
+
+
+def test_worker_refuses_insecure_production_config(monkeypatch):
+    from dealerflow import worker
+    from dealerflow.config import get_settings
+
+    monkeypatch.setenv("DF_ENV", "production")
+    monkeypatch.setenv("DF_SECRET_KEY", "short")
+    get_settings.cache_clear()
+    with pytest.raises(SystemExit, match="Refusing to start the worker"):
+        worker.main(poll_seconds=0)
+
+
+def test_api_rate_limiter_memory_is_bounded():
+    from dealerflow.web.app import _ApiRateLimiter
+
+    lim = _ApiRateLimiter()
+    for i in range(12_000):
+        lim.allow(f"ip{i}", 5, window=0.0)
+    assert len(lim.hits) <= 10_001
+

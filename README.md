@@ -43,7 +43,7 @@ python -m dealerflow demo-dealer  # optional: a SIMULATED dealership client with
 python -m dealerflow web          # http://127.0.0.1:8000
 python -m dealerflow worker       # second terminal: agent ticks, sending, inbox polling
 python -m dealerflow backup ./backups   # verified backup; `restore FILE --yes` to restore
-pytest                            # 256 tests, no network
+pytest                            # 260 tests, no network
 ```
 
 Docker: `docker compose up --build` runs `migrate`, then `web` and `worker`.

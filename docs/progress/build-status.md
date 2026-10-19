@@ -33,8 +33,8 @@ included (see "Next steps").
 
 | Run | Result |
 |---|---|
-| `pytest` on SQLite | **256 passed** (136 Phase 1/1.5 + 47 Phase 2 + 73 Phase 4) |
-| `DF_TEST_PG_URL=… pytest` on PostgreSQL 16 | 255 passed + the SQLite-only backup test, which now skips correctly (`tests/test_backup.py`, `tests/test_migrations.py` re-run after the fix: 2 passed, 1 skipped) |
+| `pytest` on SQLite | **260 passed** (136 Phase 1/1.5 + 47 Phase 2 + 73 Phase 4 + 4 in `test_integration.py`) |
+| `DF_TEST_PG_URL=postgresql+psycopg://…@127.0.0.1/… pytest` on PostgreSQL 16 | **259 passed, 1 skipped** (the SQLite-only backup test) |
 | Migration `0003` with existing Phase 2 rows, SQLite and Postgres 16 | upgrade → CHECK enforced, `offboarded`→`cancelled`, JSON defaults filled → downgrade → upgrade: all succeeded |
 | App smoke test (`migrate`, `create-user`, `demo`, `demo-dealer`, `run-jobs`, `web`) | `/healthz` ok with live worker; 27 staff pages return 200; a dealership user reaches their workspace and portal, gets 403 on staff pages and 404 on another dealership |
 
@@ -67,7 +67,7 @@ SQLAlchemy/Alembic + Jinja, matching the owner's other Python/FastAPI project. D
 
 Phase 1/1.5 tests: 136 (102 at the end of Phase 1; 34 added by the audit, including
 `test_adversarial.py`, `test_txdmv.py`, `test_backup.py`, `test_livecheck.py`). With Phases 2 and 4 the integrated
-suite is 256 tests (see "Integrated test results" above). The suite also runs on Postgres 16
+suite is 260 tests (see "Integrated test results" above). The suite also runs on Postgres 16
 (`DF_TEST_PG_URL=postgresql+psycopg://… pytest`).
 
 | File | Tests | Covers |

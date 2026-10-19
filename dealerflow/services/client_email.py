@@ -1,6 +1,7 @@
 """Email to client dealerships (monthly reports, lead summaries). Transactional, not outreach.
 
 Delivery is real only when ALL hold:
+  * the client is not a SIMULATED (demo/fixture) dealership,
   * DF_CLIENT_EMAIL_SENDING_ENABLED=true,
   * the configured email provider is a real one (not ``mock``),
   * the client has a ``report_email`` integration connection marked ``connected``.
@@ -21,6 +22,8 @@ from ..models import Client, IntegrationConnection
 
 def delivery_allowed(db: Session, client: Client) -> tuple[bool, str]:
     s = get_settings()
+    if client.simulated:
+        return False, "client is a SIMULATED dealership"
     if not s.client_email_sending_enabled:
         return False, "DF_CLIENT_EMAIL_SENDING_ENABLED is false"
     if s.email_provider == "mock":

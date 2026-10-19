@@ -40,7 +40,9 @@ class _ApiRateLimiter:
 
 api_limiter = _ApiRateLimiter()
 
-CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
+# Images may come from https hosts: vehicle photos are dealer-hosted URLs (Phase 2 stores URLs, not bytes).
+# Scripts stay same-origin only; Referrer-Policy keeps page URLs from leaking to photo hosts.
+CSP = ("default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
        "frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'")
 
 

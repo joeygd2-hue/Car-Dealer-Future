@@ -140,3 +140,70 @@ def test_simulated_prospect_becomes_a_simulated_client(db):
     c = tenancy.create_client(db, name=p.name, actor=None, prospect=p)
     assert c.simulated is True and c.status == "onboarding"
 
+
+def test_csp_allows_dealer_photo_urls_but_no_inline_or_external_script(client):
+    csp = client.get("/login").headers["content-security-policy"]
+    directives = {d.split()[0]: d.split()[1:] for d in csp.split("; ")}
+    assert "https:" in directives["img-src"] and "http:" not in directives["img-src"]  # dealer-hosted vehicle photos
+    assert directives["script-src"] == ["'self'"]  # no inline script, no third-party script
+    assert directives["frame-ancestors"] == ["'none'"]
+
+
+def test_emergency_stop_blocks_ai_and_client_email(db, monkeypatch):
+    """Phase 1's emergency stop applies to Phase 2 listing AI and Phase 4 client email (shared integration gate)."""
+    from dealerflow.integrations import llm
+    from dealerflow.integrations.errors import ExternalActionsHalted
+    from dealerflow.models import AgentState
+    from dealerflow.services import client_email
+
+    _fake_anthropic(monkeypatch, "end_turn")
+    st = db.get(AgentState, 1) or AgentState(id=1)
+    st.status = "emergency_stopped"
+    db.add(st)
+    db.flush()
+    with pytest.raises(ExternalActionsHalted):
+        llm.structured_call("s", "u", _Copy, db=db, feature="listing_generate")
+    c = Client(name="Alpha Auto", status="active", contact_email="owner@alpha.example")
+    db.add(c)
+    db.flush()
+    with pytest.raises(ExternalActionsHalted):
+        client_email.send(db, c, to="owner@alpha.example", subject="s", body="b", key="k1")
+
+
+def test_simulated_dealership_never_gets_real_client_email(db, monkeypatch):
+    from dealerflow.models import IntegrationConnection
+    from dealerflow.services import client_email
+
+    c = Client(name="DEMO Motors (SIMULATED)", status="active", simulated=True)
+    db.add(c)
+    db.flush()
+    db.add(IntegrationConnection(client_id=c.id, kind="report_email", provider="smtp", status="connected"))
+    db.flush()
+    monkeypatch.setattr(get_settings(), "client_email_sending_enabled", True)
+    monkeypatch.setattr(get_settings(), "email_provider", "smtp")
+    allowed, why = client_email.delivery_allowed(db, c)
+    assert not allowed and "SIMULATED" in why
+
+
+def test_seo_crawler_refuses_internal_addresses(monkeypatch):
+    """Phase 4 SEO crawls use the shared SSRF guard, for the start URL and every redirect hop."""
+    import httpx
+
+    from dealerflow.services.seo_crawler import Crawler
+
+    monkeypatch.setattr("dealerflow.integrations.website.resolve",
+                        lambda host, port: [(None, None, None, None, ("10.0.0.5" if host == "intranet.dealer.com" else "93.184.216.34", port))])
+    hits = []
+
+    def handler(req: httpx.Request):
+        hits.append(str(req.url))
+        if req.url.host == "www.dealer.com":
+            return httpx.Response(302, headers={"location": "http://intranet.dealer.com/admin"})
+        return httpx.Response(200, text="secret")
+
+    real_client = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))  # no network
+    crawler = Crawler("https://intranet.dealer.com", max_pages=2, delay_seconds=0.5, sleep=lambda s: None)
+    assert crawler._get("https://intranet.dealer.com/") is None and hits == []  # never requested
+    assert crawler._get("https://www.dealer.com/") is None  # redirect into the private network is refused
+    assert hits == ["https://www.dealer.com/"]

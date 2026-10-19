@@ -16,6 +16,8 @@ from urllib.parse import urldefrag, urljoin, urlparse
 import httpx
 
 from ..config import get_settings
+from .dealer_errors import BadRequest
+from .netguard import assert_public_url
 
 HTML_TYPES = ("text/html", "application/xhtml+xml")
 SKIP_EXT = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".zip", ".mp4", ".css", ".js", ".ico", ".xml", ".json")
@@ -62,8 +64,10 @@ class Crawler:
         self.max_pages = max_pages
         self.delay = max(0.5, delay_seconds)
         self.ua = s.http_user_agent
+        # Every request, including each redirect hop, must go to a public address (SSRF guard).
         self.client = client or httpx.Client(
-            timeout=s.crawler_timeout_seconds, follow_redirects=True, headers={"User-Agent": self.ua}
+            timeout=s.crawler_timeout_seconds, follow_redirects=True, headers={"User-Agent": self.ua},
+            event_hooks={"request": [lambda req: assert_public_url(str(req.url), require_https=False)]},
         )
         self.sleep = sleep
         self.robots = robotparser.RobotFileParser()
@@ -78,8 +82,9 @@ class Crawler:
     def _get(self, url: str) -> httpx.Response | None:
         self._wait()
         try:
+            assert_public_url(url, require_https=False)
             return self.client.get(url, headers={"User-Agent": self.ua})
-        except httpx.HTTPError:
+        except (httpx.HTTPError, BadRequest):
             return None
 
     def load_robots(self) -> tuple[bool, list[str]]:

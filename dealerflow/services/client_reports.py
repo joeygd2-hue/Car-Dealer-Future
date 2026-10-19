@@ -98,7 +98,7 @@ def build_report_data(db: Session, client: Client, start: date, end: date) -> di
         return {"value": value, "source": source, **({"note": note} if note else {})}
 
     data = {
-        "client": {"id": cid, "name": client.name},
+        "client": {"id": cid, "name": client.name, "simulated": bool(client.simulated)},
         "period": {"start": start.isoformat(), "end": end.isoformat()},
         "generated_at": utcnow().isoformat(timespec="seconds"),
         "channels": channels,

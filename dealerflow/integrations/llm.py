@@ -19,6 +19,7 @@ Two entry points:
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
@@ -138,12 +139,14 @@ def structured_call(system: str, user: str, schema: type[T], *, max_tokens: int 
     import anthropic
 
     s = get_settings()
+    gate = track_integration(db, "anthropic", feature) if db is not None else nullcontext()
     try:
-        resp = _client().messages.parse(
-            model=s.ai_model, max_tokens=max_tokens, system=system, messages=[{"role": "user", "content": user}],
-            output_format=schema, output_config={"effort": effort or s.ai_effort},
-            extra_headers={"anthropic-beta": _BETA}, extra_body={"fallbacks": "default"},
-        )
+        with gate:  # emergency stop and disabled-provider checks, plus the integration log
+            resp = _client().messages.parse(
+                model=s.ai_model, max_tokens=max_tokens, system=system, messages=[{"role": "user", "content": user}],
+                output_format=schema, output_config={"effort": effort or s.ai_effort},
+                extra_headers={"anthropic-beta": _BETA}, extra_body={"fallbacks": "default"},
+            )
     except anthropic.RateLimitError as exc:
         raise RateLimitedError("anthropic: rate limited") from exc
     except anthropic.APIStatusError as exc:

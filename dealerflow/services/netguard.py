@@ -1,10 +1,15 @@
-"""SSRF guard for server-side fetches of user-supplied URLs (inventory feeds, prospect websites)."""
+"""SSRF guard for server-side fetches of user-supplied URLs (inventory feeds, SEO crawls).
+
+A thin wrapper over the shared check in ``integrations.website.assert_public_url`` that adds the https
+requirement and turns failures into a 400 for the person who entered the URL.
+"""
 from __future__ import annotations
 
-import ipaddress
-import socket
 from urllib.parse import urlparse
 
+from ..integrations.errors import IntegrationError
+from ..integrations.website import UnsafeURL
+from ..integrations.website import assert_public_url as _assert_public
 from .dealer_errors import BadRequest
 
 
@@ -15,15 +20,13 @@ def assert_public_url(url: str, *, require_https: bool = True) -> None:
     if u.scheme not in ("http", "https") or not u.hostname:
         raise BadRequest("Invalid URL")
     host = u.hostname
-    if host.endswith((".example", ".invalid", ".test", ".localhost")) or host == "localhost":
-        if host.endswith(".example"):
-            return  # reserved fixture domains are served from local fixtures, never fetched
+    if host.endswith(".example"):
+        return  # reserved fixture domains (RFC 2606) never resolve; used by demos and tests
+    if host == "localhost" or host.endswith((".invalid", ".test", ".localhost")):
         raise BadRequest("URL host is not allowed")
     try:
-        infos = socket.getaddrinfo(host, u.port or (443 if u.scheme == "https" else 80), type=socket.SOCK_STREAM)
-    except socket.gaierror:
-        return  # unresolvable: the fetch itself will fail
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
-            raise BadRequest("URL resolves to a private or internal address")
+        _assert_public(url)
+    except UnsafeURL as exc:
+        raise BadRequest("URL resolves to a private or internal address") from exc
+    except IntegrationError:
+        return  # unresolvable now: the fetch itself will fail (and is re-checked on every fetch)

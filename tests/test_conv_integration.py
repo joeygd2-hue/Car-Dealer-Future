@@ -178,3 +178,23 @@ def test_staff_http_workflow_lead_to_confirmed_test_drive(client, db, world):
     with session_scope() as s:
         assert s.get(Conversation, cid).summary_delivered_at is not None
         assert s.get(Conversation, cid).first_response_at is not None
+
+
+def test_lead_summary_for_a_simulated_dealership_never_uses_a_real_provider(db, world, monkeypatch):
+    """Demo/fixture dealerships (``Client.simulated``) must never get real email, even with every live flag on."""
+    from dealerflow.config import get_settings
+    from dealerflow.models import Client
+    from dealerflow.services import client_email
+    from dealerflow.services.conversations.summaries import deliver_lead_summary
+
+    c = db.get(Client, world["a"]["d"].id)
+    c.simulated = True
+    db.add(IntegrationConnection(client_id=c.id, kind="report_email", provider="smtp", status="connected", authorization_note="test"))
+    db.commit()
+    monkeypatch.setattr(get_settings(), "email_provider", "smtp")
+    monkeypatch.setattr(get_settings(), "client_email_sending_enabled", True)
+    monkeypatch.setattr(client_email, "get_email_provider", lambda: (_ for _ in ()).throw(AssertionError("must not send")))
+    _, cid, _ = chat(c, "sim-dealer", "Is the Civic available?")
+    run_worker()
+    outcome = deliver_lead_summary(db, db.get(Conversation, cid))
+    assert outcome.startswith("not_sent") and "SIMULATED dealership" in outcome

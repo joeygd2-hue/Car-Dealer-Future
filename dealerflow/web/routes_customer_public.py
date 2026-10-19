@@ -123,6 +123,9 @@ async def adf_intake(connection_id: int, request: Request, db: Session = Depends
     if (conn is None or conn.kind != runtime.CONNECTION_KIND or conn.provider != channels.ADF_LEAD or not expected
             or not hmac.compare_digest(given, expected)):
         raise HTTPException(401, "unauthorized")
+    client = db.get(Client, conn.client_id)
+    if conn.status == "disabled" or client is None or client.status in ("paused", "cancelled"):
+        raise HTTPException(403, "lead intake is disabled for this connection")
     body = await request.body()
     if len(body) > 1_000_000:
         raise HTTPException(413, "payload too large")
@@ -130,7 +133,6 @@ async def adf_intake(connection_id: int, request: Request, db: Session = Depends
         leads = parse_adf(body.decode("utf-8", "replace"))
     except Exception:  # noqa: BLE001 - malformed/hostile XML
         raise HTTPException(400, "invalid ADF/XML") from None
-    client = db.get(Client, conn.client_id)
     created = 0
     for lead in leads:
         if not record_event(db, "ADF", f"{conn.id}:{lead.lead_id}", {"lead_id": lead.lead_id}, client.id):

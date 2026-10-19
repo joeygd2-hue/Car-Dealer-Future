@@ -21,9 +21,15 @@ checklist with automation gating, support tickets, an authorized-site SEO audit 
 reports, and a production-readiness security review. Client email is also SIMULATED until enabled and
 authorized per client (`DF_CLIENT_EMAIL_SENDING_ENABLED`).
 
-**Not yet in this code:** Phase 3 (customer-response engine) is still a separate app on
-`claude/magical-darwin-nncp64`; buyer conversations here are interim SIMULATED stand-ins. Build status and how the
-phases were integrated: [build status](docs/progress/build-status.md). Plan for individual sellers (MyBot Flipper):
+**Phase 3 (also in this code):** customer conversations for each dealership: website chat, ADF/XML leads and
+staff-assisted Facebook Marketplace messages; English/Spanish replies drafted only from verified inventory and
+dealer-approved information; staff review, escalation (financing, trade-ins, complaints, sensitive data and more),
+human takeover, opt-out enforcement, test-drive requests that staff confirm, lead summaries, notifications, and
+automation Modes A (draft only, default), B and C, which a dealership admin authorizes after a passing evaluation.
+Replies to car buyers are **SIMULATED** unless `DF_CUSTOMER_MESSAGING_LIVE_ENABLED=true` and the channel is
+connected; only website chat can go live, and pilot mode allows only allowlisted test recipients. Messenger and SMS
+live sending are not included. Build status and how the phases were integrated:
+[build status](docs/progress/build-status.md). Plan for individual sellers (MyBot Flipper):
 [flipper plan](docs/product/flipper-plan.md).
 
 > Out of the box every provider is **SIMULATED** (mock). Nothing reaches a real person until you
@@ -40,10 +46,11 @@ python -m dealerflow migrate      # creates state/dealerflow.db and seeds stages
 python -m dealerflow create-user you@example.com admin
 python -m dealerflow demo         # optional: 8 SIMULATED fixture dealerships, no network
 python -m dealerflow demo-dealer  # optional: a SIMULATED dealership client with fixture inventory (Phase 2)
+python -m dealerflow demo-conversations  # optional: SIMULATED buyer inquiries for that dealership (Phase 3)
 python -m dealerflow web          # http://127.0.0.1:8000
 python -m dealerflow worker       # second terminal: agent ticks, sending, inbox polling
 python -m dealerflow backup ./backups   # verified backup; `restore FILE --yes` to restore
-pytest                            # 260 tests, no network
+pytest                            # 388 tests, no network
 ```
 
 Docker: `docker compose up --build` runs `migrate`, then `web` and `worker`.

@@ -101,7 +101,7 @@ S2 no MFA, S6 base image not pinned or scanned, S7 TLS proxy not deployed, S8 da
 | 2 | **Live integration verification** (`live-check` steps) | Nothing proves real email, calendar or Zoom work yet | You (credentials, test inboxes) | P0 |
 | 3 | **Production host**: HTTPS proxy, `DF_BASE_URL`, MFA proxy (S2/S7), nightly encrypted backups | Unsubscribe links and webhooks need public HTTPS; protects the admin UI | You (choose host/domain) + me | P0 |
 | 4 | **Attorney review**: templates, Chapter 302, TxDMV list use, business-cell DNC | Legal exposure | You | P0 for calls; P1 for email |
-| 5 | **Phase branches diverged**: Phases 3 and 4 built separate apps | Four apps would mean four auth systems, databases and outreach agents, contradicting "one application" | You decide; then a merge task | P1, before Phase 2/3 work continues |
+| 5 | **Phase branches diverged**: Phases 3 and 4 built separate apps | Four apps would mean four auth systems, databases and outreach agents, contradicting "one application" | You decide; then a merge task | P1, before Phase 2/3 work continues  **Update 2026-10-19:** resolved in code — Phases 2 and 4 integrated on `claude/gifted-brahmagupta-8s3mnu`, Phase 3 on `claude/gifted-phase3-integration`; not merged into `main` yet. |
 | 6 | Pin and scan the base image (S6); data-at-rest encryption (S8) | Supply chain and PII | Me | P1 |
 | 7 | Service delivery for the first client (concierge vs Phase 3) | Can't sell what can't be delivered | You | P1, before the pilot |
 | 8 | Contact verification workflow at scale (only 33 of 191 Fort Bend dealers have a business email) | Limits pilot volume | Me (UI to speed up verification) | P2 |

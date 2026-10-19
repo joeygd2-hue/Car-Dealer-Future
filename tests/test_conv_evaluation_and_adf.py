@@ -47,3 +47,14 @@ def test_adf_endpoint_auth_dedupe_and_vehicle_link(db, world, client):
     run_worker()
     convs = list(db.scalars(select(Conversation).where(Conversation.channel == "ADF_LEAD")))
     assert len(convs) == 1 and convs[0].vehicle_id == world["a"]["civic"].id
+
+
+def test_adf_endpoint_refuses_disabled_connection(db, world, client):
+    import hashlib
+
+    conn = IntegrationConnection(client_id=world["a"]["d"].id, kind="customer_messaging", provider="ADF_LEAD", status="disabled",
+                                 external_account_id="adf:a2", config={"token_sha256": hashlib.sha256(b"tok2").hexdigest()})
+    db.add(conn)
+    db.commit()
+    assert client.post(f"/api/leads/adf/{conn.id}", content=ADF, headers={"authorization": "Bearer tok2"}).status_code == 403
+    assert db.scalar(select(Conversation).where(Conversation.channel == "ADF_LEAD")) is None

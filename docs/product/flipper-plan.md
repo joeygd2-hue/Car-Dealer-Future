@@ -26,7 +26,7 @@ the existing models. It does not get its own application or duplicate tables.
 | Honesty checks | `services/listings/guardrails.py` (unsupported warranty/accident/title/owner claims, mismatches, urgency, keyword stuffing, branded-title disclosure) | Directly | Required defect-disclosure section; "unverified" labels on seller-stated history |
 | Marketplace | `FacebookMarketplaceManual` channel: copy package, checklist, record URL, update/withdraw flags | Directly | Checklist wording for an individual's own account; mobile copy buttons (`static/copy.js` exists) |
 | Status tracking | `ChannelPublication` (manual_required → published_confirmed with URL, needs_update, withdrawal_required) | Directly | None for MVP |
-| Buyer replies | Phase 1 rule classifier (EN/ES), Phase 3 customer-response engine (separate app), interim `dealer_ops` drafts | Phase 3 engine once ported | Paste-in conversation for Marketplace (no API), scam/safety escalation rules for private sales |
+| Buyer replies | Phase 1 rule classifier (EN/ES), Phase 3 customer-response engine (`services/conversations/`, staff-assisted Marketplace intake) | Directly (ported 2026-10-19) | Paste-in conversation for Marketplace (no API), scam/safety escalation rules for private sales |
 | Cost accounting | `cost_entries` per client with measured/estimated basis, `llm.complete` token recording, budgets + alerts | Directly, per user | `structured_call` (listing generator) does not record usage yet; per-plan quotas |
 | Billing | Stripe webhook (Phase 4, receives events only) | Later | Subscriptions/Checkout not built. Deliberately deferred (§7) |
 
@@ -196,8 +196,8 @@ users may need to become Dealer customers.
 ## 9. Implementation plan and acceptance criteria
 
 **M0: finish the existing build (prerequisite, next).**
-* Port Phase 3 into dealerflow, replacing the interim conversation tables. The full suite passes on SQLite and
-  Postgres; one auth system; one send gate.
+* ~~Port Phase 3 into dealerflow, replacing the interim conversation tables.~~ Done on
+  `claude/gifted-phase3-integration` (one auth system, one send gate); see build status.
 * Merge the integration branch to `main`; build the Docker image once; verify one live integration with test
   accounts.
 

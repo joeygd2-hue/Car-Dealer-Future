@@ -60,7 +60,7 @@ anything else. Portal routes never accept a client id from the request.
 | Client reports | `services/client_reports.py` | Immutable monthly snapshots; sources per metric; channel status; attribution disclaimer |
 | Client email | `services/client_email.py` | Reports and lead summaries; SIMULATED unless explicitly enabled and authorized per client |
 | Retention, export, deletion | `services/maintenance.py` | Purge conversation PII after N days; JSON export; confirmed hard delete |
-| Interim Phase 2/3 data | `models_interim.py`, `services/dealer_ops.py` | To be replaced by the Phase 2/3 ports |
+| Customer conversations (Phase 3) | `models_conversations.py`, `services/conversations/`, `web/routes_conversations.py`, `web/routes_customer_public.py` | Website chat, ADF leads, staff-assisted Marketplace; grounded EN/ES drafts, review, escalation, test drives, Modes A/B/C; see `shared-stack.md` |
 
 ## Data model (Phase 4 additions, migration 0002; interim tables in 0003)
 
@@ -69,8 +69,8 @@ anything else. Portal routes never accept a client id from the request.
 `client_agreements`, `invoices`, `invoice_lines`, `payments`, `credit_notes`, `expense_categories`, `expenses`,
 `bank_transactions`, `seo_sites`, `seo_audits`, `seo_pages`, `seo_issues`, `search_metrics`, `client_reports`;
 new columns `users.client_id`, `cost_entries.{provider, metric, quantity, client_id, verified}`.
-Interim: `inventory_imports`, `vehicles`, `listings`, `publish_attempts`, `conversations`,
-`conversation_messages`, `appointments`.
+The interim inventory/listing tables were replaced by Phase 2's at integration, and the interim `conversations`,
+`conversation_messages` and `appointments` by Phase 3's tables (migration `0004`).
 
 Money is integer cents with a currency (no conversion between currencies; other currencies are excluded and
 counted). Timestamps are naive UTC.

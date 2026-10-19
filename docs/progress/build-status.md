@@ -5,10 +5,63 @@
 | **1** | Research, lead generation, CRM, sales operations, persistent outreach agent | **Implemented and tested with simulated providers.** Live integrations not yet verified (no credentials). |
 | **1.5** | Launch-readiness audit | **Done 2026-10-18.** Verdict: not ready for live outreach; blockers in `docs/audit/launch-readiness-audit.md` §7. |
 | **2** | Dealership inventory ingestion, bilingual listings, approvals, publishing | **Implemented and tested with fixtures, SIMULATED channel and mocked HTTP.** Meta catalog not live-verified (no credentials). |
-| 3 | Customer response, conversations, portal messaging | **Not integrated.** Still a separate `app/` package on `claude/magical-darwin-nncp64` (its own 177 tests pass there). Interim stand-in tables (`models_interim.py`) serve Phase 4 reporting until it is ported. |
+| **3** | Customer response, conversations, portal messaging | **Integrated into `dealerflow` on `claude/gifted-phase3-integration` and tested with SIMULATED channels.** Messenger/SMS live adapters not ported; no reply has reached a real customer. |
 | **4** | Finance, expenses, usage costs, SEO audits, client reporting, service catalog, onboarding, tickets, client portal, security review | **Implemented and tested with simulated providers.** Live integrations not verified. |
 
-Last updated: 2026-10-19 · integration branch `claude/gifted-brahmagupta-8s3mnu` (Phases 1, 1.5, 2 and 4 in one `dealerflow` app)
+Last updated: 2026-10-19 · branch `claude/gifted-phase3-integration` (Phases 1, 1.5, 2, 3 and 4 in one `dealerflow` app), built on
+`claude/gifted-brahmagupta-8s3mnu` at `e997c8c`. Not merged into `main`.
+
+## Integration of Phase 3 (2026-10-19)
+
+Source: the separate `app/` package on `claude/magical-darwin-nncp64` at `98fa3d3` (Phase 3 + 3.5 safety work; 184
+tests passed there before porting). Ported into `dealerflow` rather than merged, because it had its own auth, database,
+job queue, audit log and a second outreach agent.
+
+| Decision | What was done |
+|---|---|
+| Real models replace the stand-ins | `models_conversations.py` (contacts, identities, leads, suppressions, conversations, messages, drafts, escalations, appointments + events, response-automation settings, mode authorizations, approved templates, FAQs, notification preferences; platform tables for inbound events, evaluation runs, notifications, send attempts, pilot allowlist, rate counters, sandbox records). `models_interim.py` and `services/dealer_ops.py` are deleted. |
+| Shared models reused | `clients` (Phase 3 `Dealership` → `Client`: weekly hours in `business_hours`, `public_chat_key`, approved business info), dealership users (`DEALER_ADMIN`/`DEALER_STAFF` → `dealer_admin`/`dealer_reviewer`; `dealer_viewer` is read-only), Phase 2 `vehicles` (`verified_at` and `data_conflict_note` added; approved features come from the approved listing revision), `integration_connections` (`kind="customer_messaging"`; `paused`, `external_account_id`, `config` added). |
+| Tenant isolation | Every per-dealership table uses `TenantMixin` and composite `(client_id, parent_id)` foreign keys; routes use `dealer_ctx` and an ownership check, so another dealership's ids return 404. A provider message id reused across dealerships is rejected. |
+| Roles | New `respond` permission (rep/manager/admin; dealer_admin/dealer_reviewer). Settings and resume need `manage`. Modes B/C need a **dealer_admin**, a passing evaluation within 30 days and an explicit authorization statement; agency staff cannot authorize them for a dealership. |
+| One set of switches | The platform emergency stop (Agent page) also blocks every customer message and staff email, at the gate and again around the provider call. Global automation pause on `/conversations/pilot`; per-dealership and per-channel pause on "Customer replies". Auto-sending also requires Phase 4's `inquiry_auto_response` gate. |
+| Sending safety kept | Send ledger (`send_attempts`, IN_FLIGHT → SENT/SIMULATED/BLOCKED/UNCERTAIN; a crashed send is never re-sent automatically, staff reconcile), message idempotency keys, duplicate-job deferral, database rate counters, final-content validation at send time, opt-out (EN/ES) blocks queued and future messages, pilot allowlist. |
+| Live sending | SIMULATED unless `DF_CUSTOMER_MESSAGING_LIVE_ENABLED=true` **and** the channel's connection is `connected` (Phase 4 requires a written note for that). Only first-party website chat can be live. Messenger/Twilio live adapters and webhooks were **not** ported. |
+| Jobs, audit, AI | Handlers run on dealerflow's queue (`DeferJob` gained a `persist` hook so a deferral can record why); the worker schedules the hourly digest check and reminder sweep. Audit goes to `audit_logs`. The optional LLM rephrase goes through the shared Claude gateway (off by default). |
+| Migration `0004` | Creates the tables and columns, gives every client a chat key, copies interim conversations/messages/appointments (pending outbound messages become drafts for review, never sends; Postgres sequences advanced), checks counts, drops the interim tables. Downgrade copies back. |
+| UI and API | Workspace pages: Inbox, conversation, Test drives, Customer replies (business info, FAQs, templates, limits, evaluation, mode, notifications), notifications. JSON API under `/api/v1/dealers/{id}/conversations|appointments|marketplace`. Public `/api/chat/{key}/messages` (CORS limited to the dealership site, per-IP and per-visitor limits) and `/chat/{key}` test page; ADF/XML intake with a bearer token. Operator console `/conversations/pilot`. The Phase 4 simulated-inquiry endpoint now goes through the real pipeline. |
+| Not ported | Phase 3's own login, MFA, server-side sessions, HMAC audit chain, job queue and outreach agent (dealerflow has its own); Meta/Twilio adapters, webhooks and encrypted per-tenant credentials. See `known-limitations.md`. |
+
+Bugs found and fixed while porting:
+
+* The 24-hour and 2-hour test-drive reminders shared one message idempotency key, so the second reminder failed on
+  every retry and then died. Reminders are now keyed by label, and a retried reminder job does not duplicate.
+* Retention purged message bodies but left customer text in escalation summaries, staff notification bodies, raw
+  inbound (ADF) payloads and sandbox send records. All are now purged by age; opt-outs are kept.
+* Migration downgrade wrote channels back in upper case (`WEB_FORM`); it now restores the interim form.
+* Lead summaries go through Phase 4's client email, which would have sent real email for a SIMULATED (demo)
+  dealership once real sending was enabled. `client_email.delivery_allowed` now refuses SIMULATED clients (the same
+  fix exists on `claude/phase4-integration`, commit `ba9d88d`, which this base did not include).
+* ADF/XML lead intake accepted leads for a `disabled` connection or a paused/cancelled dealership; it now refuses them.
+
+### Phase 3 integration results
+
+| Run | Result |
+|---|---|
+| `pytest` on SQLite | **388 passed** (260 existing + 127 conversation tests + 1 migration data test) |
+| `pytest` on PostgreSQL 16 (`DF_TEST_PG_URL=postgresql+psycopg://…@127.0.0.1/…`) | PG_RESULT |
+| Migration `0004` with interim rows, SQLite and Postgres 16 | upgrade → rows mapped (contacts, statuses, drafts, appointments, chat keys, next id) → schema matches models → downgrade restores interim rows (migrated drafts not restored) → upgrade |
+| Full chain `head → base → head`, SQLite and Postgres 16 | succeeded; no schema diff against the models |
+| Synthetic evaluation (46 cases) through the integrated pipeline | all metrics 1.0, passed |
+| Clean clone (`git clone` → new venv → `pip install -e ".[dev]"` → `migrate` → admin → `demo` → `demo-dealer` → `demo-conversations` → `run-jobs` → `web` + `worker`) | `/healthz` ok with a live worker; 22-step HTTP workflow passed: website chat → draft in review → staff sends (SIMULATED; visitor sees nothing) → test-drive request confirmed by staff (SIMULATED confirmation) → financing escalation resolved → summary; ledger shows no live attempt. Dealership user: own workspace 200, other dealership 404, staff pages 403 |
+
+| Test file | Cases | Origin |
+|---|---|---|
+| `test_conv_language_analysis.py`, `test_conv_response_engine.py`, `test_conv_inbox_pipeline.py`, `test_conv_automation_modes.py`, `test_conv_accuracy_hardening.py`, `test_conv_appointments_notifications.py`, `test_conv_evaluation_and_adf.py` | 72 | Phase 3 tests, imports and fixtures adapted (`tests/conv_helpers.py`), plus a disabled-ADF-connection case |
+| `test_conv_pilot_mode.py`, `test_conv_outbound.py`, `test_conv_worker_resilience.py`, `test_conv_security.py` | 46 | Phase 3 tests rewritten for website-chat-only live sending, dealerflow jobs, roles and URLs |
+| `test_conv_integration.py`, `test_migrations.py` (data test) | 10 | New: Phase 4 gate, shared emergency stop, no real email for SIMULATED dealerships, pilot-console pause, reminder regression, worker schedule, audit client id, retention, staff HTTP workflow, migrated data |
+
+Phase 3 tests not ported: its outreach agent, job queue, migrations, MFA/session/HMAC-audit tests, and the Meta/Twilio
+adapter and webhook tests (that code was not ported).
 
 ## Integration of Phases 1.5, 2 and 4 (2026-10-19)
 
@@ -184,7 +237,7 @@ removed (still in history at `fdfa4f4`).
 | Onboarding | 14-step checklist with evidence, activation gate, per-automation prerequisites (steps + verified integrations), tickets (manual/portal/system) | `services/onboarding.py`, `services/tickets.py`, `web/routes_clients.py` |
 | SEO | Authorized sites only; robots-aware polite crawler (stops on 429, GET/HEAD only); checks for titles, descriptions, duplicates, noindex, sitemap/robots, headings, alt text, JSON-LD validity, AutoDealer/LocalBusiness schema, NAP consistency, inventory (Vehicle schema, price), broken internal links, orphan pages, Spanish-content opportunity, PageSpeed (optional); measured vs heuristic labels; issue lifecycle with before/after across audits; Search Console CSV import | `services/seo_*.py`, `web/routes_seo.py` |
 | Client reports | Immutable monthly snapshots with sources, channel status, simulated exclusion, attribution disclaimer; publish to portal; download/print; email via gated client email; monthly drafting job | `services/client_reports.py`, `services/client_email.py` |
-| Phase 2/3 interim | CSV inventory import, EN/ES template listings with approval, publishing recorded as `manual_required`, simulated inquiries, approved bilingual responses, lead summaries to the dealership | `models_interim.py`, `services/dealer_ops.py` |
+| Simulated inquiries | `POST /api/v1/clients/{id}/inquiries/simulated` now feeds the Phase 3 pipeline (flagged `simulated`, never counted as a real inquiry); interim stand-in tables removed in Phase 3 integration | `web/routes_ops_api.py`, `services/conversations/` |
 | Hardening | See `docs/security/threat-model.md` (7 issues fixed) | `web/app.py`, `web/deps.py`, `static/app.js` |
 | Operations | Retention purge, client export and confirmed deletion, backups/restore runbook, deployment guide | `services/maintenance.py`, `docs/operations/` |
 
@@ -207,10 +260,9 @@ existing rows on SQLite and Postgres 16.
 
 ### Next steps (after integration, 2026-10-19)
 
-1. **Phase 3**: port the separate `app` package on `claude/magical-darwin-nncp64` into dealerflow, using
-   `clients`, the `client` role/`client_role`, `tenancy.scope()`/`dealer_ctx`, the shared job queue and the
-   central send gate; replace the interim conversations/appointments tables (`models_interim.py`) and
-   `services/dealer_ops.py`. Do this before any new product work (audit blocker #5).
+1. **Phase 3**: done on `claude/gifted-phase3-integration` (see "Integration of Phase 3" above). Two other
+   Phase 3 integrations exist on the remote (`claude/phase3-integration`, `claude/mybot-phase3-integration`) on a
+   different base; choose one line before opening a pull request.
 2. Merge this integration branch into `main` (pull request), then retire the per-phase branches.
 3. Build the Docker image once (never built so far) and verify live integrations one at a time with test
    accounts (`known-limitations.md`, `docs/audit/launch-readiness-audit.md` §7 P0 items).

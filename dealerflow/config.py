@@ -128,8 +128,19 @@ class Settings(BaseSettings):
     def test_inbox_list(self) -> list[str]:
         return [x.strip().lower() for x in self.test_inboxes.split(",") if x.strip()]
 
-
     session_max_age_seconds: int = Field(default=60 * 60 * 12)
+
+    # --- Phase 4 ---------------------------------------------------------------------------
+    # Client-facing email (monthly reports, lead summaries). Off by default: messages are recorded
+    # as SIMULATED. Real delivery also needs the client's "report_email" connection marked connected.
+    client_email_sending_enabled: bool = False
+    attachments_dir: str = "./state/attachments"
+    api_rate_limit_per_minute: int = 300
+    crawler_timeout_seconds: float = 15.0
+    pagespeed_api_key: SecretStr = SecretStr("")  # Google PageSpeed Insights API v5 (optional)
+    stripe_webhook_secret: SecretStr = SecretStr("")  # whsec_... ; empty disables the Stripe webhook
+    ai_enabled: bool = False  # optional Claude API use; deterministic templates/rules otherwise
+    retention_days_conversations: int = 365
 
     @property
     def listing_ai_available(self) -> bool:
@@ -142,6 +153,23 @@ class Settings(BaseSettings):
     @property
     def working_day_list(self) -> list[int]:
         return [int(d) for d in self.working_days.split(",") if d.strip()]
+
+    def production_problems(self) -> list[str]:
+        """Configuration that blocks startup with DF_ENV=production (see production_warnings for advisories)."""
+        problems = []
+        if len(self.secret_key.get_secret_value()) < 32:
+            problems.append("DF_SECRET_KEY must be a random value of at least 32 characters (python -c 'import secrets; print(secrets.token_urlsafe(48))')")
+        if (self.outreach_sending_enabled or self.client_email_sending_enabled) and not self.base_url.startswith("https://"):
+            problems.append("DF_BASE_URL must be https:// before real email is enabled (unsubscribe links must work for recipients)")
+        return problems
+
+    def production_warnings(self) -> list[str]:
+        warnings = []
+        if not self.base_url.startswith("https://"):
+            warnings.append("DF_BASE_URL is not https://; webhooks and unsubscribe links will not work publicly")
+        if self.database_url.startswith("sqlite"):
+            warnings.append("SQLite is fine for one host; use PostgreSQL for multiple web/worker hosts or managed backups")
+        return warnings
 
     def require_secret_key(self) -> str:
         key = self.secret_key.get_secret_value()

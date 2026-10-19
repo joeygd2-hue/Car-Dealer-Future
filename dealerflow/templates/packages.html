@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Service packages{% endblock %}
+{% block content %}
+<h1>Service catalog</h1>
+<p class="note">Seeded packages are proposals with $0 placeholder prices. They are not validated market prices. Set real prices here; client agreements copy the price at signing.</p>
+{% for p in packages %}
+<section class="card">
+  <h2>{{ p.name }} <span class="pill {{ p.pricing_status }}">{{ p.pricing_status }}</span>{% if not p.active %} <span class="pill disabled">inactive</span>{% endif %}</h2>
+  <p>{{ p.description }}</p>
+  <p class="muted">Includes: {{ all_features(p)|join(' · ') }}</p>
+{% if role_at_least(user.role, 'admin') %}  <form method="post" action="/packages/{{ p.id }}" class="fgrid">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Name<input name="name" value="{{ p.name }}" required></label>
+    <label>Setup fee ($)<input name="setup_fee" value="{{ '%.2f'|format(p.setup_fee_cents / 100) }}" inputmode="decimal"></label>
+    <label>Recurring fee ($)<input name="recurring_fee" value="{{ '%.2f'|format(p.recurring_fee_cents / 100) }}" inputmode="decimal"></label>
+    <label>Billing<select name="billing_frequency">{% for b in ['monthly','quarterly','annual','one_time'] %}<option {% if b == p.billing_frequency %}selected{% endif %}>{{ b }}</option>{% endfor %}</select></label>
+    <label>Pricing status<select name="pricing_status">{% for b in ['proposed','validated','retired'] %}<option {% if b == p.pricing_status %}selected{% endif %}>{{ b }}</option>{% endfor %}</select></label>
+    <label>Active<select name="active"><option value="1" {% if p.active %}selected{% endif %}>Yes</option><option value="" {% if not p.active %}selected{% endif %}>No</option></select></label>
+    <label class="wide">Features (one per line)<textarea name="features" rows="4">{{ p.features|join('\n') }}</textarea></label>
+    <button type="submit">Save</button>
+  </form>{% endif %}
+</section>
+{% endfor %}
+{% endblock %}

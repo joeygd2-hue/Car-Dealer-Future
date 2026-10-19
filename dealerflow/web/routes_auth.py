@@ -38,6 +38,9 @@ def login(request: Request, email: str = Form(...), password: str = Form(...), n
     request.session.update({"uid": user.id, "t": time.time(), "pv": password_version(user)})
     user.last_login_at = utcnow()
     audit(db, "auth.login", actor_id=user.id)
+    if user.is_client:  # client users only ever see the client portal
+        dest = safe_next(next, "/portal")
+        return RedirectResponse(dest if dest.startswith("/portal") else "/portal", status_code=303)
     return RedirectResponse(safe_next(next), status_code=303)
 
 

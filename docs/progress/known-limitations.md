@@ -1,4 +1,4 @@
-# Known limitations (Phase 1 + 1.5 audit)
+# Known limitations (Phases 1, 1.5, 2 and 4, integrated)
 
 Last updated 2026-10-18 (after the launch-readiness audit; see `docs/audit/launch-readiness-audit.md` for
 blockers and priorities). Be explicit with anyone relying on this system: **no real email, calendar, Zoom,
@@ -101,3 +101,64 @@ Last updated 2026-10-18 by the Phase 2 chat.
 | Dealership users | Created by a dealership admin or agency manager with a temporary password; no invite email, password reset or MFA yet. |
 | Docs from Phase 1 | `docs/research/feasibility-report.md` and Phase 1's `docs/research/source-register.md` (IDs like `[S-OSM]`) are referenced but were never committed on the Phase 1 branch. Phase 2 sources are in `docs/research/phase2-source-register.md`. |
 | Phase 4 branch | `claude/blissful-davinci-82py6w` is still a separate app (`app/` package) and is not merged; it must be ported into `dealerflow`. |
+## Phase 4
+
+Every Phase 4 end-to-end test ran with SIMULATED providers and synthetic data. **No real payment, accounting,
+PageSpeed, Search Console, Claude API or client email call has been made.**
+
+### Integrations needing credentials or third-party approval
+
+| Integration | Status | What's needed |
+|---|---|---|
+| Stripe webhooks | Verified locally with self-signed payloads only | Stripe account; a **test-mode** endpoint for `/webhooks/stripe` (events `invoice.paid`, `invoice.payment_failed`, `charge.refunded`) and `DF_STRIPE_WEBHOOK_SECRET`; public HTTPS. Creating Stripe invoices from the app is **not** built (invoices are created here, payments recorded from Stripe events or manually) |
+| QuickBooks Online / Xero | **Not implemented** | OAuth app + sandbox company; for now use manual entry, CSV export and bank-CSV reconciliation |
+| Google Search Console | **API not implemented**; CSV export import works | Property owner access + OAuth (`webmasters.readonly`) to automate |
+| PageSpeed Insights | Parser only, never called | API key (`DF_PAGESPEED_API_KEY`) |
+| Claude API | Stubbed-client test only | API key; `DF_AI_ENABLED=true`. Nothing in Phase 4 depends on it |
+| Client email (reports, lead summaries) | Mock only | Real provider (Phase 1), `DF_CLIENT_EMAIL_SENDING_ENABLED=true`, and per-client authorized `report_email` connection |
+| Listing publication channels (Phase 2) | None; all attempts `manual_required` | Phase 2 |
+| Customer messaging channels (Phase 3) | None; inquiries are simulated | Phase 3 |
+
+### Functional gaps
+
+* **Interim Phase 3 tables** (`models_interim.py`: conversations, messages, appointments) are minimal stand-ins
+  until Phase 3 is ported. The interim inventory/listing tables were replaced by Phase 2 at integration.
+* Phase 3 lives in a separate `app` package (`claude/magical-darwin-nncp64`) with its own auth and models; it is
+  not integrated, so the client portal shows only Phase 4 data plus interim conversations.
+* Finance is single-currency for reporting (USD); other currencies are excluded and counted, not converted.
+  No sales tax handling. Expense categories are management categories, not tax advice.
+* Invoices are not emailed or sent to clients; there is no PDF invoice. Reports are HTML (print to PDF).
+* Stripe mapping needs either `invoices.external_id` = Stripe invoice id or `metadata.client_id`; unmatched
+  events fail and raise an alert.
+* No receipts OCR; no recurring-expense automation (recurrence is a label used by the forecast).
+* SEO checks are rule-based; no AI recommendations are generated yet (`detection='ai'` is reserved). JavaScript-
+  rendered sites are seen as raw HTML only. External links are not checked (internal only).
+* Gross margin covers only directly allocated costs; overhead allocation is not modelled.
+* Automations listed on the client page are gates only: the Phase 2/3 automation workers they protect do not
+  exist yet (`inventory_sync`, `listing_publish`, `inquiry_auto_response`); `seo_monitoring` does not schedule
+  audits yet — audits are started by staff; `monthly_report_email` is implemented.
+* Client data deletion and export are service functions (no UI) — deliberate, see the runbook.
+
+### Phase 4 security notes
+
+See `docs/security/threat-model.md`. Open items: in-process rate limiting (single process only), no MFA,
+attachments unencrypted at rest on local disk, no external penetration test, `style-src 'unsafe-inline'` kept
+for Phase 1 templates. **The platform is not production-ready** until live integrations are verified, MFA or
+an identity-aware proxy is in place, backups are tested, and the Phase 2/3 code is integrated.
+
+## Integration (2026-10-19)
+
+* **Phase 3 is still a separate app** (`claude/magical-darwin-nncp64`, own auth and models). Buyer conversations in
+  this app are the interim, SIMULATED stand-ins only.
+* After login, a dealership user lands on `/portal` (Phase 4 behaviour); the workspace is one click away and `/`
+  redirects there. Pick one landing page when the Phase 3 portal work lands.
+* Downgrading migration `0003` maps every `cancelled` client back to Phase 2's `offboarded` and drops the Phase 4
+  client columns and tables (their data is lost). Back up first (`python -m dealerflow backup`).
+* Deleting a client (service function only, no UI) anonymizes and deactivates its users instead of deleting them.
+* `clients.prospect_id` keeps Phase 2's plain foreign key (no `ON DELETE SET NULL`); prospects linked to a client
+  should be merged, not deleted.
+* Vehicle photos are stored as URLs from the dealer's feed; there is no photo upload or image hosting yet. The CSP
+  allows `https:` images so those URLs render; non-HTTPS photo URLs will not display.
+* VIN check digits and model years are validated locally, but VINs are **not decoded** (no NHTSA vPIC call is
+  implemented, although it was researched in `docs/research/meta-and-inventory-integrations-2026-10.md`).
+

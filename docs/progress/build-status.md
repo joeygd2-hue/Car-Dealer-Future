@@ -4,14 +4,39 @@
 |---|---|---|
 | **1** | Research, lead generation, CRM, sales operations, persistent outreach agent | **Implemented and tested with simulated providers.** Live integrations not yet verified (no credentials). |
 | **1.5** | Launch-readiness audit | **Done 2026-10-18.** Verdict: not ready for live outreach; blockers in `docs/audit/launch-readiness-audit.md` §7. |
-| 2 | Inventory/listing publishing | In progress on `claude/dealership-inventory-publishing-iq0aqw`, merged onto `dealerflow`. Don't start new Phase 2 work here until audit blocker #5 is decided. |
-| 3 | Customer-response engine | In progress on `claude/magical-darwin-nncp64` as a **separate `app/` package**; needs porting onto `dealerflow`. |
-| 4 | (see branch) | In progress on `claude/blissful-davinci-82py6w` as a **separate `app/` package**; needs porting onto `dealerflow`. |
-| **2** | Dealership inventory ingestion, bilingual listings, approvals, publishing | **Implemented in this app and tested with fixtures, SIMULATED channel and mocked HTTP.** Meta catalog not live-verified (no credentials). See the Phase 2 section below. |
-| 3 | (defined in its own task) | Not started. |
-| 4 | (defined in its own task) | Not started. |
+| **2** | Dealership inventory ingestion, bilingual listings, approvals, publishing | **Implemented and tested with fixtures, SIMULATED channel and mocked HTTP.** Meta catalog not live-verified (no credentials). |
+| 3 | Customer response, conversations, portal messaging | **Not integrated.** Still a separate `app/` package on `claude/magical-darwin-nncp64` (its own 177 tests pass there). Interim stand-in tables (`models_interim.py`) serve Phase 4 reporting until it is ported. |
+| **4** | Finance, expenses, usage costs, SEO audits, client reporting, service catalog, onboarding, tickets, client portal, security review | **Implemented and tested with simulated providers.** Live integrations not verified. |
 
-Last updated: 2026-10-18 · branch `claude/charming-ritchie-358e1g`
+Last updated: 2026-10-19 · integration branch `claude/gifted-brahmagupta-8s3mnu` (Phases 1, 1.5, 2 and 4 in one `dealerflow` app)
+
+## Integration of Phases 1.5, 2 and 4 (2026-10-19)
+
+Audit blocker #5 ("phase branches diverged") is resolved for Phases 1, 1.5, 2 and 4: they are now one application
+with one auth system, one `clients` table, one Claude gateway and one migration chain. Merge order: Phase 1.5
+(`charming-ritchie`) ← Phase 2 (`dealership-inventory-publishing`) ← Phase 4 (`blissful-davinci`). Phase 3 is not
+included (see "Next steps").
+
+| Decision | What was done |
+|---|---|
+| One tenant table | `Client` lives in `models_ops.py` (Phase 4 lifecycle `onboarding/active/paused/cancelled`, contact and response fields) plus Phase 2's `slug` (auto-filled from the name when not given) and `simulated`. `models_dealer.py` re-exports it. Phase 2's "create dealership" form now goes through `services/tenancy.create_client`, so it also creates the onboarding checklist and stops prospecting outreach to the converted dealer. |
+| One kind of client user | `role="client"` + `client_id` + `client_role` (`dealer_admin/dealer_reviewer/dealer_viewer`). Client users can reach only `/dealers/<their id>/…`, `/api/v1/dealers/<their id>/…`, `/portal` and `/api/v1/portal` (enforced centrally in `web/deps.py`); `/` and `/dealers` redirect them to their workspace. Portal users created from the Clients page start as `dealer_viewer`. |
+| Interim tables replaced | Phase 4's interim `inventory_imports`, `vehicles`, `listings` and `publish_attempts` (and the `/api/v1/clients/{id}/inventory|listings|publish-attempts` endpoints and `dealer_ops` functions behind them) were removed. Client reports now read Phase 2's `import_runs`, `vehicles`, `listings` and `channel_publications`, and report API-confirmed and manually recorded publications separately. Interim conversations/appointments stay until Phase 3 is ported. |
+| One migration chain | `0001` (Phase 1) → `0002` (Phase 2, unchanged) → `0003_phase4_operations` (new). `0003` replaces Phase 4's standalone `0002`/`0003`, which assumed an empty `clients` table; it adds the Phase 4 client columns (with server defaults for existing rows), the status CHECK (mapping Phase 2's `offboarded` to `cancelled`), `cost_entries` usage columns, and the Phase 4/interim Phase 3 tables. |
+| One Claude gateway | `integrations/llm.py` keeps Phase 2's `structured_call` (listing generator) and Phase 4's `complete` (usage recorded as cost entries). Flags stay separate: `DF_LISTING_AI_ENABLED` and `DF_AI_ENABLED`; both off by default. |
+| Security headers | Phase 4's stricter CSP (`script-src 'self'`, no inline script) applies to every page. `img-src` now allows `https:` so dealership photos hosted on feed/dealer image servers render (Phase 2 shipped without a CSP; the Phase 1.5 CSP blocked them). |
+| Client deletion | `maintenance.delete_client` relied on database cascades, but Phase 2 tables and `users.client_id` have none, so it would have failed for any client with inventory or users. It now deletes the Phase 2 rows (children first), detaches, deactivates and anonymizes the client's users (other records may reference them), and keeps company cost history (`client_id` set to NULL). Covered by `tests/test_integration.py`. |
+| Unique slugs | Slugs are assigned in a session `before_flush` hook, so two new clients with the same name in one transaction get `name` and `name-2` instead of a unique-constraint error. |
+| Test-suite fixes | `tests/__init__.py` added: importing `tests.conftest` from a test module used to re-run conftest's setup (environment reset, new template DB). That made `test_finance_ui_forms` and `test_txdmv_import_through_the_web_form` fail when run alone, and made `test_sqlite_backup_and_restore` run (and fail) on Postgres. |
+
+### Integrated test results
+
+| Run | Result |
+|---|---|
+| `pytest` on SQLite | **256 passed** (136 Phase 1/1.5 + 47 Phase 2 + 73 Phase 4) |
+| `DF_TEST_PG_URL=… pytest` on PostgreSQL 16 | 255 passed + the SQLite-only backup test, which now skips correctly (`tests/test_backup.py`, `tests/test_migrations.py` re-run after the fix: 2 passed, 1 skipped) |
+| Migration `0003` with existing Phase 2 rows, SQLite and Postgres 16 | upgrade → CHECK enforced, `offboarded`→`cancelled`, JSON defaults filled → downgrade → upgrade: all succeeded |
+| App smoke test (`migrate`, `create-user`, `demo`, `demo-dealer`, `run-jobs`, `web`) | `/healthz` ok with live worker; 27 staff pages return 200; a dealership user reaches their workspace and portal, gets 403 on staff pages and 404 on another dealership |
 
 ## Starting point
 
@@ -40,9 +65,9 @@ SQLAlchemy/Alembic + Jinja, matching the owner's other Python/FastAPI project. D
 
 ## Tests
 
-`pytest` runs 136 tests in about 30 s with no network (102 at the end of Phase 1; 34 added by the audit, including
-`test_adversarial.py`, `test_txdmv.py`, `test_backup.py`, `test_livecheck.py`). The same suite passes on Postgres 16
-`pytest` runs 146 tests (99 Phase 1 + 47 Phase 2) with no network. The same suite passes on Postgres 16
+Phase 1/1.5 tests: 136 (102 at the end of Phase 1; 34 added by the audit, including
+`test_adversarial.py`, `test_txdmv.py`, `test_backup.py`, `test_livecheck.py`). With Phases 2 and 4 the integrated
+suite is 256 tests (see "Integrated test results" above). The suite also runs on Postgres 16
 (`DF_TEST_PG_URL=postgresql+psycopg://… pytest`).
 
 | File | Tests | Covers |
@@ -140,3 +165,53 @@ mobile width; staff pages return 403) and as staff (dealership directory).
 3. To verify Meta live: Meta app with App Review, a test vehicle catalog, a system-user token in `DF_META_TOKEN_*`,
    then publish one SIMULATED dealership's listing to a test catalog.
 4. Get real DMS export samples from pilot dealers and add column-mapping presets.
+
+
+## Phase 4: what's implemented
+
+Branch `claude/blissful-davinci-82py6w`. Phase 4 began before Phase 1 was pushed, built a parallel foundation,
+and then — on the owner's decision — was **re-implemented inside dealerflow**; the parallel `app` package was
+removed (still in history at `fdfa4f4`).
+
+| Area | Implemented | Where |
+|---|---|---|
+| Tenancy | `clients` (1:1 with won prospects), `client` role confined to the portal centrally, scoped queries, portal users managed per client | `models_ops.py`, `services/tenancy.py`, `web/deps.py`, `web/routes_portal.py` |
+| Finance | Invoices (draft/issued/void/written off; paid state derived), lines (setup/recurring/one-time/discount), payments (only confirmed = cash), credits and refunds, agreements with copied prices and discounts, period invoicing, MRR/ARR, receivables aging, revenue by client, CAC / cost per qualified lead / per booked meeting (or "not measurable"), retention/churn, ARPC, client costs and partial gross margin, cash-flow actuals + labelled forecast, hypothetical break-even, CSV exports, bank-CSV reconciliation, PAN rejection, tax disclaimer | `services/finance.py`, `web/routes_finance.py` |
+| Expenses | Date, vendor, configurable categories (11 defaults incl. AI, software, hosting, data, outreach, ads, domains, contractors, phone, payment processing), amount+currency, purpose, recurrence, client/project, reimbursement, notes, receipt upload, source=manual | `services/finance.py`, `services/maintenance.py` |
+| Usage costs | `cost_entries` extended with provider/metric/quantity/client and verified/estimated/recorded/unknown basis; Claude token recording; billing CSV import; budgets with threshold, limit and spike alerts (hourly job) | `services/usage.py`, `integrations/llm.py` |
+| Payments integration | Stripe webhook: signature, tolerance, dedup, job processing, failure alerts | `integrations/stripe.py` |
+| Service catalog | 3 proposed packages at $0 placeholders; editable prices/frequency/features; package inclusion | `services/packages.py` |
+| Onboarding | 14-step checklist with evidence, activation gate, per-automation prerequisites (steps + verified integrations), tickets (manual/portal/system) | `services/onboarding.py`, `services/tickets.py`, `web/routes_clients.py` |
+| SEO | Authorized sites only; robots-aware polite crawler (stops on 429, GET/HEAD only); checks for titles, descriptions, duplicates, noindex, sitemap/robots, headings, alt text, JSON-LD validity, AutoDealer/LocalBusiness schema, NAP consistency, inventory (Vehicle schema, price), broken internal links, orphan pages, Spanish-content opportunity, PageSpeed (optional); measured vs heuristic labels; issue lifecycle with before/after across audits; Search Console CSV import | `services/seo_*.py`, `web/routes_seo.py` |
+| Client reports | Immutable monthly snapshots with sources, channel status, simulated exclusion, attribution disclaimer; publish to portal; download/print; email via gated client email; monthly drafting job | `services/client_reports.py`, `services/client_email.py` |
+| Phase 2/3 interim | CSV inventory import, EN/ES template listings with approval, publishing recorded as `manual_required`, simulated inquiries, approved bilingual responses, lead summaries to the dealership | `models_interim.py`, `services/dealer_ops.py` |
+| Hardening | See `docs/security/threat-model.md` (7 issues fixed) | `web/app.py`, `web/deps.py`, `static/app.js` |
+| Operations | Retention purge, client export and confirmed deletion, backups/restore runbook, deployment guide | `services/maintenance.py`, `docs/operations/` |
+
+### Phase 4 tests (run 2026-10-18)
+
+`pytest` → **175 passed** (102 Phase 1 + 73 Phase 4) in ~85 s on SQLite; **175 passed** on Postgres 16
+(`DF_TEST_PG_URL=…`), no warnings. `pip-audit`: no known vulnerabilities.
+
+| File | Cases | Covers |
+|---|---|---|
+| `test_e2e_business_journey.py` | 1 | **Step 8 journey, all 14 steps** in one run: fixture discovery → approved outreach (mock send) → reply matched → meeting booked (mock calendar + Zoom) → won → client created → inventory → EN/ES listings approved → publishing `manual_required` → Spanish inquiry + approved Spanish reply → summary to the right dealership → revenue/expenses → SEO audit → client report reflects data → cross-client access blocked |
+| `test_phase4_security.py` | 39 | Portal isolation (lists + direct ids, both directions), client confinement on 15 staff paths, role matrix, CSRF on cookie JSON, open redirects, headers/CSP/no inline script, API rate limit, PAN rejection + log redaction, Stripe signature/tolerance/dedup/disabled, upload validation, production config, audit scrubbing, unbound/converted client users, portal password reset scoping |
+| `test_phase4_finance.py` | 17 | Invoice ≠ cash, drafts ≠ revenue, pending ≠ cash, payment rules, void/credit/refund, discount limits, agreements/MRR/ARR/period invoicing/churn, unmeasurable CAC, CAC + margin, CSV export, reconciliation, break-even, cash-flow labels, Stripe payment once, usage bases + idempotency + billing import, budget/spike alerts (deduped), AI gateway off by default + token recording, finance UI forms |
+| `test_phase4_seo_reports.py` | 12 | Authorization required, evidenced findings, measured vs heuristic, robots honoured, re-audit resolution with before/after, 429 stop, worker job path, read-only crawling, onboarding/automation gating, report contents/channels/attribution/Search Console, simulated email, real provider not used without authorization, monthly job idempotency, lead summary routing |
+| `test_phase4_pages.py` | 4 | Every Phase 4 page renders for admin/manager/viewer/portal with role-appropriate controls |
+
+Also run by hand: `migrate` → admin user → `web` (uvicorn) → `run-jobs` → login → every Phase 4 page (200, CSP
+present) → `/healthz` shows a live worker. Migrations `0002`/`0003`: upgrade → downgrade → upgrade with
+existing rows on SQLite and Postgres 16.
+
+### Next steps (after integration, 2026-10-19)
+
+1. **Phase 3**: port the separate `app` package on `claude/magical-darwin-nncp64` into dealerflow, using
+   `clients`, the `client` role/`client_role`, `tenancy.scope()`/`dealer_ctx`, the shared job queue and the
+   central send gate; replace the interim conversations/appointments tables (`models_interim.py`) and
+   `services/dealer_ops.py`. Do this before any new product work (audit blocker #5).
+2. Merge this integration branch into `main` (pull request), then retire the per-phase branches.
+3. Build the Docker image once (never built so far) and verify live integrations one at a time with test
+   accounts (`known-limitations.md`, `docs/audit/launch-readiness-audit.md` §7 P0 items).
+4. MyBot Flipper (individual sellers): planned in `docs/product/flipper-plan.md`; starts after step 1.

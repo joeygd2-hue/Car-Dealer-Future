@@ -103,3 +103,18 @@ async def twilio_status(request: Request, call_id: int, db: Session = Depends(ge
         if form.get("CallDuration"):
             call.duration_seconds = int(form["CallDuration"])
     return {"ok": True}
+
+
+@router.post("/webhooks/stripe")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    """Stripe snapshot events (signature-verified, de-duplicated by event id, processed by a job)."""
+    from ..integrations.stripe import SignatureError, ingest
+
+    raw = await request.body()
+    if len(raw) > 1_000_000:
+        return JSONResponse({"detail": "Payload too large"}, status_code=413)
+    try:
+        status, _ = ingest(db, raw, request.headers.get("stripe-signature"))
+    except (SignatureError, json.JSONDecodeError):
+        return JSONResponse({"detail": "Invalid signature or payload"}, status_code=400)
+    return {"status": status}

@@ -113,3 +113,22 @@ caller ID you own), `DF_AGENT_PHONE` (the phone Twilio rings first).
 | `DF_META_LIVE_PUBLISHING_ALLOWED` | `false` | Global switch; nothing is sent to Meta unless true **and** the dealership connection is authorised |
 | `DF_META_GRAPH_API_VERSION` / `DF_META_GRAPH_BASE_URL` | `v24.0` / `https://graph.facebook.com` | Graph API target (confirm the current version before going live) |
 | `DF_META_TOKEN_<NAME>` | — | A dealership's Meta system-user token; the connection stores only this variable's name |
+## Phase 4: clients, finance, SEO, reporting
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DF_CLIENT_EMAIL_SENDING_ENABLED` | `false` | Allow real email to client dealerships (monthly reports, lead summaries). Also requires a real email provider and, per client, a `report_email` connection marked connected. Otherwise messages are SIMULATED (mock) or not sent. |
+| `DF_ATTACHMENTS_DIR` | `./state/attachments` (`/data/attachments` in Docker) | Expense receipts. Back it up; use an encrypted volume. |
+| `DF_MAX_UPLOAD_BYTES` | `10485760` | Upload limit (PDF, PNG, JPEG, WEBP, CSV, TXT only). |
+| `DF_API_RATE_LIMIT_PER_MINUTE` | `300` | Per-IP limit for `/api/*` and `/webhooks/*` (per process). |
+| `DF_CRAWLER_TIMEOUT_SECONDS` | `15` | SEO crawler request timeout. The crawler uses `DF_HTTP_USER_AGENT`, honours robots.txt, waits ≥0.5 s (site setting, default 1 s) and stops on HTTP 429. |
+| `DF_PAGESPEED_API_KEY` | — | Optional Google PageSpeed Insights API key for mobile performance in SEO audits. |
+| `DF_STRIPE_WEBHOOK_SECRET` | — | `whsec_…` signing secret for `POST /webhooks/stripe`. Empty = endpoint rejects everything. Use a test-mode endpoint first. |
+| `DF_AI_ENABLED` | `false` | Optional Claude API use (`pip install -e ".[ai]"`). Nothing in Phase 4 requires it. |
+| `DF_ANTHROPIC_API_KEY` | — | Claude API key (server-side only). |
+| `DF_AI_MODEL` | `claude-opus-5-5` | Model id; per-token estimate rates are in Settings → cost estimates. |
+| `DF_RETENTION_DAYS_CONVERSATIONS` | `365` | Car-buyer conversation PII older than this is purged daily. |
+
+In production (`DF_ENV=production`) the app refuses to start if `DF_SECRET_KEY` is shorter than 32 characters,
+or if `DF_BASE_URL` is not https while `DF_OUTREACH_SENDING_ENABLED` or `DF_CLIENT_EMAIL_SENDING_ENABLED` is true.
+It logs a warning for SQLite or a non-https base URL.

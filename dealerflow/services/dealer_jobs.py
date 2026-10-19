@@ -81,7 +81,7 @@ def run_stale_scan(db: Session, payload: dict) -> dict:
     """Flag vehicles whose availability can no longer be confirmed, and overdue provider confirmations."""
     now = utcnow()
     flagged = overdue = 0
-    for client_id in db.scalars(select(Client.id).where(Client.status == "active")).all():
+    for client_id in db.scalars(select(Client.id).where(Client.status.in_(("onboarding", "active")))).all():
         ctx = system_context(client_id)
         try:
             sources = {s.id: s for s in ctx.db.scalars(select(InventorySource))}

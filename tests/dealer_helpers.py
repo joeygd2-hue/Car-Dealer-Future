@@ -31,7 +31,7 @@ def make_client(name: str = "Alpha Auto", slug: str | None = None) -> int:
 
 def make_dealer_user(client_id: int, email: str, role: str = "dealer_admin") -> int:
     with session_scope() as db:
-        u = User(email=email, name=email.split("@")[0], role="viewer", password_hash=hash_password(PASSWORD),
+        u = User(email=email, name=email.split("@")[0], role="client", password_hash=hash_password(PASSWORD),
                  client_id=client_id, client_role=role)
         db.add(u)
         db.flush()

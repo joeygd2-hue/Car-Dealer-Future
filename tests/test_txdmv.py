@@ -5,6 +5,7 @@ import pytest
 
 from dealerflow.models import Evidence, Prospect
 from dealerflow.services import importer
+from tests.conftest import login, make_user  # module level: a lazy import re-runs conftest setup
 
 COLS = ["County", "LicenseNumber", "LicenseStatus", "LicenseExpDate", "BusinessName", "DBAName", "AddressType",
         "PhysicalAddress", "PhysAddressTwo", "City", "State", "Zip", "MailingAddress", "MailAddressTwo", "MailingCity",
@@ -81,8 +82,6 @@ def test_txdmv_import_through_the_web_form(db, client):
     import io
 
     from openpyxl import Workbook
-
-    from tests.conftest import login, make_user
 
     admin = make_user(db)
     csrf = login(client, admin.email)

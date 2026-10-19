@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ inv.number }}{% endblock %}
+{% block content %}
+<h1>Invoice {{ inv.number }} <span class="pill {{ f.invoice_display_status(inv) }}">{{ f.invoice_display_status(inv)|label }}</span></h1>
+<p>{{ client.name }} · issued {{ inv.issue_date }} · due {{ inv.due_date }} · {{ inv.currency }} · source: {{ inv.source }}{% if inv.source == 'manual' %} (manually entered){% endif %}</p>
+<table><thead><tr><th scope="col">Type</th><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Unit</th><th scope="col">Amount</th></tr></thead><tbody>
+{% for li in inv.lines %}<tr><td>{{ li.kind|label }}</td><td>{{ li.description }}</td><td>{{ li.quantity }}</td><td>{{ li.unit_amount_cents|money }}</td><td>{{ li.amount_cents|money }}</td></tr>{% endfor %}
+</tbody><tfoot>
+<tr><th scope="row" colspan="4">Total</th><td>{{ f.invoice_total(inv)|money }}</td></tr>
+<tr><th scope="row" colspan="4">Confirmed payments</th><td>{{ f.invoice_paid(inv)|money }}</td></tr>
+<tr><th scope="row" colspan="4">Credits</th><td>{{ f.invoice_credited(inv)|money }}</td></tr>
+<tr><th scope="row" colspan="4">Refunds</th><td>{{ f.invoice_refunded(inv)|money }}</td></tr>
+<tr><th scope="row" colspan="4">Balance</th><td>{{ f.invoice_balance(inv)|money }}</td></tr>
+</tfoot></table>
+{% if inv.payments %}<h2>Payments</h2><ul>{% for p in inv.payments %}<li>{{ p.amount_cents|money }} {{ p.status }} {{ p.received_date or '' }} via {{ p.method|label }} ({{ p.source }}){% if p.reconciled %} · reconciled{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if role_at_least(user.role, 'admin') %}<div class="actions">
+{% if inv.status == 'draft' %}
+  <form method="post" action="/finance/invoices/{{ inv.id }}/issue" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Issue invoice</button></form>
+{% endif %}
+{% if inv.status in ('draft', 'issued') and f.invoice_paid(inv) == 0 %}
+  <form method="post" action="/finance/invoices/{{ inv.id }}/void" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><label class="sr" for="vr">Reason</label><input id="vr" name="reason" placeholder="Void reason" required><button class="danger">Void</button></form>
+{% endif %}
+</div>{% endif %}
+{% if inv.status == 'issued' %}
+{% if role_at_least(user.role, 'admin') %}<section class="card">
+  <h2>Record a confirmed payment</h2>
+  <p class="muted">Record only money actually received. Never enter card numbers — use the processor's reference.</p>
+  <form method="post" action="/finance/invoices/{{ inv.id }}/payment" class="fgrid">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Amount ($)<input name="amount" inputmode="decimal" required></label>
+    <label>Date received<input type="date" name="received_date" value="{{ today }}" required></label>
+    <label>Method<select name="method">{% for m in methods %}<option value="{{ m }}">{{ m|label }}</option>{% endfor %}</select></label>
+    <label>Reference<input name="reference" maxlength="200"></label>
+    <button type="submit">Record payment</button>
+  </form>
+</section>
+<section class="card">
+  <h2>Credit or refund</h2>
+  <form method="post" action="/finance/invoices/{{ inv.id }}/credit" class="fgrid">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Type<select name="kind"><option value="credit">Credit (reduces amount owed)</option><option value="refund">Refund (cash returned)</option></select></label>
+    <label>Amount ($)<input name="amount" inputmode="decimal" required></label>
+    <label>Reason<input name="reason" required></label>
+    <button type="submit">Record</button>
+  </form>
+  <form method="post" action="/finance/invoices/{{ inv.id }}/write_off" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><label>Write off balance — reason <input name="reason" required></label><button class="danger">Write off</button></form>
+</section>{% endif %}
+{% endif %}
+{% endblock %}

@@ -9,7 +9,6 @@ from __future__ import annotations
 import csv
 import io
 import json
-import re
 from typing import Iterator
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -103,15 +102,9 @@ def create_client(request: Request, name: str = Form(""), prospect_id: str = For
     if prospect and db.scalar(select(Client).where(Client.prospect_id == prospect.id)):
         flash(request, "That prospect is already a client", "error")
         return go("/dealers")
-    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "client"
-    slug, n = base, 2
-    while db.scalar(select(Client).where(Client.slug == slug)):
-        slug, n = f"{base}-{n}", n + 1
-    c = Client(name=name, slug=slug, prospect_id=prospect.id if prospect else None, city=prospect.city if prospect else None,
-               state=prospect.state if prospect else None, simulated=bool(prospect and prospect.simulated))
-    db.add(c)
-    db.flush()
-    audit(db, "client.created", actor_id=user.id, entity_type="client", entity_id=c.id, data={"prospect_id": c.prospect_id})
+    from ..services import tenancy as client_tenancy
+
+    c = client_tenancy.create_client(db, name=name, actor=user, prospect=prospect, simulated=bool(prospect and prospect.simulated))
     flash(request, f"Created dealership workspace for {name}")
     return go(f"/dealers/{c.id}")
 
@@ -558,8 +551,8 @@ def dealer_user_create(request: Request, email: str = Form(...), role: str = For
         pw = hash_password(password)
     except ValueError as exc:
         raise BadRequest(str(exc)) from exc
-    # Dealership users get the lowest staff role as a backstop; client_id is what scopes them.
-    u = User(email=email, name=email.split("@")[0], role="viewer", password_hash=pw, client_id=ctx.client_id, client_role=role)
+    # Dealership users are "client" users (confined to the workspace and portal); client_role sets their permissions.
+    u = User(email=email, name=email.split("@")[0], role="client", password_hash=pw, client_id=ctx.client_id, client_role=role)
     ctx.db.add(u)
     ctx.db.flush()
     audit(ctx.db, "client_user.created", actor_id=ctx.actor_id, entity_type="user", entity_id=u.id,

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Reconciliation{% endblock %}
+{% block content %}
+<h1>Bank reconciliation</h1>
+{% if role_at_least(user.role, 'admin') %}<section class="card">
+  <form method="post" action="/finance/reconciliation/import" enctype="multipart/form-data" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Bank statement CSV (columns: date, description, amount; + inflow, − outflow) <input type="file" name="file" accept=".csv" required></label>
+    <button type="submit">Import</button>
+  </form>
+</section>{% endif %}
+{% if txs %}<table><thead><tr><th scope="col">Date</th><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Suggested match</th></tr></thead><tbody>
+{% for t, sugg in txs %}<tr><td>{{ t.posted_date }}</td><td>{{ t.description }}</td><td>{{ t.amount_cents|money }}</td><td>
+{% if sugg and role_at_least(user.role, 'admin') %}<form method="post" action="/finance/reconciliation/{{ t.id }}" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label class="sr" for="m{{ t.id }}">Match</label><select id="m{{ t.id }}" name="match">{% for s in sugg %}<option value="{{ s.type }}:{{ s.id }}">{{ s.type }} #{{ s.id }} · {{ s.date }} · {{ s.label }}</option>{% endfor %}</select><button>Confirm</button></form>
+{% else %}<span class="muted">No candidate with the same amount within 5 days</span>{% endif %}</td></tr>{% endfor %}
+</tbody></table>{% else %}<p class="empty">No unmatched bank transactions.</p>{% endif %}
+{% endblock %}

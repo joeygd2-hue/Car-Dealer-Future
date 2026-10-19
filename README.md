@@ -14,6 +14,13 @@ human-approved email outreach (English/Spanish), reply import and classification
 suppression enforcement, Zoom and calendar scheduling, click-to-call, daily and weekly reports, and
 a persistent autonomous agent with pause and emergency stop.
 
+**Phase 4 (this branch, merged with Phases 1 and 2):** client onboarding and a portal for dealership users, finance (invoices, payments,
+credits, expenses with receipts, agreements, MRR/ARR, receivables, CAC, churn, cash flow, reconciliation, CSV
+export), AI/integration usage costs with budgets and alerts, a configurable service catalog, onboarding
+checklist with automation gating, support tickets, an authorized-site SEO audit service, monthly client
+reports, and a production-readiness security review. Client email is also SIMULATED until enabled and
+authorized per client (`DF_CLIENT_EMAIL_SENDING_ENABLED`).
+
 > Out of the box every provider is **SIMULATED** (mock). Nothing reaches a real person until you
 > configure real credentials, set `DF_OUTREACH_SENDING_ENABLED=true`, **and** an admin authorizes live
 > operation on the Agent page. See [known limitations](docs/progress/known-limitations.md).
@@ -31,7 +38,7 @@ python -m dealerflow demo-dealer  # optional: a SIMULATED dealership client with
 python -m dealerflow web          # http://127.0.0.1:8000
 python -m dealerflow worker       # second terminal: agent ticks, sending, inbox polling
 python -m dealerflow backup ./backups   # verified backup; `restore FILE --yes` to restore
-pytest                            # no network
+pytest                            # 257 tests, no network
 ```
 
 Docker: `docker compose up --build` runs `migrate`, then `web` and `worker`.
@@ -48,6 +55,12 @@ Docker: `docker compose up --build` runs `migrate`, then `web` and `worker`.
 | [docs/research/feasibility-report.md](docs/research/feasibility-report.md) | Data sources, providers, law: what's allowed |
 | [docs/research/source-register.md](docs/research/source-register.md) | Sources, access dates, confidence |
 | [docs/audit/launch-readiness-audit.md](docs/audit/launch-readiness-audit.md) | **Phase 1.5 audit: verdict, blockers, priorities** (plus deployment, security, integration, compliance, lead-sourcing and pilot docs in `docs/audit/`) |
+| [docs/architecture/system-design.md](docs/architecture/system-design.md) | Processes, tenancy and roles, Phase 4 modules, data model |
+| [docs/security/threat-model.md](docs/security/threat-model.md) | Security review: controls, issues fixed, remaining risks |
+| [docs/operations/deployment.md](docs/operations/deployment.md) | Deploying web + worker, going live in order, production checklist |
+| [docs/operations/runbook.md](docs/operations/runbook.md) | Monitoring, incidents, backups/restore, retention, deletion |
+| [docs/business/service-packages.md](docs/business/service-packages.md) | Service catalog and client agreements (prices are proposals) |
+| [docs/business/metrics-and-reporting.md](docs/business/metrics-and-reporting.md) | How every finance, cost and client-report metric is defined |
 | [docs/progress/build-status.md](docs/progress/build-status.md) | What's implemented and tested |
 | [docs/progress/known-limitations.md](docs/progress/known-limitations.md) | What's missing, untested or needs credentials |
 

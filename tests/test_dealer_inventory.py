@@ -143,7 +143,12 @@ def test_authorised_feed_sync_through_worker(cid, monkeypatch):
                                                        "mileage": 30000, "images": ["https://img.example/f1.jpg"]}]})
     monkeypatch.setattr(http_mod.httpx, "Client", lambda **kw: REAL_CLIENT(transport=httpx.MockTransport(handler)))
     monkeypatch.setenv("DF_FEED_ALPHA_DMS", "dealer-issued-token")
-    monkeypatch.setattr("dealerflow.services.netguard.socket.getaddrinfo", lambda *a, **k: [(None, None, None, None, ("93.184.216.34", 443))])
+    import socket
+    real_getaddrinfo = socket.getaddrinfo
+    # Fake DNS for the feed host only: patching every lookup would also break the database client's own connection.
+    monkeypatch.setattr("dealerflow.services.netguard.socket.getaddrinfo",
+                        lambda host, *a, **k: [(None, None, None, None, ("93.184.216.34", 443))] if host == "dms.example.com"
+                        else real_getaddrinfo(host, *a, **k))
     from dealerflow.services import dealer_jobs
     from dealerflow.services.inventory.feeds import validate_feed_config
     from dealerflow.tenancy import system_context

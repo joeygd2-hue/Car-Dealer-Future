@@ -22,7 +22,14 @@ DEFAULTS: dict[str, Any] = {
     },
     "qualification_threshold": 55,
     # Estimated per-call costs (USD) used for budget checks; edit to match your provider invoices.
-    "cost_estimates": {"discovery:osm": 0.0, "discovery:fixture": 0.0, "email_send": 0.0, "zoom_meeting": 0.0},
+    "cost_estimates": {"discovery:osm": 0.0, "discovery:fixture": 0.0, "email_send": 0.0, "zoom_meeting": 0.0,
+                       # Claude API list prices per token (first-party API; cached reference 2026-10-06 — re-verify
+                       # at https://www.anthropic.com/pricing). Used only for *estimates* of AI usage.
+                       "anthropic:claude-opus-5-5:input_tokens": 0.000004, "anthropic:claude-opus-5-5:output_tokens": 0.00002,
+                       "anthropic:claude-opus-5-5:cache_read_tokens": 0.0000002, "anthropic:claude-opus-5-5:cache_write_tokens": 0.000005,
+                       "anthropic:claude-sonnet-5-5:input_tokens": 0.000002, "anthropic:claude-sonnet-5-5:output_tokens": 0.00001,
+                       "anthropic:claude-haiku-5-5:input_tokens": 0.0000001, "anthropic:claude-haiku-5-5:output_tokens": 0.0000005,
+                       "google:pagespeed:requests": 0.0},
 }
 
 

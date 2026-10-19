@@ -61,3 +61,7 @@ def seed(db: Session) -> None:
                         min_score=55, daily_cap=10))
     state(db)
     db.flush()
+    from .services.maintenance import seed_phase4
+
+    seed_phase4(db)
+    db.flush()

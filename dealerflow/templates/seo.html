@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}SEO audits{% endblock %}
+{% block content %}
+<h1>SEO audits</h1>
+<p class="note">Audits run only on dealership-owned sites the client has authorized. The crawler honours robots.txt, waits between requests and stops on HTTP 429. Nothing is changed on client websites. No ranking, traffic or sales outcome is guaranteed.</p>
+{% if sites %}<table><thead><tr><th scope="col">Client</th><th scope="col">Site</th><th scope="col">Authorized</th><th scope="col">Latest audit</th><th scope="col"></th></tr></thead><tbody>
+{% for s in sites %}{% set a = latest[s.id] %}<tr><td><a href="/seo/clients/{{ s.client_id }}">{{ names[s.client_id] }}</a></td><td>{{ s.base_url }}</td>
+<td>{% if s.authorized %}Yes — {{ s.authorization_note }}{% else %}No{% if role_at_least(user.role, 'admin') %}
+<form method="post" action="/seo/sites/{{ s.id }}/authorize" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><label class="sr" for="au{{ s.id }}">Authorization</label><input id="au{{ s.id }}" name="note" placeholder="How did the dealership authorize this?" required minlength="5"><button>Authorize</button></form>{% endif %}{% endif %}</td>
+<td>{% if a %}#{{ a.id }} {{ a.status }} · {{ a.pages_crawled }} pages · {{ a.summary.get('issues_total', '—') }} findings{% if a.error %} · {{ a.error }}{% endif %}{% else %}None{% endif %}</td>
+<td>{% if s.authorized %}<form method="post" action="/seo/sites/{{ s.id }}/audit"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Run audit</button></form>{% endif %}</td></tr>{% endfor %}
+</tbody></table>{% else %}<p class="empty">No sites registered.</p>{% endif %}
+<section class="card"><h2>Register a site</h2>
+<form method="post" action="/seo/sites" class="fgrid"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Client<select name="client_id">{% for cid, n in names.items() %}<option value="{{ cid }}">{{ n }}</option>{% endfor %}</select></label>
+<label>Base URL<input name="base_url" type="url" required></label><label>Max pages<input name="max_pages" type="number" value="50" min="1" max="500"></label><button>Add</button></form></section>
+{% endblock %}

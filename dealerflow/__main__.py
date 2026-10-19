@@ -36,7 +36,7 @@ def _migrate() -> None:
 
 def _create_user(email: str, role: str) -> None:
     from .db import session_scope
-    from .models import ROLES, User
+    from .models import STAFF_ROLES as ROLES, User
     from .security import hash_password
 
     if role not in ROLES:

@@ -22,9 +22,38 @@ from .deps import DealerHome, NotAuthenticated, back_to, flash, templates
 log = logging.getLogger("dealerflow.web")
 
 
+class _ApiRateLimiter:
+    """Per-IP sliding window for /api/ and webhook routes. Single-process; use a shared store when scaling out."""
+
+    def __init__(self) -> None:
+        self.hits: dict[str, list[float]] = {}
+
+    def allow(self, key: str, limit: int, window: float = 60.0) -> bool:
+        now = time.monotonic()
+        q = [t for t in self.hits.get(key, []) if now - t < window]
+        allowed = len(q) < limit
+        if allowed:
+            q.append(now)
+        self.hits[key] = q
+        return allowed
+
+
+api_limiter = _ApiRateLimiter()
+
+CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
+       "frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'")
+
+
 def create_app() -> FastAPI:
     s = get_settings()
+    if s.env == "production":
+        problems = s.production_problems()
+        if problems:
+            raise RuntimeError("Refusing to start with DF_ENV=production: " + "; ".join(problems))
     configure_logging(s.log_level)
+    if s.env == "production":
+        for warning in s.production_warnings():
+            log.warning("configuration warning", extra={"warning": warning})
     from .. import handlers  # noqa: F401  (job handlers must be registered for enqueue-and-run paths)
 
     app = FastAPI(title="dealerflow", docs_url="/api/docs" if s.env != "production" else None, redoc_url=None)
@@ -35,17 +64,21 @@ def create_app() -> FastAPI:
     async def request_log(request: Request, call_next):
         rid = uuid.uuid4().hex[:12]
         start = time.monotonic()
+        path = request.url.path
+        if path.startswith(("/api/", "/webhooks/")):
+            ip = request.client.host if request.client else "unknown"
+            if not api_limiter.allow(ip, get_settings().api_rate_limit_per_minute):
+                return JSONResponse({"detail": "Rate limit exceeded"}, status_code=429, headers={"Retry-After": "60"})
         response = await call_next(request)
         response.headers["X-Request-ID"] = rid
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "same-origin"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
-            "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'")
+        response.headers["Content-Security-Policy"] = CSP
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         if s.env == "production":
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        if request.url.path not in ("/healthz",) and not request.url.path.startswith("/static"):
+        if path != "/healthz" and not path.startswith("/static"):
             response.headers["Cache-Control"] = "no-store"
         if not request.url.path.startswith("/static"):
             path = request.url.path
@@ -90,11 +123,17 @@ def create_app() -> FastAPI:
                                                                   "user": None, "csrf": "", "flash": None},
                                           status_code=exc.status_code)
 
+    @app.exception_handler(Exception)
+    async def _unhandled(request: Request, exc: Exception):
+        log.exception("unhandled error", extra={"path": request.url.path, "error": type(exc).__name__})
+        return JSONResponse({"detail": "Internal server error"}, status_code=500)
+
     app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parents[1] / "static")), name="static")
-    from . import (routes_agent, routes_api, routes_auth, routes_crm, routes_dealer_api, routes_dealers, routes_outreach,
-                   routes_public, routes_settings)
+    from . import forms  # noqa: F401  (registers template filters)
+    from . import (routes_agent, routes_api, routes_auth, routes_clients, routes_crm, routes_dealer_api, routes_dealers, routes_finance,
+                   routes_ops_api, routes_outreach, routes_portal, routes_public, routes_seo, routes_settings)
 
     for mod in (routes_auth, routes_public, routes_crm, routes_outreach, routes_agent, routes_settings, routes_api,
-                routes_dealers, routes_dealer_api):
+                routes_dealers, routes_dealer_api, routes_clients, routes_finance, routes_seo, routes_portal, routes_ops_api):
         app.include_router(mod.router)
     return app

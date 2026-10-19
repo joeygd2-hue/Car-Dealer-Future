@@ -148,7 +148,7 @@ def _deliver(db: Session, client: Client, n: DealerNotification) -> tuple[SendRe
     live, _why = client_email.delivery_allowed(db, client)
     try:
         outcome = client_email.send(db, client, to=n.recipient_address, subject=f"[{s.business_name or 'dealerflow'}] {n.subject}",
-                                    body=n.body, key=f"dealer-notification:{n.id}")
+                                    body=n.body, key=f"dealer-notification:{n.id}", ledger=False)
     except (ExternalActionsHalted, IntegrationDisabled, CredentialError) as exc:
         return SendResult("FAILED", error=str(exc), retryable=isinstance(exc, ExternalActionsHalted)), live
     except RateLimitedError as exc:

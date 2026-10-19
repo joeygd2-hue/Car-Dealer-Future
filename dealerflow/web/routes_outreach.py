@@ -92,8 +92,7 @@ def message_approve(mid: int, request: Request, send_now: str = Form(""), user: 
         return RedirectResponse(f"/outreach/{mid}", status_code=303)
     if send_now:
         db.commit()
-        from ..models import Job
-        job = db.scalar(select(Job).where(Job.key == f"send_email:{m.id}"))
+        job = outreach.latest_send_job(db, m)
         run_job(job.id)
         db.expire_all()
         m = db.get(OutreachMessage, mid)

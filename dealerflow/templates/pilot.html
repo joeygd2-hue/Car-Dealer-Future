@@ -1,0 +1,34 @@
+{% extends "base.html" %}{% block title %}Pilot console{% endblock %}{% block content %}
+<h1>Pilot console</h1>
+<p class="small muted">Everything that could leave the platform, in one place. Simulated sends never leave the system; a live send under pilot mode only reaches the internal test recipients listed here.</p>
+<div class="grid">
+<div class="card"><h2>Switches (environment)</h2><table>{% for name, val, note in switches %}<tr><td class="mono">{{ name }}</td><td>{% if val is sameas true %}<span class="pill warn">on</span>{% elif val is sameas false %}<span class="pill ok">off</span>{% else %}<span class="pill">{{ val }}</span>{% endif %}</td><td class="small muted">{{ note }}</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>Stops</h2>
+<p>Platform emergency stop: {% if agent.status == "emergency_stopped" %}<span class="pill bad">ON</span> <span class="small">{{ agent.status_reason }}</span> — lift it on the <a href="/agent">Agent page</a>{% else %}<span class="pill ok">off</span>{% endif %}</p>
+{% if agent.status != "emergency_stopped" %}<form method="post" action="/admin/pilot/emergency-stop" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="reason" placeholder="reason"><button class="danger">Emergency stop everything</button></form>{% endif %}
+<p>Outreach live authorization: {{ "yes" if agent.live_authorized else "no" }}</p>
+<form method="post" action="/admin/pilot/global-pause" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="on" value="{{ 0 if global_pause else 1 }}">
+<span>Automated customer replies: {{ "PAUSED" if global_pause else "allowed (per-dealership rules apply)" }}</span><button class="secondary">{{ "Lift pause" if global_pause else "Pause all" }}</button></form>
+<form method="post" action="/admin/pilot/return-to-sandbox" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="reason" placeholder="reason"><button class="danger">Return everything to sandbox</button></form>
+<p class="small muted">{{ connected|length }} connection(s) marked connected.</p></div></div>
+<div class="card"><h2>Internal test recipients (pilot allowlist)</h2><table><tr><th>Kind</th><th>Value</th><th>Who</th><th></th></tr>
+{% for r in allowlist %}<tr><td>{{ r.kind }}</td><td class="mono">{{ r.value }}</td><td>{{ r.label }}</td><td><form method="post" action="/admin/pilot/allowlist/{{ r.id }}/remove"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Remove</button></form></td></tr>
+{% else %}<tr><td colspan="4" class="muted">None. Emails in DF_TEST_INBOXES also count.</td></tr>{% endfor %}</table>
+<form method="post" action="/admin/pilot/allowlist" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><select name="kind">{% for k in kinds %}<option>{{ k }}</option>{% endfor %}</select><input name="value" placeholder="address / number / id" required><input name="label" placeholder="who (internal tester)" required><button>Add</button></form></div>
+<div class="card"><h2>Needs reconciliation</h2><p class="small muted">The provider may or may not have delivered these. Check the channel, then decide. Nothing here is ever re-sent automatically.</p>
+<table>{% for m in uncertain_msgs %}<tr><td>Customer message #{{ m.id }} ({{ m.channel }}, dealership #{{ m.client_id }})</td><td class="small">{{ m.delivery_error }}</td><td>
+<form class="inline" method="post" action="/admin/pilot/reconcile/message/{{ m.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="delivered" value="1"><button class="secondary">It was delivered</button></form>
+<form class="inline" method="post" action="/admin/pilot/reconcile/message/{{ m.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="delivered" value="0"><button class="secondary">Not delivered: re-queue</button></form></td></tr>{% endfor %}
+{% for n in uncertain_notes %}<tr><td>Notification #{{ n.id }} to {{ n.recipient_address }}</td><td class="small">{{ n.status_detail }}</td><td>
+<form class="inline" method="post" action="/admin/pilot/reconcile/notification/{{ n.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="delivered" value="1"><button class="secondary">It was delivered</button></form>
+<form class="inline" method="post" action="/admin/pilot/reconcile/notification/{{ n.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="delivered" value="0"><button class="secondary">Re-queue</button></form></td></tr>{% endfor %}
+{% for o in unknown_outreach %}<tr><td>Outreach email <a href="/outreach/{{ o.id }}">#{{ o.id }}</a> to {{ o.to_email }}</td><td class="small">{{ o.error }}</td><td class="small">Check the mailbox; Retry on the message returns it to draft.</td></tr>{% endfor %}
+{% if not (uncertain_msgs or uncertain_notes or unknown_outreach) %}<tr><td class="muted">Nothing to reconcile.</td></tr>{% endif %}</table></div>
+<div class="card"><h2>Send ledger</h2><p class="small">{% for k, v in attempt_counts.items() %}<span class="pill">{{ k }} {{ v }}</span> {% endfor %}</p>
+<div class="tablewrap"><table><tr><th>When</th><th>Kind</th><th>Ref</th><th>Channel</th><th>Recipient</th><th>Live</th><th>Status</th><th>Detail</th></tr>
+{% for a in attempts %}<tr><td class="small">{{ a.created_at|local }}</td><td>{{ a.kind }}</td><td>{{ a.ref_id }}</td><td>{{ a.channel }}</td><td class="small">{{ a.recipient }}</td><td>{{ "LIVE" if a.live else "sim" }}</td><td>{{ a.status }}</td><td class="small">{{ (a.reasons or [])|join("; ") }}{{ a.error or "" }}</td></tr>{% endfor %}</table></div></div>
+<div class="grid"><div class="card"><h2>Worker</h2><p>{{ "alive" if health.worker_alive else "NOT RUNNING" }}{% if health.worker_heartbeat_age_seconds is not none %} · last heartbeat {{ health.worker_heartbeat_age_seconds|int }}s ago{% endif %}</p>
+<p class="small">Failed jobs: {{ failed_jobs|length }}</p></div>
+<div class="card"><h2>Audit log integrity</h2><p>{% if integrity.ok %}<span class="pill ok">all {{ integrity.checked }} rows verified</span>{% else %}<span class="pill bad">PROBLEM</span> tampered: {{ integrity.tampered_ids }} unsealed: {{ integrity.unsealed_ids }}{% endif %}</p>
+{% if integrity.id_gaps %}<p class="small muted">Id gaps (informational; rolled-back transactions also skip ids): {{ integrity.id_gaps[:10] }}</p>{% endif %}</div></div>
+{% endblock %}

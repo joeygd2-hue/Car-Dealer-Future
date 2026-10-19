@@ -12,7 +12,6 @@ accepted it" and is never retried automatically (see ``check_sending_row`` / ``t
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -31,21 +30,15 @@ RECIPIENT_KIND_BY_CHANNEL = {"WEBSITE_CHAT": "CHAT_VISITOR", "META_MESSENGER": "
 
 
 def normalize_recipient(kind: str, value: str) -> str:
-    value = (value or "").strip()
-    if kind == "EMAIL":
-        return value.lower()
-    if kind == "PHONE":
-        digits = re.sub(r"\D", "", value)
-        return digits[-10:]
-    if kind == "CHAT_VISITOR":
-        return value.removeprefix("web:")
-    return value
+    from ..pilot import normalize
+
+    return normalize(kind, value)
 
 
 def is_allowlisted(db: Session, kind: str, value: str) -> bool:
-    """Pilot allowlist (stage 4 adds the table and console). Until then nothing is allowlisted, so no live send
-    can pass while pilot mode is on."""
-    return False
+    from ..pilot import is_allowlisted as allowlisted
+
+    return allowlisted(db, kind, value)
 
 
 def emergency_stopped(db: Session) -> bool:

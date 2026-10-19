@@ -10,6 +10,7 @@ import string
 from dataclasses import dataclass
 from datetime import timedelta
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..audit import audit, track_integration
@@ -201,8 +202,25 @@ def approve(db: Session, msg: OutreachMessage, *, actor: User | None, kind: str 
                  ref_type="outreach", ref_id=msg.id)
     audit(db, "outreach.approve", actor_id=actor.id if actor else None, entity_type="outreach", entity_id=msg.id,
           data={"kind": kind})
-    enqueue(db, "send_email", f"send_email:{msg.id}", {"message_id": msg.id}, max_attempts=4)
+    enqueue(db, "send_email", send_job_key(db, msg), {"message_id": msg.id}, max_attempts=4)
     return msg
+
+
+def send_job_key(db: Session, msg: OutreachMessage) -> str:
+    """First approval: ``send_email:{id}``. A re-approval after a retry needs a new key, otherwise the finished job
+    of the earlier attempt is returned by ``enqueue`` and the message is never sent (fixed in integration stage 4)."""
+    from ..models import Job
+
+    base = f"send_email:{msg.id}"
+    n = db.scalar(select(func.count(Job.id)).where((Job.key == base) | Job.key.like(f"{base}:r%"))) or 0
+    return base if n == 0 else f"{base}:r{n}"
+
+
+def latest_send_job(db: Session, msg: OutreachMessage):
+    from ..models import Job
+
+    base = f"send_email:{msg.id}"
+    return db.scalar(select(Job).where((Job.key == base) | Job.key.like(f"{base}:r%")).order_by(Job.id.desc()))
 
 
 def reject(db: Session, msg: OutreachMessage, *, actor: User, reason: str) -> None:
@@ -212,6 +230,9 @@ def reject(db: Session, msg: OutreachMessage, *, actor: User, reason: str) -> No
     add_activity(db, msg.prospect, "email_cancelled", f"Message cancelled: {msg.subject}", body=reason,
                  actor_id=actor.id, ref_type="outreach", ref_id=msg.id)
     audit(db, "outreach.cancel", actor_id=actor.id, entity_type="outreach", entity_id=msg.id, data={"reason": reason})
+
+
+OUTREACH_KIND = "OUTREACH_EMAIL"
 
 
 def live_sending_allowed(db: Session) -> tuple[bool, str]:
@@ -235,6 +256,11 @@ def send_email_job(db: Session, payload: dict) -> dict:
         return {"skipped": f"already {msg.status}"}  # idempotent re-run
     if msg.status == "sending":
         # A previous attempt reached the provider and its outcome is unknown. Never resend blindly.
+        from .customer import send_gate
+
+        att = send_gate.in_flight_attempt(db, OUTREACH_KIND, msg.id)
+        if att is not None:
+            att.status, att.error = "UNCERTAIN", "worker stopped after the send began"
         msg.status, msg.error = "failed", "Outcome unknown after an interrupted send; check the mailbox before retrying"
         add_activity(db, msg.prospect, "email_failed", f"Send outcome unknown: {msg.subject}", ref_type="outreach", ref_id=msg.id)
         return {"failed": "ambiguous previous attempt"}
@@ -269,22 +295,36 @@ def send_email_job(db: Session, payload: dict) -> dict:
                         from_email=s.sender_email, unsubscribe_url=unsubscribe_url(msg.to_email, msg.prospect_id),
                         unsubscribe_mailto=s.sender_email, in_reply_to=in_reply_to, thread_id=msg.thread_id,
                         idempotency_key=f"df{msg.id}")
+    # Send ledger + pilot gate (integration stage 4): a LIVE send under pilot mode only reaches allowlisted inboxes.
+    from ..integrations.customer_channels import SendResult
+    from .customer import send_gate
+
+    gate = send_gate.open_attempt(db, kind=OUTREACH_KIND, ref_id=msg.id, channel="EMAIL", recipient=msg.to_email,
+                                  live=not provider.simulated)
+    if not gate.allowed:
+        msg.status, msg.error = "cancelled", "Blocked at send time: " + "; ".join(gate.reasons)
+        add_activity(db, msg.prospect, "email_blocked", f"Send blocked: {msg.subject}", body=msg.error, ref_type="outreach", ref_id=msg.id)
+        audit(db, "outreach.blocked", entity_type="outreach", entity_id=msg.id, data={"blockers": gate.reasons})
+        return {"blocked": gate.reasons}
     msg.status = "sending"
-    db.commit()  # checkpoint before the external call
+    db.commit()  # checkpoint (message + ledger IN_FLIGHT) before the external call
     try:
         with track_integration(db, provider.name, "send_email", simulated=provider.simulated) as ctx:
             res = provider.send(out)
             ctx["detail"] = f"message #{msg.id} -> {res.provider_message_id}"
     except (CredentialError, NotConfiguredError, RateLimitedError) as exc:
         msg.status, msg.error = "queued", str(exc)  # provider refused before sending
+        send_gate.close_attempt(db, gate.attempt, SendResult("FAILED", error=str(exc)))
         db.commit()
         raise
     except IntegrationError as exc:
+        send_gate.close_attempt(db, gate.attempt, SendResult("FAILED", error=str(exc), uncertain=True))
         msg.status, msg.error = "failed", str(exc)
         add_activity(db, msg.prospect, "email_failed", f"Send failed: {msg.subject}", body=str(exc),
                      ref_type="outreach", ref_id=msg.id)
         db.commit()
         return {"failed": str(exc)}
+    send_gate.close_attempt(db, gate.attempt, SendResult("SIMULATED" if provider.simulated else "SENT", provider_message_id=res.provider_message_id))
     now = utcnow()
     msg.status, msg.sent_at, msg.provider = "sent", now, provider.name
     msg.provider_message_id, msg.rfc_message_id = res.provider_message_id, res.rfc_message_id
@@ -309,7 +349,8 @@ def send_email_job(db: Session, payload: dict) -> dict:
 def _campaign_hold(db: Session, msg: OutreachMessage, st: AgentState | None) -> str | None:
     """Reasons to hold an already-queued message (it stays queued and is retried later)."""
     from ..models import Campaign
-    from .agent import config as agent_config, in_operating_window
+    from .agent import config as agent_config
+    from .agent import in_operating_window
 
     if msg.campaign_id:
         camp = db.get(Campaign, msg.campaign_id)

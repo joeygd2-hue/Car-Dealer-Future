@@ -139,11 +139,11 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parents[1] / "static")), name="static")
     from . import forms  # noqa: F401  (registers template filters)
     from . import (routes_agent, routes_api, routes_auth, routes_clients, routes_crm, routes_dealer_api, routes_dealers, routes_finance,
-                   routes_customer_public, routes_inbox, routes_ops_api, routes_outreach, routes_portal, routes_public, routes_seo,
+                   routes_customer_public, routes_inbox, routes_ops_api, routes_pilot, routes_outreach, routes_portal, routes_public, routes_seo,
                    routes_settings)
 
     for mod in (routes_auth, routes_public, routes_crm, routes_outreach, routes_agent, routes_settings, routes_api,
                 routes_dealers, routes_dealer_api, routes_clients, routes_finance, routes_seo, routes_portal, routes_ops_api,
-                routes_inbox, routes_customer_public):
+                routes_inbox, routes_customer_public, routes_pilot):
         app.include_router(mod.router)
     return app

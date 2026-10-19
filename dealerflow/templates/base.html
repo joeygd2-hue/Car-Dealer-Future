@@ -5,7 +5,7 @@
 <a href="/">Dashboard</a><a href="/agent">Agent</a><a href="/prospects">Prospects</a><a href="/import">Import / discover</a>
 <a href="/outreach">Outreach</a><a href="/inbox">Inbox</a><a href="/meetings">Meetings</a><a href="/tasks">Tasks</a>
 <a href="/reports/weekly">Weekly report</a><a href="/integrations">Integrations</a><a href="/settings">Settings</a>
-<a href="/dealers">Dealerships</a><a href="/clients">Client accounts</a><a href="/tickets">Tickets</a><a href="/seo">SEO</a><a href="/client-reports">Client reports</a>
+<a href="/dealers">Dealerships</a><a href="/clients">Client accounts</a><a href="/tickets">Tickets</a><a href="/seo">SEO</a><a href="/client-reports">Client reports</a>{% if user.role == "admin" %}<a href="/admin/pilot">Pilot console</a>{% endif %}
 {% if role_at_least(user.role, 'manager') %}<a href="/finance">Finance</a><a href="/costs">Costs</a><a href="/packages">Packages</a>{% endif %}
 {% if role_at_least(user.role, 'manager') %}<a href="/audit">Audit log</a>{% endif %}{% endif %}</nav>
 <span class="right small"><a href="/account/security">{{ user.email }}</a> ({{ user.client_role.replace("_", " ") if user.client_id else user.role }})<form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Log out</button></form></span></header>{% endif %}

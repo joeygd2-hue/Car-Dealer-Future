@@ -33,21 +33,45 @@ def delivery_allowed(db: Session, client: Client) -> tuple[bool, str]:
     return True, ""
 
 
-def send(db: Session, client: Client, *, to: str, subject: str, body: str, key: str) -> str:
-    """Return 'sent', 'simulated' or 'not_sent: <reason>'."""
+def send(db: Session, client: Client, *, to: str, subject: str, body: str, key: str, ledger: bool = True) -> str:
+    """Return 'sent', 'simulated' or 'not_sent: <reason>'.
+
+    Every attempt passes the send gate (platform emergency stop; pilot allowlist for a real delivery) and, unless the
+    caller keeps its own ledger row (``ledger=False``), is recorded in ``send_attempts``.
+    """
+    from ..integrations.customer_channels import SendResult
+    from ..integrations.errors import CredentialError, IntegrationError, PermanentError, RateLimitedError
+    from .customer import send_gate
+
     s = get_settings()
     allowed, why = delivery_allowed(db, client)
     msg = OutgoingEmail(to=to, subject=subject, body=body, from_name=s.business_name or s.sender_name, from_email=s.sender_email,
                         idempotency_key=key)
-    if allowed:
-        provider = get_email_provider()
-        with track_integration(db, provider.name, "client_email", simulated=False):
-            provider.send(msg)
-        return "sent"
-    if s.email_provider == "mock":
-        provider = get_email_provider()
-        with track_integration(db, "mock", "client_email", simulated=True):
-            provider.send(msg)
-        return "simulated"
-    log_integration(db, s.email_provider, "client_email", "skipped", detail=why)
-    return f"not_sent: {why}"
+    if not allowed and s.email_provider != "mock":
+        log_integration(db, s.email_provider, "client_email", "skipped", detail=why)
+        return f"not_sent: {why}"
+    gate = None
+    if ledger:
+        gate = send_gate.open_attempt(db, kind="CLIENT_EMAIL", ref_id=client.id, channel="EMAIL", recipient=to, live=allowed,
+                                      client_id=client.id)
+        if not gate.allowed:
+            log_integration(db, s.email_provider, "client_email", "blocked", detail="; ".join(gate.reasons))
+            return "not_sent: " + "; ".join(gate.reasons)
+    elif allowed:
+        from . import pilot
+
+        blocker = pilot.live_send_blocker(db, "EMAIL", to)
+        if blocker:
+            log_integration(db, s.email_provider, "client_email", "blocked", detail=blocker)
+            return f"not_sent: {blocker}"
+    provider = get_email_provider()
+    try:
+        with track_integration(db, provider.name if allowed else "mock", "client_email", simulated=not allowed):
+            res = provider.send(msg)
+    except IntegrationError as exc:
+        if gate:
+            send_gate.close_attempt(db, gate.attempt, SendResult("FAILED", error=str(exc), uncertain=not isinstance(exc, (CredentialError, PermanentError, RateLimitedError))))
+        raise
+    if gate:
+        send_gate.close_attempt(db, gate.attempt, SendResult("SENT" if allowed else "SIMULATED", provider_message_id=res.provider_message_id))
+    return "sent" if allowed else "simulated"

@@ -47,8 +47,8 @@ Bugs found and fixed while porting:
 
 | Run | Result |
 |---|---|
-| `pytest` on SQLite | **388 passed** (260 existing + 127 conversation tests + 1 migration data test) |
-| `pytest` on PostgreSQL 16 (`DF_TEST_PG_URL=postgresql+psycopg://…@127.0.0.1/…`) | PG_RESULT |
+| `pytest` on SQLite | **388 passed** on commit `ae51bcf` (260 existing + 127 conversation tests + 1 migration data test) |
+| `pytest` on PostgreSQL 16 (`DF_TEST_PG_URL=postgresql+psycopg://…@127.0.0.1/…`) | **387 passed, 1 skipped** (the SQLite-only backup test), on commit `ae51bcf` |
 | Migration `0004` with interim rows, SQLite and Postgres 16 | upgrade → rows mapped (contacts, statuses, drafts, appointments, chat keys, next id) → schema matches models → downgrade restores interim rows (migrated drafts not restored) → upgrade |
 | Full chain `head → base → head`, SQLite and Postgres 16 | succeeded; no schema diff against the models |
 | Synthetic evaluation (46 cases) through the integrated pipeline | all metrics 1.0, passed |

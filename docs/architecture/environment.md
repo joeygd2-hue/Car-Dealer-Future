@@ -97,3 +97,19 @@ caller ID you own), `DF_AGENT_PHONE` (the phone Twilio rings first).
 `DF_MEETING_LENGTH_MINUTES` (30), `DF_MEETING_BUFFER_MINUTES` (15), `DF_WORKING_HOURS_START` (9),
 `DF_WORKING_HOURS_END` (17), `DF_WORKING_DAYS` (`0,1,2,3,4`, Monday=0).
 `DF_NOTIFY_EMAIL`: optional daily digest recipient (after 07:00 local, once per day). Leave empty to disable.
+
+## Phase 2: inventory, listings and publishing
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DF_MAX_UPLOAD_BYTES` | 10485760 | Largest inventory file accepted from the web/API |
+| `DF_MAX_FEED_BYTES` | 26214400 | Largest feed response accepted |
+| `DF_FEED_TIMEOUT_SECONDS` | 30 | Feed request timeout |
+| `DF_FEED_<NAME>` | — | Credential for an authorised inventory feed; the source stores only this variable's name |
+| `DF_PUBLISH_MAX_ATTEMPTS` | 5 | Attempts per channel operation before it is recorded as dead |
+| `DF_LISTING_AI_ENABLED` | `false` | Use Claude for listing prose (template generator otherwise) |
+| `DF_ANTHROPIC_API_KEY` | — | Anthropic API key (needed only when AI is enabled) |
+| `DF_AI_MODEL` / `DF_AI_EFFORT` | `claude-opus-5-5` / `medium` | Model and effort for listing generation |
+| `DF_META_LIVE_PUBLISHING_ALLOWED` | `false` | Global switch; nothing is sent to Meta unless true **and** the dealership connection is authorised |
+| `DF_META_GRAPH_API_VERSION` / `DF_META_GRAPH_BASE_URL` | `v24.0` / `https://graph.facebook.com` | Graph API target (confirm the current version before going live) |
+| `DF_META_TOKEN_<NAME>` | — | A dealership's Meta system-user token; the connection stores only this variable's name |

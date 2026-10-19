@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav %}{% block title %}Reports · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'reports', user) }}<h1>Reports (last {{ m.period_days }} days)</h1>
+<div class="grid">{% for val, label in [(m.inventory.imported_in_period, 'Vehicles imported'), (m.listings.generated_in_period, 'Listings generated'), (m.listings.approved_in_period, 'Listings approved'), (m.publishing.published_confirmed_via_api, 'Published via confirmed API'), (m.publishing.published_confirmed_manually, 'Published manually (staff-attested)'), (m.publishing.manual_publication_required, 'Manual publication required'), (m.publishing.failed, 'Failed publications'), (m.inventory.stale, 'Stale inventory'), (m.publishing.sold_or_removed_requiring_withdrawal, 'Sold/removed needing withdrawal'), (m.inventory.with_missing_or_inconsistent_data, 'Vehicles with data issues')] %}
+<div class="stat"><div class="n">{{ val }}</div><div class="l">{{ label }}</div></div>{% endfor %}</div>
+<div class="card"><h2>Synchronization health</h2><table>{% for s in m.sync_health %}<tr><td>{{ s.name }}</td><td><span class="pill">{{ s.type }}</span></td>
+<td><span class="pill {{ 'ok' if s.health == 'healthy' else ('' if s.health == 'never_synced' else 'bad') }}">{{ s.health }}</span></td><td class="small muted">{{ s.last_sync_at or '' }}</td></tr>{% endfor %}</table></div>
+<p class="small muted">Not measured: {{ m.not_measured|join(', ') }}. No channel provides reliable data for these yet, so none are claimed.</p>
+{% endblock %}

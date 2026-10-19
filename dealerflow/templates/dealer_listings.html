@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, st, money %}{% block title %}Listings · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'listings', user) }}<h1>Listings</h1>
+<form class="row card" method="get"><select name="status"><option value="">All statuses</option>{% for s in statuses %}<option value="{{ s }}" {% if status==s %}selected{% endif %}>{{ labels[s] }}</option>{% endfor %}</select><button class="secondary">Filter</button></form>
+<form method="post" action="/dealers/{{ client.id }}/listings/batch-preview"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="tablewrap"><table><tr><th></th><th>Listing</th><th>Price</th><th>Status</th><th>Content checks</th><th>Channels</th></tr>
+{% for r in rows %}<tr><td><input type="checkbox" name="listing_id" value="{{ r.l.id }}" aria-label="select listing {{ r.l.id }}"></td>
+<td><a href="/dealers/{{ client.id }}/listings/{{ r.l.id }}">{{ (r.rev.content.en.title if r.rev and r.rev.content.en else none) or (r.v.year|string + ' ' + (r.v.make or '') + ' ' + (r.v.model or '')) }}</a>
+{% if r.v.stale %} <span class="pill bad">stale</span>{% endif %}{% if r.l.content_outdated %} <span class="pill warn">outdated</span>{% endif %}</td>
+<td>{{ money(r.v.price_cents/100 if r.v.price_cents is not none else none) }}</td><td>{{ st(r.l.status, labels) }}</td>
+<td>{% if r.rev %}{% if r.rev.guardrails.errors %}<span class="pill bad">{{ r.rev.guardrails.errors|length }} blocking</span>{% endif %}{% if r.rev.guardrails.warnings %} <span class="pill warn">{{ r.rev.guardrails.warnings|length }} warnings</span>{% endif %}{% if not r.rev.guardrails.errors and not r.rev.guardrails.warnings %}<span class="pill ok">clean</span>{% endif %}{% endif %}</td>
+<td class="small">{% for p in r.pubs %}<div>{{ p.channel }}: {{ st(p.status, labels) }}{% if p.needs_update %} <span class="pill warn">needs update</span>{% endif %}</div>{% endfor %}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No listings.</td></tr>{% endfor %}</table></div>
+{% if ctx.can('approve') %}<p><button>Review selected for batch approval…</button></p>{% endif %}</form>
+{% endblock %}

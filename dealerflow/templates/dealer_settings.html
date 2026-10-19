@@ -1,0 +1,29 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav %}{% block title %}Settings · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'settings', user) }}<h1>Listing settings <span class="small muted">v{{ version }}</span></h1>
+{% if not can_manage %}<p class="muted">Only dealership admins (or agency managers) can change these settings.</p>{% endif %}
+<form method="post" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><fieldset {% if not can_manage %}disabled{% endif %} style="border:0;padding:0;margin:0"><div class="grid">
+<div><label>Brand voice</label><select name="brand_voice">{% for x in ['professional','friendly','straightforward'] %}<option {% if s.brand_voice == x %}selected{% endif %}>{{ x }}</option>{% endfor %}</select></div>
+<div><label>Voice notes</label><input name="brand_voice_notes" value="{{ s.brand_voice_notes }}"></div>
+<div><label>Dealership name</label><input name="dealership_name" value="{{ s.contact.dealership_name }}"></div><div><label>Phone</label><input name="phone" value="{{ s.contact.phone }}"></div>
+<div><label>Email</label><input name="email" value="{{ s.contact.email }}"></div><div><label>Website</label><input name="website" value="{{ s.contact.website }}"></div>
+<div><label>Address</label><input name="address" value="{{ s.contact.address }}"></div><div><label>Title template</label><input name="title_template" value="{{ s.title_template }}"></div>
+<div><label>Business hours (English)</label><input name="hours_en" value="{{ s.business_hours.en }}"></div><div><label>Horario (Español)</label><input name="hours_es" value="{{ s.business_hours.es }}"></div>
+<div><label>Call to action (English, optional)</label><input name="cta_en" value="{{ s.call_to_action.en }}"></div><div><label>Llamado a la acción (opcional)</label><input name="cta_es" value="{{ s.call_to_action.es }}"></div>
+<div><label>Approved financing statement (English; blank = never mention financing)</label><input name="fin_en" value="{{ s.financing_statement.en }}"></div>
+<div><label>Declaración de financiamiento aprobada</label><input name="fin_es" value="{{ s.financing_statement.es }}"></div>
+<div><label>Required fields</label><input name="required_fields" value="{{ s.required_fields|join(', ') }}"></div>
+<div><label>Enabled channels ({{ channel_keys|join(', ') }})</label><input name="enabled_channels" value="{{ s.enabled_channels|join(', ') }}"></div></div>
+<label>Approved disclaimers, one per line: English || Español</label><textarea name="disclaimers" rows="4">{% for d in s.disclaimers %}{{ d.en }} || {{ d.es }}
+{% endfor %}</textarea>
+<div class="row"><label class="row"><input type="checkbox" name="lang_en" value="yes" {% if 'en' in s.languages %}checked{% endif %}> English</label>
+<label class="row"><input type="checkbox" name="lang_es" value="yes" {% if 'es' in s.languages %}checked{% endif %}> Spanish</label>
+<label class="row"><input type="checkbox" name="require_both_languages" value="yes" {% if s.review.require_both_languages %}checked{% endif %}> Require both languages</label>
+<label class="row"><input type="checkbox" name="allow_agency_approval" value="yes" {% if s.review.allow_agency_approval %}checked{% endif %}> Agency staff may approve listings</label>
+<label class="row"><input type="checkbox" name="show_vin" value="yes" {% if s.show_vin %}checked{% endif %}> Show VIN</label>
+<label class="row"><input type="checkbox" name="use_dealer_description" value="yes" {% if s.use_dealer_description %}checked{% endif %}> Include dealer-written notes (verify claims)</label></div>
+<p><button>Save settings</button></p></fieldset></form>
+<div class="card"><h2>Dealership users</h2><table>{% for u in users %}<tr><td>{{ u.email }}</td><td><span class="pill">{{ u.client_role }}</span></td><td class="small muted">{{ 'active' if u.active else 'disabled' }}</td></tr>{% else %}<tr><td class="muted">No dealership users yet.</td></tr>{% endfor %}</table>
+{% if can_manage %}<form method="post" action="/dealers/{{ client.id }}/users" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="email" type="email" placeholder="email" required>
+<select name="role">{% for r in client_roles %}<option value="{{ r }}">{{ r.replace('_',' ') }}</option>{% endfor %}</select><input name="password" type="password" placeholder="temporary password (10+ chars)" required minlength="10"><button>Add user</button></form>
+<p class="small muted">Dealership users can only see this dealership's workspace. Viewers read; reviewers edit, approve and publish; admins also manage settings and users.</p>{% endif %}</div>
+{% endblock %}

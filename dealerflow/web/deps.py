@@ -73,6 +73,28 @@ def password_version(user: User) -> str:
     return hashlib.sha256(user.password_hash.encode()).hexdigest()[:16]
 
 
+class DealerHome(Exception):
+    """A dealership user opened a staff page; send them to their own workspace."""
+
+    def __init__(self, client_id: int):
+        self.client_id = client_id
+
+
+# Dealership (client) users may only use their own workspace. Everything else is staff-only.
+DEALER_ALLOWED_PREFIXES = ("/dealers", "/api/v1/dealers", "/logout")
+
+
+def _restrict_dealer_user(request: Request, user: User) -> None:
+    if user.client_id is None:
+        return
+    path = request.url.path
+    if path.startswith(DEALER_ALLOWED_PREFIXES):
+        return
+    if path == "/" and request.method == "GET":
+        raise DealerHome(user.client_id)
+    raise HTTPException(403, "This area is only available to agency staff")
+
+
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
@@ -80,6 +102,7 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         if not user:
             raise HTTPException(401, "Invalid API key")
         request.state.api = True
+        _restrict_dealer_user(request, user)
         return user
     uid = request.session.get("uid")
     if not uid:
@@ -95,12 +118,13 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         request.session.clear()  # password changed since this session started
         raise NotAuthenticated()
     request.state.api = False
+    _restrict_dealer_user(request, user)
     return user
 
 
 def require(role: str):
     def dep(user: User = Depends(current_user)) -> User:
-        if not role_at_least(user.role, role):
+        if user.client_id is not None or not role_at_least(user.role, role):
             raise HTTPException(403, f"Requires {role} role")
         return user
 

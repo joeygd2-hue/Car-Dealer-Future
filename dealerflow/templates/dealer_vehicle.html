@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, st, issues, photos as photo_strip, money, num %}{% block title %}{{ v.year }} {{ v.make }} {{ v.model }}{% endblock %}{% block content %}
+{{ subnav(client, 'inventory', user) }}
+<h1>{{ v.year or '?' }} {{ v.make or '' }} {{ v.model or '' }} {{ v.trim or '' }}</h1>
+{% if v.stale %}<div class="flash warn">Availability unconfirmed: this vehicle has not appeared in a recent sync. Confirm it or mark it sold/removed.</div>{% endif %}
+<div class="card row">{{ st(v.inventory_status, labels) }} {{ st(v.validation_status, labels) }}{% if listing %}<a href="/dealers/{{ client.id }}/listings/{{ listing.id }}">Open listing →</a>{% endif %}
+<span class="small muted">source: {{ source.name }} ({{ source.source_type }})</span>
+{% if ctx.can('edit') %}<span class="right row">
+<form class="inline" method="post" action="/dealers/{{ client.id }}/vehicles/{{ v.id }}/confirm"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Confirm still available</button></form>
+<form class="inline" method="post" action="/dealers/{{ client.id }}/vehicles/{{ v.id }}/status"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="pending"><button class="secondary">Mark pending</button></form>
+<form class="inline" method="post" action="/dealers/{{ client.id }}/vehicles/{{ v.id }}/status"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="sold"><button class="danger">Mark sold</button></form></span>{% endif %}</div>
+<div class="two"><div class="card"><h2>Vehicle data (as supplied)</h2><table class="kv">
+{% for k, val in [('VIN', v.vin), ('Stock #', v.stock_number), ('Mileage', num(v.mileage) if v.mileage is not none else none), ('Price', money(v.price_cents/100) if v.price_cents is not none else none), ('Condition', v.condition), ('Exterior', v.exterior_color), ('Interior', v.interior_color), ('Body', v.body_style), ('Transmission', v.transmission), ('Drivetrain', v.drivetrain), ('Fuel', v.fuel_type), ('Engine', v.engine), ('Title (dealer-reported)', v.title_status), ('Owners (dealer-reported)', v.owner_count), ('Location', [v.location_address, v.location_city, v.location_state, v.location_postal]|select|join(', ')), ('Features', v.features|join(', ')), ('Last synced', v.last_synced_at|local), ('Version', v.version)] %}
+<tr><td>{{ k }}</td><td>{% if val is none or val == '' %}<span class="muted">not supplied</span>{% else %}{{ val }}{% endif %}</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>Data issues</h2>{{ issues(v.validation_issues) }}<h2>Photos ({{ photos|length }})</h2>{{ photo_strip(photos) }}</div></div>
+<div class="card"><h2>Synchronization history</h2><div class="tablewrap"><table>{% for c in changes %}<tr><td class="small">{{ c.created_at|local }}</td><td><span class="pill">{{ c.change_type }}</span></td><td class="small"><code>{{ c.changes|tojson }}</code></td></tr>{% endfor %}</table></div></div>
+{% endblock %}

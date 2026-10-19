@@ -1,0 +1,7 @@
+Stock #,VIN,Year,Make,Model,Trim,Body,Miles,Price,Ext Color,Int Color,Trans,Drive,Fuel,Options,Photo URLs,Address,City,State,Zip,Condition,Status
+FX1001,1HGCM82633A004352,2003,Honda,Accord,EX,Sedan,145000,"$5,995",Silver,Gray,Automatic,FWD,Gas,Bluetooth|Sunroof|Heated Seats,https://picsum.photos/seed/fx1001a/640/480|https://picsum.photos/seed/fx1001b/640/480,100 Fixture Ln,Sugar Land,TX,77478,Used,Available
+FX1002,,2019,Toyota,Camry,SE,Sedan,45210,18995,Black,Black,Automatic,FWD,Gasoline,Backup Camera|Apple CarPlay|Lane Keep Assist,https://picsum.photos/seed/fx1002/640/480,100 Fixture Ln,Sugar Land,TX,77478,Used,Available
+FX1003,,2018,Ford,F-150,XLT,Truck,82040,26500,White,Gray,Automatic,4x4,Gasoline,Tow Package|Bed Liner|Running Boards,https://picsum.photos/seed/fx1003/640/480,100 Fixture Ln,Sugar Land,TX,77478,Used,Available
+FX1004,,2017,Honda,CR-V,EX-L,SUV,67500,17450,Magnetic Gray Metallic,Black,CVT,AWD,Gasoline,Leather Seats|Heated Front Seats|Power Liftgate|Hidden Valet Mode,https://picsum.photos/seed/fx1004/640/480,100 Fixture Ln,Sugar Land,TX,77478,Used,Available
+FX1005,,2020,Nissan,Altima,,Sedan,,15900,Blue,,Automatic,FWD,Gasoline,,,100 Fixture Ln,Sugar Land,TX,77478,Used,Available
+FX1006,,20X1,Chevrolet,Malibu,LT,Sedan,abc,call,Red,Black,Automatic,FWD,Gasoline,,https://picsum.photos/seed/fx1006/640/480,100 Fixture Ln,Sugar Land,TX,77478,Used,Available

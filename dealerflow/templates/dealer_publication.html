@@ -1,0 +1,33 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, st %}{% block title %}{{ p.channel_label }}{% endblock %}{% block content %}
+{{ subnav(client, 'publishing', user) }}<h1>{{ p.channel_label }}</h1>
+<div class="card row">{{ st(p.status, labels) }}<span class="pill">{{ 'manual workflow' if p.mode == 'manual' else ('API integration' if p.mode == 'api' else 'SIMULATED') }}</span>
+{% if p.confirmation_type %}<span class="pill ok">{{ 'confirmed by API' if p.confirmation_type == 'api' else 'confirmed by staff attestation' }}</span>{% endif %}
+<a href="/dealers/{{ client.id }}/listings/{{ p.listing_id }}">← listing</a>{% if p.external_url %}<a href="{{ p.external_url|safe_url }}" target="_blank" rel="noopener noreferrer">live listing</a>{% endif %}</div>
+{% if p.update_reason %}<div class="flash warn">{{ p.update_reason }}</div>{% endif %}{% if p.last_error %}<div class="flash error">{{ p.last_error }}</div>{% endif %}
+{% if p.package_problems %}<div class="flash error">{{ p.package_problems|join('; ') }}</div>{% endif %}
+{% if p.mode == 'manual' %}
+<div class="flash warn">Facebook does not offer an API for Marketplace vehicle listings. A dealership staff member posts this manually from their own account, then records the live URL below. Nothing here is sent to Facebook.</div>
+{% set pkg = p.package %}{% if pkg %}<div class="two"><div class="card"><h2>Fields</h2><table class="kv">{% for k, val in pkg['fields'].items() %}
+<tr><td>{{ k.replace('_',' ') }}</td><td>{% if val is none %}<span class="muted">leave blank</span>{% else %}{{ val }} <button class="secondary small" data-copy="{{ val }}">Copy</button>{% endif %}</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>Checklist</h2><ol class="small">{% for c in pkg.checklist %}<li>{{ c }}</li>{% endfor %}</ol><h2>Photos ({{ pkg.photos|length }}): upload in this order</h2>
+<ol class="small">{% for u in pkg.photos %}<li><a href="{{ u|safe_url }}" target="_blank" rel="noopener noreferrer">{{ u }}</a></li>{% endfor %}</ol></div></div>
+<div class="pane">{% for lang, c in pkg['copy'].items() %}<div class="card"><h2>{{ 'English copy' if lang == 'en' else 'Spanish copy' }}</h2>
+<p class="row"><strong>{{ c.title }}</strong><button class="secondary small" data-copy="{{ c.title }}">Copy title</button></p><pre>{{ c.description }}</pre>
+<button class="secondary small" data-copy="{{ c.description }}">Copy description</button></div>{% endfor %}</div>{% endif %}
+{% if ctx.can('publish') %}<div class="card"><h2>Record the result</h2>
+{% if p.status == 'manual_required' %}<form method="post" action="/dealers/{{ client.id }}/publications/{{ p.id }}/confirm-manual"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="url">Live listing URL</label><input id="url" name="url" style="width:100%" placeholder="https://www.facebook.com/marketplace/item/...">
+<label class="row"><input type="checkbox" name="attested" value="yes"> I personally published this listing and checked that it matches this package.</label>
+<input name="notes" placeholder="Notes (optional)" style="width:100%"><p><button>Record publication</button></p></form>{% endif %}
+{% if p.status == 'published_confirmed' %}<form method="post" action="/dealers/{{ client.id }}/publications/{{ p.id }}/record-update" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label class="row" style="margin:0"><input type="checkbox" name="attested" value="yes"> I updated the live listing to match the current approved content.</label><button class="secondary">Record update</button></form>{% endif %}
+{% if p.status in ('published_confirmed', 'withdrawal_required', 'manual_required') %}<form method="post" action="/dealers/{{ client.id }}/publications/{{ p.id }}/record-removal" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label class="row" style="margin:0"><input type="checkbox" name="attested" value="yes"> The listing was deleted from Facebook (or was never posted).</label><button class="secondary">Record removal</button></form>{% endif %}
+</div>{% endif %}
+{% else %}
+{% if ctx.can('publish') %}<div class="card row">{% if p.status in ('ready_to_publish', 'published_confirmed') %}<form class="inline" method="post" action="/dealers/{{ client.id }}/publications/{{ p.id }}/publish"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ 'Push update' if p.status == 'published_confirmed' else 'Publish' }}</button></form>{% endif %}
+{% if p.status == 'failed' %}<form class="inline" method="post" action="/dealers/{{ client.id }}/publications/{{ p.id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Retry</button></form>{% endif %}
+<span class="small muted">A listing is marked published only after the channel confirms it.</span></div>{% endif %}
+<div class="card"><h2>Payload preview</h2><pre class="small">{{ p.package|tojson(indent=1) }}</pre></div>{% endif %}
+<div class="card"><h2>History</h2><ul class="small">{% for o in p.operations %}<li>{{ o.created_at }} · {{ o.operation }} · {{ o.status }}{% if o.attempts %} · {{ o.attempts }} attempt(s){% endif %}{% if o.error %} · {{ o.error }}{% endif %}</li>{% else %}<li class="muted">No operations yet.</li>{% endfor %}</ul></div>
+{% endblock %}

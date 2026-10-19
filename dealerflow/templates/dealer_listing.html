@@ -1,0 +1,42 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, st, issues, photos %}{% block title %}{{ v.year }} {{ v.make }} {{ v.model }} listing{% endblock %}{% block content %}
+{{ subnav(client, 'listings', user) }}{% set rev = l.current_revision %}
+<h1>{{ v.year or '?' }} {{ v.make or '' }} {{ v.model or '' }} {{ v.trim or '' }}</h1>
+<div class="card row">{{ st(l.status, labels) }}{% if l.content_outdated %} <span class="pill warn">outdated: {{ l.outdated_reason }}</span>{% endif %}
+{% if rev %}<span class="small muted">Revision {{ rev.number }} · {{ rev.origin.replace('_',' ') }}{% if rev.model %} ({{ rev.model }}){% endif %} · {{ rev.created_by }}</span>{% endif %}
+<a class="small" href="/dealers/{{ client.id }}/vehicles/{{ v.id }}">vehicle data</a>
+{% if ctx.can('edit') %}<form class="inline right" method="post" action="/dealers/{{ client.id }}/listings/{{ lst.id }}/generate"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">{{ 'Regenerate' if rev else 'Generate draft' }}</button></form>{% endif %}</div>
+{% if not rev %}<div class="card"><h2>Vehicle data issues</h2>{{ issues(v.validation_issues) }}</div>{% else %}
+{% if rev.guardrails.errors %}<div class="flash error"><strong>Blocking issues (fix before approval)</strong><ul>{% for e in rev.guardrails.errors %}<li>{% if e.lang %}[{{ e.lang }}] {% endif %}{{ e.message }}</li>{% endfor %}</ul></div>{% endif %}
+{% if rev.uncertainty %}<div class="flash warn"><strong>Uncertain or missing information (left out, not invented)</strong><ul>{% for u in rev.uncertainty %}<li>{{ u }}</li>{% endfor %}</ul></div>{% endif %}
+<form method="post" action="/dealers/{{ client.id }}/listings/{{ lst.id }}/edit"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="pane">{% for lang, label in [('en','English'),('es','Español')] %}{% set c = rev.content.get(lang) %}<div class="card"><h2>{{ label }}</h2>
+{% if c %}<label for="{{ lang }}_title">Title ({{ c.title|length }} chars)</label><input id="{{ lang }}_title" name="{{ lang }}_title" value="{{ c.title }}" style="width:100%" {% if not ctx.can('edit') %}readonly{% endif %}>
+<label for="{{ lang }}_description">Description</label><textarea id="{{ lang }}_description" name="{{ lang }}_description" rows="18" {% if not ctx.can('edit') %}readonly{% endif %}>{{ c.description }}</textarea>
+<h3>Features (from dealer data)</h3><p class="small">{{ c.features|join(' · ') or 'none supplied' }}</p>
+<h3>Search terms</h3><p class="small muted">{{ c.search_terms|join(', ') }}</p>
+<h3>Common questions</h3>{% for q in c.faq %}<details><summary>{{ q.q }}</summary><p class="small">{{ q.a }}</p></details>{% endfor %}
+{% else %}<p style="color:var(--bad)">Missing</p>{% endif %}</div>{% endfor %}</div>
+{% if ctx.can('edit') %}<p class="row"><input name="note" placeholder="Edit note (optional)"><button class="secondary">Save edits as a new revision</button></p>{% endif %}</form>
+<div class="card"><h2>Review and approve</h2>
+{% if l.status == 'approved' %}<p style="color:var(--ok)">Approved {{ lst.approved_at|local }}. Edits or inventory changes create a new revision that needs approval.</p>
+{% elif agency_blocked %}<p class="muted">This dealership approves its own listings (agency approval is turned off in Settings).</p>
+{% elif can_approve %}
+<form method="post" action="/dealers/{{ client.id }}/listings/{{ lst.id }}/approve"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision_id" value="{{ rev.id }}">
+{% if rev.guardrails.warnings %}<p>Acknowledge each warning:</p>{% for w in rev.guardrails.warnings %}<label class="row"><input type="checkbox" name="ack" value="{{ rev.warning_keys[loop.index0] }}"> [{{ w.lang or '-' }}] {{ w.message }}</label>{% endfor %}{% else %}<p style="color:var(--ok)">No warnings.</p>{% endif %}
+{% if hard_blockers %}<p style="color:var(--bad)">Cannot approve yet: {{ l.approval_blockers|join('; ') }}</p>{% endif %}
+<p class="row"><input name="note" placeholder="Approval note (optional)"><button {% if hard_blockers %}disabled{% endif %}>Approve this revision</button></p></form>
+<form method="post" class="row" action="/dealers/{{ client.id }}/listings/{{ lst.id }}/regenerate"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="note" placeholder="Feedback for regeneration" style="min-width:260px"><button class="secondary">Request regeneration</button></form>
+<form method="post" class="row" action="/dealers/{{ client.id }}/listings/{{ lst.id }}/reject"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="note" placeholder="Reason (required)" required style="min-width:260px"><button class="danger">Reject</button></form>
+{% else %}<p class="muted">Your role can view this listing but not approve it.</p>{% endif %}</div>
+<div class="card"><h2>Photos (from the dealer's inventory)</h2>{{ photos(rev.content.photos) }}</div>{% endif %}
+<div class="card"><h2>Channels</h2>{% for p in pubs %}<div class="row" style="margin-bottom:6px"><strong>{{ p.channel_label }}</strong> {{ st(p.status, labels) }}
+<span class="pill">{{ 'manual workflow' if p.mode == 'manual' else ('API integration' if p.mode == 'api' else 'SIMULATED') }}</span>
+{% if p.confirmation_type %}<span class="pill ok">{{ 'confirmed by API' if p.confirmation_type == 'api' else 'confirmed by staff attestation' }}</span>{% endif %}
+{% if p.needs_update %}<span class="pill warn">needs update</span>{% endif %}<a href="/dealers/{{ client.id }}/publications/{{ p.id }}">{{ 'Open publishing package' if p.mode == 'manual' else 'Open' }} →</a>
+{% if p.update_reason %}<span class="small" style="color:var(--warn)">{{ p.update_reason }}</span>{% endif %}{% if p.last_error %}<span class="small" style="color:var(--bad)">{{ p.last_error }}</span>{% endif %}</div>
+{% else %}<p class="muted small">Channels appear here after approval.</p>{% endfor %}</div>
+<div class="two"><div class="card"><h2>Revision history</h2><table>{% for r in revisions %}<tr><td>#{{ r.revision_number }}</td><td class="small">{{ r.origin }}</td><td class="small">{{ r.created_by_label }}</td><td class="small">{{ r.created_at|local }}</td>
+<td>{% if r.id == lst.approved_revision_id %}<span class="pill ok">approved</span>{% endif %}{% if r.id == lst.current_revision_id %} <span class="pill">current</span>{% endif %}</td>
+<td class="small">{{ r.guardrails.errors|length }} errors, {{ r.guardrails.warnings|length }} warnings</td><td class="small muted">{{ r.feedback or '' }}</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>Review log</h2><ul class="small">{% for r in reviews %}<li>{{ r.created_at|local }} · {{ r.decision }}{% if r.note %} · {{ r.note }}{% endif %}</li>{% else %}<li class="muted">No reviews yet.</li>{% endfor %}</ul></div></div>
+{% endblock %}

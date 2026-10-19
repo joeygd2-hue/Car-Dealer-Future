@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, st, issues %}{% block title %}Import {{ run.id }}{% endblock %}{% block content %}
+{{ subnav(client, 'imports', user) }}<h1>Import: {{ run.file_name or run.trigger }}</h1>
+<div class="card row">{{ st(run.status, labels) }}{% for k, val in run.counts.items() if val is number and val %}<span class="pill">{{ k.replace('_',' ') }}: {{ val }}</span>{% endfor %}</div>
+{% if run.error %}<div class="flash warn">{{ run.error }}</div>{% endif %}{% if run.counts.get('unmapped_headers') %}<div class="flash warn">Columns not used: {{ run.counts.unmapped_headers|join(', ') }}</div>{% endif %}
+<div class="tablewrap"><table><tr><th>Row</th><th>ID</th><th>Outcome</th><th>Issues</th><th>Source row</th></tr>{% for x in records %}
+<tr><td>{{ x.row_number }}</td><td>{% if x.vehicle_id %}<a href="/dealers/{{ client.id }}/vehicles/{{ x.vehicle_id }}">{{ x.external_id }}</a>{% else %}{{ x.external_id or '—' }}{% endif %}</td>
+<td><span class="pill {{ 'bad' if x.outcome == 'rejected' else '' }}">{{ x.outcome }}</span></td><td>{{ issues(x.issues) }}</td><td><details><summary class="small">raw</summary><pre class="small">{{ x.raw|tojson(indent=1) }}</pre></details></td></tr>{% endfor %}</table></div>
+{% endblock %}

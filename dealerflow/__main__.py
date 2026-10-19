@@ -6,6 +6,7 @@
   worker                       run the background worker (agent ticks + jobs)
   run-jobs                     run due jobs once and exit
   demo                         load SIMULATED fixture dealerships (no network)
+  demo-dealer                  create a SIMULATED dealership client with fixture inventory (Phase 2 demo)
   check-integrations           verify configured provider credentials without sending anything
   backup DIR                   write a verified database backup to DIR
   restore FILE --yes           replace the database with a backup (stop web + worker first)
@@ -54,6 +55,48 @@ def _demo() -> None:
         print(run_source(db, "fixture"))
 
 
+def _demo_dealer() -> None:
+    from pathlib import Path
+
+    from sqlalchemy import select
+
+    from .db import session_scope
+    from .models_dealer import Client, InventorySource
+    from .services.inventory.importer import run_import
+    from .services.inventory.parsers import parse_csv
+    from .services.listings.dealer_settings import update_settings
+    from .tenancy import system_context
+
+    with session_scope() as db:
+        c = db.scalar(select(Client).where(Client.slug == "demo-fixture-motors"))
+        if not c:
+            c = Client(name="DEMO Fixture Motors (SIMULATED)", slug="demo-fixture-motors", city="Sugar Land", state="TX", simulated=True)
+            db.add(c)
+            db.flush()
+        cid = c.id
+    ctx = system_context(cid)
+    try:
+        update_settings(ctx, {"contact": {"dealership_name": "Fixture Motors (demo)", "phone": "(281) 555-0100",
+                                          "email": "sales@fixture.example", "website": "", "address": "100 Fixture Ln, Sugar Land, TX 77478"},
+                              "business_hours": {"en": "Mon-Sat 9am-7pm", "es": "Lun-Sáb 9am-7pm"},
+                              "disclaimers": [{"en": "Price excludes tax, title and license.",
+                                               "es": "El precio no incluye impuestos, título ni placas."}],
+                              "enabled_channels": ["facebook_marketplace", "mock"]})
+        src = ctx.db.scalar(select(InventorySource).where(InventorySource.name == "Fixture CSV"))
+        if not src:
+            src = InventorySource(client_id=cid, name="Fixture CSV", source_type="csv_upload",
+                                  authorization_note="FIXTURE DATA - not a real dealership")
+            ctx.db.add(src)
+            ctx.db.flush()
+        data = (Path(__file__).parent / "fixtures" / "demo_inventory.csv").read_bytes()
+        headers, rows = parse_csv(data)
+        run = run_import(ctx, src, headers, rows, trigger="manual", file_name="demo_inventory.csv", file_bytes=data)
+        ctx.db.commit()
+        print(f"dealership {cid}: import {run.status}; run the worker (or run-jobs) to generate listing drafts")
+    finally:
+        ctx.close()
+
+
 def _check() -> None:
     from .integrations.calendar import get_calendar_provider
     from .integrations.email import get_email_provider
@@ -88,6 +131,8 @@ def main(argv: list[str]) -> None:
         print(run_once())
     elif cmd == "demo":
         _demo()
+    elif cmd == "demo-dealer":
+        _demo_dealer()
     elif cmd == "check-integrations":
         _check()
     elif cmd == "backup":

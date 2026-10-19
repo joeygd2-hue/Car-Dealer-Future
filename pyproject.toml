@@ -20,7 +20,8 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.1"]
-dev = ["pytest>=8"]
+ai = ["anthropic>=1.0"]
+dev = ["pytest>=8", "anthropic>=1.0"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -34,3 +35,4 @@ dealerflow = ["templates/*.html", "templates/**/*.html", "static/*", "fixtures/*
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]

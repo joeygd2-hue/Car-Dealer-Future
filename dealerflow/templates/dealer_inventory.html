@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, st, money, num %}{% block title %}Inventory · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'inventory', user) }}
+<h1>Inventory</h1>
+<form class="row card" method="get"><input name="q" value="{{ f.q }}" placeholder="Make, model, VIN, stock #">
+<select name="status"><option value="">Any status</option>{% for s in ['available','pending','sold','removed'] %}<option value="{{ s }}" {% if f.status==s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+<select name="validation"><option value="">Any data quality</option>{% for s in ['valid','warnings','invalid'] %}<option value="{{ s }}" {% if f.validation==s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+<label class="row" style="margin:0"><input type="checkbox" name="stale" value="1" {% if f.stale=='1' %}checked{% endif %}> stale only</label>
+<button class="secondary">Filter</button>{% if ctx.can('edit') %}<a class="btn" href="/dealers/{{ client.id }}/vehicles/new">Add vehicle manually</a>{% endif %}</form>
+<p class="small muted">{{ vehicles|length }} vehicle(s)</p>
+<div class="tablewrap"><table><tr><th>Photo</th><th>Vehicle</th><th>Stock / VIN</th><th>Miles</th><th>Price</th><th>Inventory</th><th>Data</th><th>Listing</th></tr>
+{% for v in vehicles %}{% set l = listings.get(v.id) %}<tr>
+<td>{% if photos.get(v.id) %}<img class="thumb" src="{{ photos[v.id]|safe_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="pill warn">no photo</span>{% endif %}</td>
+<td><a href="/dealers/{{ client.id }}/vehicles/{{ v.id }}">{{ v.year or '?' }} {{ v.make or '' }} {{ v.model or '' }} {{ v.trim or '' }}</a>{% if v.simulated %} <span class="pill sim">SIM</span>{% endif %}</td>
+<td class="small muted">{{ v.stock_number or '—' }} / {{ v.vin or 'no VIN' }}</td><td>{{ num(v.mileage) }}</td><td>{{ money(v.price_cents/100 if v.price_cents is not none else none) }}</td>
+<td>{{ st(v.inventory_status, labels) }}{% if v.stale %} <span class="pill bad">stale</span>{% endif %}</td>
+<td>{{ st(v.validation_status, labels) }}{% if v.validation_issues %} <span class="small muted">{{ v.validation_issues|length }} issue(s)</span>{% endif %}</td>
+<td>{% if l %}<a href="/dealers/{{ client.id }}/listings/{{ l.id }}">{{ st(l.status, labels) }}</a>{% if l.content_outdated %} <span class="pill warn">outdated</span>{% endif %}{% endif %}</td></tr>
+{% else %}<tr><td colspan="8" class="muted">No vehicles. <a href="/dealers/{{ client.id }}/imports">Import inventory</a>.</td></tr>{% endfor %}</table></div>
+{% endblock %}

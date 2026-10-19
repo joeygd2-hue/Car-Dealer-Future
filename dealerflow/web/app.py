@@ -17,25 +17,20 @@ from ..config import get_settings
 from ..logging_setup import configure_logging
 from ..services.dealer_errors import DealerError
 from ..tenancy import TenantViolation
-from .deps import DealerHome, NotAuthenticated, back_to, flash, templates
+from .deps import DealerHome, MfaEnrollmentRequired, MfaRequired, NotAuthenticated, back_to, flash, templates
 
 log = logging.getLogger("dealerflow.web")
 
 
 class _ApiRateLimiter:
-    """Per-IP sliding window for /api/ and webhook routes. Single-process; use a shared store when scaling out."""
+    """Per-IP fixed window for /api/ and webhook routes, counted in the database (shared by every web process)."""
 
-    def __init__(self) -> None:
-        self.hits: dict[str, list[float]] = {}
+    def allow(self, key: str, limit: int, window: int = 60) -> bool:
+        from ..db import session_scope
+        from ..services.customer import rate_limits
 
-    def allow(self, key: str, limit: int, window: float = 60.0) -> bool:
-        now = time.monotonic()
-        q = [t for t in self.hits.get(key, []) if now - t < window]
-        allowed = len(q) < limit
-        if allowed:
-            q.append(now)
-        self.hits[key] = q
-        return allowed
+        with session_scope() as db:
+            return rate_limits.try_acquire(db, f"api:{key}", limit, window)
 
 
 api_limiter = _ApiRateLimiter()
@@ -93,6 +88,19 @@ def create_app() -> FastAPI:
         if request.url.path.startswith("/api/"):
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
         return RedirectResponse(f"/login?next={request.url.path}", status_code=303)
+
+    @app.exception_handler(MfaRequired)
+    async def _mfa_redirect(request: Request, exc: MfaRequired):
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": "Second factor required"}, status_code=401)
+        return RedirectResponse("/login/mfa", status_code=303)
+
+    @app.exception_handler(MfaEnrollmentRequired)
+    async def _mfa_enroll(request: Request, exc: MfaEnrollmentRequired):
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": "MFA enrollment required for admins"}, status_code=403)
+        flash(request, "Agency admins must turn on two-factor authentication before continuing.", "warn")
+        return RedirectResponse("/account/security", status_code=303)
 
     @app.exception_handler(DealerHome)
     async def _dealer_home(request: Request, exc: DealerHome):

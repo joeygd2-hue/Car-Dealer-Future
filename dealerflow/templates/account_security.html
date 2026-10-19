@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block title %}Account security{% endblock %}{% block content %}
+<h1>Account security</h1>
+{% if mfa_required and not user.mfa_enabled %}<div class="flash warn">Agency admins must turn on two-factor authentication.</div>{% endif %}
+<div class="card"><h2>Two-factor authentication</h2>
+{% if recovery_codes %}<div class="flash warn"><strong>Save these recovery codes now.</strong> Each works once; they are not shown again.
+<pre class="mono">{% for c in recovery_codes %}{{ c }}
+{% endfor %}</pre></div>{% endif %}
+{% if user.mfa_enabled %}<p>{{ "On" }} · {{ (user.mfa_recovery_hashes or [])|length }} recovery code(s) left.</p>
+{% if not mfa_required %}<form method="post" action="/account/mfa/disable" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input name="password" type="password" placeholder="password" required><input name="code" placeholder="current code" required><button class="secondary">Turn off</button></form>{% endif %}
+{% elif pending_secret %}<p>Add this key to your authenticator app, then enter the 6-digit code it shows.</p>
+<p class="mono">{{ pending_secret }}</p><p class="small muted mono">{{ uri }}</p>
+<form method="post" action="/account/mfa/confirm" class="row"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="code" required autocomplete="one-time-code" placeholder="123456"><button>Confirm</button></form>
+{% else %}<p>Off.</p><form method="post" action="/account/mfa/start"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Set up two-factor authentication</button></form>{% endif %}</div>
+<div class="card"><h2>Password</h2><form method="post" action="/account/password" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input name="current_password" type="password" placeholder="current password" required autocomplete="current-password">
+<input name="new_password" type="password" placeholder="new password (10+)" required minlength="10" autocomplete="new-password"><button>Change password</button></form>
+<p class="small muted">Changing your password signs out your other sessions.</p></div>
+<div class="card"><h2>Sessions</h2><form method="post" action="/account/sessions/end-others"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Sign out all other sessions</button></form></div>
+{% endblock %}

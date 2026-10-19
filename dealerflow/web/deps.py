@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import secrets
 import time
-from collections import defaultdict
 from datetime import timezone
 from pathlib import Path
 from typing import Any
@@ -18,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
-from ..models import User
+from ..models import User, UserSession
 from ..security import hash_api_key, role_at_least
 from ..services.normalize import format_phone
 
@@ -75,7 +74,7 @@ class DealerHome(Exception):
 
 # Dealership (client) users may only use their own workspace. Everything else is staff-only.
 # /portal holds Phase 4 reports, invoices, SEO findings and support requests for the same dealership.
-DEALER_ALLOWED_PREFIXES = ("/dealers", "/api/v1/dealers", "/portal", "/api/v1/portal", "/logout")
+DEALER_ALLOWED_PREFIXES = ("/dealers", "/api/v1/dealers", "/portal", "/api/v1/portal", "/logout", "/account/")
 
 
 def _restrict_dealer_user(request: Request, user: User) -> None:
@@ -105,11 +104,43 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         request.state.api = True
         _restrict_dealer_user(request, user)
         return user
+    user, row = session_user(request, db)
+    if not row.mfa_verified:
+        raise MfaRequired()
+    if (admin_mfa_required() and user.client_id is None and user.role == "admin" and not user.mfa_enabled
+            and not request.url.path.startswith(MFA_ENROLL_PATHS)):
+        raise MfaEnrollmentRequired()
+    request.state.api = False
+    _restrict_dealer_user(request, user)
+    return user
+
+
+class MfaRequired(Exception):
+    """Password accepted but the second factor has not been verified for this session."""
+
+
+class MfaEnrollmentRequired(Exception):
+    """Policy requires MFA for agency admins and this admin has not enrolled yet."""
+
+
+MFA_ENROLL_PATHS = ("/account/security", "/account/mfa", "/logout")
+
+
+def admin_mfa_required() -> bool:
+    s = get_settings()
+    return s.require_admin_mfa if s.require_admin_mfa is not None else s.env == "production"
+
+
+def session_user(request: Request, db: Session) -> tuple[User, "UserSession"]:
+    """The user and server-side session row behind the cookie (MFA not checked here)."""
+    from .. import sessions
+
     uid = request.session.get("uid")
     if not uid:
         raise NotAuthenticated()
+    row = sessions.load(db, request.session.get("sid"))
     user = db.get(User, uid)
-    if not user or not user.active:
+    if row is None or row.user_id != uid or not user or not user.active:
         request.session.clear()
         raise NotAuthenticated()
     if time.time() - request.session.get("t", 0) > get_settings().session_max_age_seconds:
@@ -118,8 +149,12 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if request.session.get("pv") != password_version(user):
         request.session.clear()  # password changed since this session started
         raise NotAuthenticated()
-    request.state.api = False
-    _restrict_dealer_user(request, user)
+    return user, row
+
+
+def pending_mfa_user(request: Request, db: Session = Depends(get_db)) -> User:
+    """Only for the second-factor page: a session whose password step passed but MFA did not yet."""
+    user, _row = session_user(request, db)
     return user
 
 
@@ -171,22 +206,29 @@ def flash(request: Request, message: str, kind: str = "info") -> None:
 
 
 class LoginLimiter:
-    """At most 5 failed logins per email+IP in 15 minutes."""
+    """At most 5 failed logins per email+IP per 15-minute window, counted in the database (``rate_counters``) so
+    every web process shares the same count."""
 
-    def __init__(self, limit: int = 5, window: float = 900):
+    def __init__(self, limit: int = 5, window: int = 900):
         self.limit, self.window = limit, window
-        self.fails: dict[str, list[float]] = defaultdict(list)
 
-    def blocked(self, key: str) -> bool:
-        now = time.time()
-        self.fails[key] = [t for t in self.fails[key] if now - t < self.window]
-        return len(self.fails[key]) >= self.limit
+    def blocked(self, db: Session, key: str) -> bool:
+        from ..services.customer import rate_limits
 
-    def fail(self, key: str) -> None:
-        self.fails[key].append(time.time())
+        return rate_limits.current(db, f"login_fail:{key}", self.window) >= self.limit
 
-    def reset(self, key: str) -> None:
-        self.fails.pop(key, None)
+    def fail(self, db: Session, key: str) -> None:
+        from ..services.customer import rate_limits
+
+        rate_limits.try_acquire(db, f"login_fail:{key}", 10**9, self.window)
+        db.commit()
+
+    def reset(self, db: Session, key: str) -> None:
+        from sqlalchemy import delete
+
+        from ..models_customer import RateCounter
+
+        db.execute(delete(RateCounter).where(RateCounter.key == f"login_fail:{key}"))
 
 
 login_limiter = LoginLimiter()

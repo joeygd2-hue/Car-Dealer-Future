@@ -133,12 +133,9 @@ def test_security_headers_and_no_inline_script(client, db, admin):
 
 def test_api_rate_limit(client, t, monkeypatch):
     from dealerflow.config import get_settings
-    from dealerflow.web.app import api_limiter
 
-    api_limiter.hits.clear()
     monkeypatch.setattr(get_settings(), "api_rate_limit_per_minute", 5)
     codes = [client.get("/api/v1/clients", headers=t["h"]["viewer"]).status_code for _ in range(7)]
-    api_limiter.hits.clear()
     assert codes[-1] == 429
 
 

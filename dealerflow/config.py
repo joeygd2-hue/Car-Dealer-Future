@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -130,6 +130,14 @@ class Settings(BaseSettings):
 
 
     session_max_age_seconds: int = Field(default=60 * 60 * 12)
+    # MFA for agency admins: None = required in production only; true/false to force.
+    require_admin_mfa: bool | None = None
+    password_reset_ttl_minutes: int = 60
+
+    @field_validator("require_admin_mfa", mode="before")
+    @classmethod
+    def _blank_is_default(cls, v):
+        return None if isinstance(v, str) and not v.strip() else v
 
     # --- Phase 4 ---------------------------------------------------------------------------
     # Client-facing email (monthly reports, lead summaries). Off by default: messages are recorded
@@ -177,12 +185,18 @@ class Settings(BaseSettings):
         problems = []
         if len(self.secret_key.get_secret_value()) < 32:
             problems.append("DF_SECRET_KEY must be a random value of at least 32 characters (python -c 'import secrets; print(secrets.token_urlsafe(48))')")
+        if self.require_admin_mfa is False:
+            problems.append("DF_REQUIRE_ADMIN_MFA=false is not allowed in production (agency admins must use two-factor authentication)")
+        if self.live_customer_messaging_enabled and not self.base_url.startswith("https://"):
+            problems.append("DF_BASE_URL must be https:// before live customer messaging is enabled")
         if (self.outreach_sending_enabled or self.client_email_sending_enabled) and not self.base_url.startswith("https://"):
             problems.append("DF_BASE_URL must be https:// before real email is enabled (unsubscribe links must work for recipients)")
         return problems
 
     def production_warnings(self) -> list[str]:
         warnings = []
+        if not self.pilot_mode:
+            warnings.append("DF_PILOT_MODE is off: live sends are no longer limited to the internal test allowlist")
         if not self.base_url.startswith("https://"):
             warnings.append("DF_BASE_URL is not https://; webhooks and unsubscribe links will not work publicly")
         if self.database_url.startswith("sqlite"):

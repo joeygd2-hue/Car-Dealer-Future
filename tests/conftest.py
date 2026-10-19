@@ -81,7 +81,6 @@ def fresh_db(tmp_path, monkeypatch):
     from dealerflow.integrations.calendar import MockCalendarProvider
     from dealerflow.integrations.email import MockEmailProvider
     from dealerflow.integrations.zoom import MockZoomProvider
-    from dealerflow.web.deps import login_limiter
 
     if PG_URL:
         monkeypatch.setenv("DF_DATABASE_URL", PG_URL)
@@ -96,7 +95,6 @@ def fresh_db(tmp_path, monkeypatch):
     MockEmailProvider.reset()
     MockCalendarProvider.reset()
     MockZoomProvider.reset()
-    login_limiter.fails.clear()
     import dealerflow.integrations.http as http
     monkeypatch.setattr(http.time, "sleep", lambda s: None)
     yield

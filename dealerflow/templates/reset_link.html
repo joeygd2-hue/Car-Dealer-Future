@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block title %}Reset link{% endblock %}{% block content %}
+<h1>Setup / reset link for {{ target.email }}</h1>
+<div class="card"><p>Give this single-use link to the user through a channel you trust. It expires in 72 hours and is not shown again.</p>
+<p class="mono">{{ link }}</p><p><a href="/settings#users">Back to users</a></p></div>{% endblock %}

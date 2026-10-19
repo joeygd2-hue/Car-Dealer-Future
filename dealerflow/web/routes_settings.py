@@ -151,17 +151,34 @@ def user_save(request: Request, email: str = Form(...), name: str = Form(""), ro
         else:
             if u.is_client:
                 raise ValueError("That address belongs to a client portal user; manage it from the client's page")
-            if u.id == user.id and (role != "admin" or not active):
+            if u.id == user.id and (role != "admin" or active in ("", "0")):
                 raise ValueError("You cannot demote or deactivate yourself")
-            u.name, u.role, u.active = name or u.name, role, bool(active)
+            u.name, u.role, u.active = name or u.name, role, active not in ("", "0")
             if password:
                 u.password_hash = hash_password(password)
     except ValueError as exc:
         flash(request, str(exc), "error")
         return RedirectResponse("/settings#users", status_code=303)
     db.flush()
+    if not u.active or password:  # deactivation or an admin-set password ends that user's sessions everywhere
+        from .. import sessions
+
+        sessions.end_all(db, u.id)
     audit(db, "user.save", actor_id=user.id, entity_type="user", entity_id=u.id, data={"role": role, "active": u.active})
     return RedirectResponse("/settings#users", status_code=303)
+
+
+@router.post("/settings/users/{uid}/reset-link")
+def user_reset_link(uid: int, request: Request, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+    """Single-use setup/reset link for a user (staff or dealership), shown once to the admin to hand over."""
+    from .routes_auth import issue_reset_token
+
+    target = db.get(User, uid)
+    if target is None:
+        raise HTTPException(404, "Not found")
+    link = issue_reset_token(db, target, created_by_id=user.id, purpose="SETUP")
+    db.commit()
+    return render(request, "reset_link.html", user, target=target, link=link)
 
 
 @router.post("/settings/api-key")

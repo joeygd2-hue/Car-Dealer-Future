@@ -45,3 +45,10 @@ configurable Phase 4 behaviour, not something the merge introduces.
 
 ## Gate
 Full suite on SQLite and Postgres; migrations match models.
+
+## Result
+- Merge commit `c89096c`; SSRF fix `Guard the SEO crawler…` with a regression test that fails on the old code.
+- **SQLite: 258 passed** (257 from the three branches + 1 new SSRF test).
+- **PostgreSQL 16: 257 passed, 1 skipped** — the skip is `test_sqlite_backup_and_restore`, which tests the
+  SQLite file backup and is skipped on Postgres by design (Phase 4 commit `194d247`).
+- No migration conflict, data-loss path or security regression left open.

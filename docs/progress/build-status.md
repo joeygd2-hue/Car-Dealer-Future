@@ -163,7 +163,9 @@ listing/publishing tables, and reads Phase 2's data in monthly reports.
 ### Phase 4 tests (run 2026-10-18)
 
 After the Phase 2 merge: `pytest` → **257 passed** (136 Phase 1 + 47 Phase 2 + 74 Phase 4) in ~115 s on SQLite;
-Postgres 16 run pending at commit time (see the next commit) (`DF_TEST_PG_URL=…`). `pip-audit` (after the merge): no known vulnerabilities.
+**256 passed, 1 skipped** (the SQLite-only backup test) on Postgres 16 (`DF_TEST_PG_URL=…`). Two test-only fixes
+were needed for Postgres: the Phase 2 feed test faked DNS for every host (including the database's `localhost`), and
+the Phase 1 backup test's skip condition never fired. `pip-audit` (after the merge): no known vulnerabilities.
 
 | File | Cases | Covers |
 |---|---|---|

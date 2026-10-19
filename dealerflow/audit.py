@@ -1,4 +1,9 @@
-"""Audit trail and integration call log."""
+"""Audit trail and integration call log.
+
+Audit rows are append-only and sealed: ``before_insert`` stores an HMAC-SHA256 over the row's content (key derived
+from DF_SECRET_KEY), and the ORM refuses to update or delete an ``AuditLog`` row. ``verify_integrity`` recomputes
+every seal; a mismatch means the row was changed outside the application.
+"""
 
 from __future__ import annotations
 
@@ -181,3 +186,77 @@ def _scrub(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     return str(value)
+
+
+# --- audit integrity --------------------------------------------------------------------------------------------
+
+
+class AuditLogImmutableError(RuntimeError):
+    pass
+
+
+def _audit_key() -> bytes:
+    import hashlib
+
+    from .config import get_settings
+
+    return hashlib.sha256(b"dealerflow-audit-v1:" + get_settings().require_secret_key().encode()).digest()
+
+
+def entry_hmac(created_at, actor_id, action, entity_type, entity_id, data, ip) -> str:
+    import hashlib
+    import hmac
+    import json
+
+    payload = json.dumps([created_at.isoformat() if created_at else None, actor_id, action, entity_type, entity_id, data, ip],
+                         sort_keys=True, default=str, separators=(",", ":"))
+    return hmac.new(_audit_key(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def _row_hmac(row: AuditLog) -> str:
+    return entry_hmac(row.created_at, row.actor_id, row.action, row.entity_type, row.entity_id, row.data, row.ip)
+
+
+def verify_integrity(db: Session, limit: int | None = None) -> dict:
+    """Recompute every seal. Id gaps are reported for information only: a rolled-back transaction also skips ids
+    (PostgreSQL sequences), so a gap is not proof that a row was deleted."""
+    from sqlalchemy import select
+
+    stmt = select(AuditLog).order_by(AuditLog.id)
+    if limit:
+        stmt = stmt.limit(limit)
+    tampered, unsealed, gaps, checked, prev = [], [], [], 0, 0
+    for row in db.scalars(stmt):
+        checked += 1
+        if row.entry_hmac is None:
+            unsealed.append(row.id)
+        elif row.entry_hmac != _row_hmac(row):
+            tampered.append(row.id)
+        if row.id != prev + 1:
+            gaps.append([prev + 1, row.id - 1])
+        prev = row.id
+    return {"checked": checked, "tampered_ids": tampered, "unsealed_ids": unsealed, "id_gaps": gaps,
+            "ok": not (tampered or unsealed)}
+
+
+def _install_guards() -> None:
+    from sqlalchemy import event
+
+    from .db import utcnow
+
+    @event.listens_for(AuditLog, "before_insert")
+    def _seal(mapper, connection, target: AuditLog) -> None:  # noqa: ANN001
+        if target.created_at is None:
+            target.created_at = utcnow()
+        target.entry_hmac = _row_hmac(target)
+
+    @event.listens_for(AuditLog, "before_update")
+    def _no_update(mapper, connection, target) -> None:  # noqa: ANN001
+        raise AuditLogImmutableError("audit log entries are append-only")
+
+    @event.listens_for(AuditLog, "before_delete")
+    def _no_delete(mapper, connection, target) -> None:  # noqa: ANN001
+        raise AuditLogImmutableError("audit log entries are append-only")
+
+
+_install_guards()

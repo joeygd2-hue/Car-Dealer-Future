@@ -81,6 +81,14 @@ class User(TimestampMixin, Base):
     # dealership workspace (/dealers/...). Staff users leave both columns NULL.
     client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", use_alter=True, name="fk_users_client_id"), index=True)
     client_role: Mapped[str | None] = mapped_column(String(20))  # dealer_admin | dealer_reviewer | dealer_viewer
+    # Stage 4 (Phase 3.5 safety layer): TOTP MFA. Secrets are Fernet-sealed (dealerflow.mfa.seal); recovery codes are
+    # stored as SHA-256 hashes and are single-use; mfa_last_counter blocks code replay.
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    mfa_secret: Mapped[str | None] = mapped_column(Text)
+    mfa_pending_secret: Mapped[str | None] = mapped_column(Text)
+    mfa_last_counter: Mapped[int | None] = mapped_column(Integer)
+    mfa_recovery_hashes: Mapped[list[str] | None] = mapped_column(JSON)
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     @property
     def is_client(self) -> bool:
@@ -426,6 +434,51 @@ class AppSetting(Base):
     updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
 
+class UserSession(Base):
+    """Server-side login session (dealerflow.sessions). The cookie holds only a random id; this row its SHA-256."""
+
+    __tablename__ = "user_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    mfa_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    ip: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(String(300))
+
+
+class PasswordResetToken(Base):
+    """Single-use password reset / account setup link. Only the SHA-256 of the token is stored."""
+
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    purpose: Mapped[str] = mapped_column(String(20), default="RESET", nullable=False)  # RESET | SETUP
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class PilotRecipient(Base):
+    """Internal test recipient allowed to receive LIVE sends while pilot mode is on (dealerflow.services.pilot)."""
+
+    __tablename__ = "pilot_recipients"
+    __table_args__ = (UniqueConstraint("kind", "value", name="uq_pilot_recipient"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # EMAIL | PHONE | CHAT_VISITOR | META_PSID
+    value: Mapped[str] = mapped_column(String(200), nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    added_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
 
@@ -437,6 +490,8 @@ class AuditLog(Base):
     data: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     ip: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    # HMAC-SHA256 seal over the row's content (dealerflow.audit.entry_hmac). Rows are append-only.
+    entry_hmac: Mapped[str | None] = mapped_column(String(64))
 
     actor: Mapped[User | None] = relationship()
 

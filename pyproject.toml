@@ -25,7 +25,8 @@ dependencies = [
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.1"]
 ai = ["anthropic>=1.15"]  # optional Claude API (listing generation, AI gateway)
-dev = ["pytest>=8", "anthropic>=1.15"]
+dev = ["pytest>=8", "anthropic>=1.15", "ruff>=0.6"]
+e2e = ["playwright>=1.48"]  # scripts/e2e_pilot_check.py (uses an installed Chromium; set E2E_CHROMIUM)
 
 [build-system]
 requires = ["setuptools>=68"]

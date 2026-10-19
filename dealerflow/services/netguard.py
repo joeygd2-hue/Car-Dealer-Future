@@ -1,32 +1,47 @@
-"""SSRF guard for server-side fetches of user-supplied URLs (inventory feeds, SEO crawls).
+"""SSRF guard for every server-side fetch of a user-supplied URL (inventory feeds, dealer websites).
 
-A thin wrapper over the shared check in ``integrations.website.assert_public_url`` that adds the https
-requirement and turns failures into a 400 for the person who entered the URL.
+Rules (strictest of the Phase 1.5 audit and Phase 2 implementations):
+- http(s) only; https required unless the caller opts out (dealer websites may be plain http).
+- Reserved fixture domains (*.example) are served from local fixtures and never fetched.
+- Every address the host resolves to must be globally routable (``ip.is_global``): this rejects
+  private, loopback, link-local (cloud metadata), CGNAT, reserved and multicast ranges.
+- DNS failure fails closed.
+Callers that follow redirects must re-check every hop (see integrations.website._get).
 """
 from __future__ import annotations
 
+import ipaddress
+import socket
 from urllib.parse import urlparse
 
-from ..integrations.errors import IntegrationError
-from ..integrations.website import UnsafeURL
-from ..integrations.website import assert_public_url as _assert_public
 from .dealer_errors import BadRequest
+
+
+def _resolve(host: str, port: int):
+    """DNS lookup used by the guard (tests stub this, not the global socket module)."""
+    return socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+
+
+class UnsafeURL(BadRequest):
+    """The URL is not allowed for a server-side fetch."""
 
 
 def assert_public_url(url: str, *, require_https: bool = True) -> None:
     u = urlparse(url)
-    if require_https and u.scheme != "https":
-        raise BadRequest("URL must use https")
     if u.scheme not in ("http", "https") or not u.hostname:
-        raise BadRequest("Invalid URL")
+        raise UnsafeURL("Invalid URL: only http(s) URLs with a host are allowed")
+    if require_https and u.scheme != "https":
+        raise UnsafeURL("URL must use https")
     host = u.hostname
     if host.endswith(".example"):
-        return  # reserved fixture domains (RFC 2606) never resolve; used by demos and tests
-    if host == "localhost" or host.endswith((".invalid", ".test", ".localhost")):
-        raise BadRequest("URL host is not allowed")
+        return  # reserved fixture domains are served from local fixtures, never fetched
+    if host.endswith((".invalid", ".test", ".localhost")) or host == "localhost":
+        raise UnsafeURL("URL host is not allowed")
     try:
-        _assert_public(url)
-    except UnsafeURL as exc:
-        raise BadRequest("URL resolves to a private or internal address") from exc
-    except IntegrationError:
-        return  # unresolvable now: the fetch itself will fail (and is re-checked on every fetch)
+        infos = _resolve(host, u.port or (443 if u.scheme == "https" else 80))
+    except socket.gaierror as exc:
+        raise UnsafeURL(f"DNS lookup failed for {host}") from exc
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global or ip.is_multicast:
+            raise UnsafeURL(f"{host} resolves to a non-public address ({ip})")

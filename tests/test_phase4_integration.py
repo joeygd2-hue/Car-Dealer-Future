@@ -191,7 +191,8 @@ def test_seo_crawler_refuses_internal_addresses(monkeypatch):
 
     from dealerflow.services.seo_crawler import Crawler
 
-    monkeypatch.setattr("dealerflow.integrations.website.resolve",
+    monkeypatch.setattr("dealerflow.services.netguard._resolve",
+                        
                         lambda host, port: [(None, None, None, None, ("10.0.0.5" if host == "intranet.dealer.com" else "93.184.216.34", port))])
     hits = []
 

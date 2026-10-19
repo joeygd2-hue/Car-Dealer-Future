@@ -88,33 +88,14 @@ class UnsafeURL(PermanentError):
     """The URL points at a non-public address (SSRF protection)."""
 
 
-def resolve(host: str, port: int) -> list:
-    """DNS lookup used by the SSRF guard (a seam tests can replace without touching the global socket module)."""
-    import socket
-
-    return socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-
-
 def assert_public_url(url: str) -> None:
-    """Allow only http(s) URLs whose host resolves exclusively to public IP addresses.
+    """Delegates to the shared guard (services.netguard); dealer sites may use plain http."""
+    from ..services import netguard
 
-    The one SSRF check for server-side fetches (website research, inventory feeds via services.netguard,
-    SEO crawls). Fails closed: a DNS error raises ``IntegrationError``.
-    """
-    import ipaddress
-    import socket
-
-    parts = urlparse(url)
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise UnsafeURL(f"not an http(s) URL: {url!r}")
     try:
-        infos = resolve(parts.hostname, parts.port or (443 if parts.scheme == "https" else 80))
-    except socket.gaierror as exc:
-        raise IntegrationError(f"DNS lookup failed for {parts.hostname}: {exc}") from exc
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if not ip.is_global or ip.is_multicast:
-            raise UnsafeURL(f"{parts.hostname} resolves to a non-public address ({ip})")
+        netguard.assert_public_url(url, require_https=False)
+    except netguard.UnsafeURL as exc:
+        raise UnsafeURL(str(exc)) from exc
 
 
 def _get(url: str, client: httpx.Client, *, max_redirects: int = 3) -> httpx.Response:

@@ -66,14 +66,27 @@ class NotAuthenticated(Exception):
     pass
 
 
-# Paths a client (dealership) user may reach. Everything else is staff-only, enforced centrally here so
-# that a route using plain Depends(current_user) can never leak internal data to a client user.
-CLIENT_ALLOWED_PREFIXES = ("/portal", "/api/v1/portal", "/logout")
+class DealerHome(Exception):
+    """A dealership user opened a staff page; send them to their own workspace."""
+
+    def __init__(self, client_id: int):
+        self.client_id = client_id
 
 
-def _confine_client(request: Request, user: User) -> None:
-    if user.is_client and not request.url.path.startswith(CLIENT_ALLOWED_PREFIXES):
-        raise HTTPException(403, "This area is for staff. Use the client portal.")
+# Dealership (client) users may only use their own workspace. Everything else is staff-only.
+# /portal holds Phase 4 reports, invoices, SEO findings and support requests for the same dealership.
+DEALER_ALLOWED_PREFIXES = ("/dealers", "/api/v1/dealers", "/portal", "/api/v1/portal", "/logout")
+
+
+def _restrict_dealer_user(request: Request, user: User) -> None:
+    if user.client_id is None:
+        return
+    path = request.url.path
+    if path.startswith(DEALER_ALLOWED_PREFIXES):
+        return
+    if path == "/" and request.method == "GET":
+        raise DealerHome(user.client_id)
+    raise HTTPException(403, "This area is only available to agency staff")
 
 
 def password_version(user: User) -> str:
@@ -90,7 +103,7 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         if not user:
             raise HTTPException(401, "Invalid API key")
         request.state.api = True
-        _confine_client(request, user)
+        _restrict_dealer_user(request, user)
         return user
     uid = request.session.get("uid")
     if not uid:
@@ -106,20 +119,20 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         request.session.clear()  # password changed since this session started
         raise NotAuthenticated()
     request.state.api = False
-    _confine_client(request, user)
+    _restrict_dealer_user(request, user)
     return user
 
 
 def require_client(user: User = Depends(current_user)) -> User:
-    """Client-portal dependency: only client users bound to a client."""
-    if not user.is_client or user.client_id is None:
+    """Client-portal dependency: only dealership users bound to a client."""
+    if user.client_id is None:
         raise HTTPException(403, "Client portal only")
     return user
 
 
 def require(role: str):
     def dep(user: User = Depends(current_user)) -> User:
-        if not role_at_least(user.role, role):
+        if user.client_id is not None or not role_at_least(user.role, role):
             raise HTTPException(403, f"Requires {role} role")
         return user
 

@@ -32,9 +32,9 @@ Without Docker: `pip install -e ".[postgres]"`, `python -m dealerflow migrate`, 
 
 ## Migrations
 
-* `python -m dealerflow migrate` applies Alembic revisions (`0001` Phase 1, `0002` Phase 4, `0003` interim
-  Phase 2/3 tables) and seeds reference data. All Phase 4 revisions are additive; upgrade → downgrade →
-  upgrade was verified with existing rows on SQLite and Postgres 16.
+* `python -m dealerflow migrate` applies Alembic revisions (`0001` Phase 1, `0002` Phase 2, `0003` Phase 4,
+  `0004` interim Phase 3 tables) and seeds reference data. The Phase 4 revisions are additive; upgrade →
+  downgrade → upgrade was verified with existing client rows on SQLite and Postgres 16.
 * Take a backup before every upgrade (see runbook). Roll back with `alembic downgrade <rev>` using
   `dealerflow.migrate.alembic_config()`, or restore the backup.
 

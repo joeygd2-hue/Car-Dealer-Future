@@ -22,8 +22,8 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.1"]
-ai = ["anthropic>=1.15"]  # optional Claude API gateway (DF_AI_ENABLED)
-dev = ["pytest>=8"]
+ai = ["anthropic>=1.15"]  # optional Claude API (listing generation, AI gateway)
+dev = ["pytest>=8", "anthropic>=1.15"]
 
 [build-system]
 requires = ["setuptools>=68"]

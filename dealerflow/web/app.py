@@ -15,7 +15,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from ..config import get_settings
 from ..logging_setup import configure_logging
-from .deps import NotAuthenticated, templates
+from ..services.dealer_errors import DealerError
+from ..tenancy import TenantViolation
+from .deps import DealerHome, NotAuthenticated, back_to, flash, templates
 
 log = logging.getLogger("dealerflow.web")
 
@@ -92,6 +94,27 @@ def create_app() -> FastAPI:
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
         return RedirectResponse(f"/login?next={request.url.path}", status_code=303)
 
+    @app.exception_handler(DealerHome)
+    async def _dealer_home(request: Request, exc: DealerHome):
+        return RedirectResponse(f"/dealers/{exc.client_id}", status_code=303)
+
+    @app.exception_handler(DealerError)
+    async def _dealer_error(request: Request, exc: DealerError):
+        if request.url.path.startswith("/api/") or request.method == "GET":
+            if request.url.path.startswith("/api/"):
+                return JSONResponse({"detail": exc.message, "errors": exc.details}, status_code=exc.status)
+            return templates.TemplateResponse(request, "error.html", {"status": exc.status, "detail": exc.message, "user": None,
+                                                                      "csrf": "", "flash": None}, status_code=exc.status)
+        details = exc.details or {}
+        extra = details.get("blockers") or details.get("problems") or details.get("validation_errors") if isinstance(details, dict) else None
+        flash(request, exc.message + (": " + "; ".join(extra) if extra else ""), "error")
+        return RedirectResponse(back_to(request, "/dealers"), status_code=303)
+
+    @app.exception_handler(TenantViolation)
+    async def _tenant_violation(request: Request, exc: TenantViolation):
+        log.warning("tenant violation", extra={"path": request.url.path, "error": str(exc)})
+        return JSONResponse({"detail": "Cross-dealership access denied"}, status_code=403)
+
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, exc: StarletteHTTPException):
         if request.url.path.startswith(("/api/", "/webhooks/", "/healthz")) or "application/json" in request.headers.get("accept", ""):
@@ -107,10 +130,10 @@ def create_app() -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parents[1] / "static")), name="static")
     from . import forms  # noqa: F401  (registers template filters)
-    from . import (routes_agent, routes_api, routes_auth, routes_clients, routes_crm, routes_finance, routes_ops_api, routes_outreach,
-                   routes_portal, routes_public, routes_seo, routes_settings)
+    from . import (routes_agent, routes_api, routes_auth, routes_clients, routes_crm, routes_dealer_api, routes_dealers, routes_finance,
+                   routes_ops_api, routes_outreach, routes_portal, routes_public, routes_seo, routes_settings)
 
     for mod in (routes_auth, routes_public, routes_crm, routes_outreach, routes_agent, routes_settings, routes_api,
-                routes_clients, routes_finance, routes_seo, routes_portal, routes_ops_api):
+                routes_dealers, routes_dealer_api, routes_clients, routes_finance, routes_seo, routes_portal, routes_ops_api):
         app.include_router(mod.router)
     return app

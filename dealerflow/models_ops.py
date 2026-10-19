@@ -1,7 +1,7 @@
 """Phase 2-4 models: dealership clients (tenancy), service operations, finance, SEO and reporting.
 
 Conventions (in addition to those in models.py):
-- A ``Client`` is a dealership we serve. It links one-to-one to the won ``Prospect`` it came from.
+- ``Client`` is Phase 2's ``models_dealer.Client`` (extended with Phase 4 onboarding/contact columns).
   It is the tenant boundary: every client-owned table has an indexed, NOT NULL ``client_id``.
 - Money is integer cents (``*_cents``) with an ISO currency. Phase 1's float ``CostEntry.amount``
   is the exception (usage-level cost ledger); see services/usage.py.
@@ -33,7 +33,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base, utcnow
 
 __all__ = [
-    "Client", "IntegrationConnection", "SupportTicket", "OnboardingStep", "AutomationSetting", "Attachment", "WebhookEvent", "Alert", "Budget", "ServicePackage", "ClientAgreement", "Invoice", "InvoiceLine", "Payment", "CreditNote", "ExpenseCategory", "Expense", "BankTransaction", "SeoSite", "SeoAudit", "SeoPage", "SeoIssue", "SearchMetric", "ClientReport", "MONTHS_PER_PERIOD",
+    "IntegrationConnection", "SupportTicket", "OnboardingStep", "AutomationSetting", "Attachment", "WebhookEvent", "Alert", "Budget", "ServicePackage", "ClientAgreement", "Invoice", "InvoiceLine", "Payment", "CreditNote", "ExpenseCategory", "Expense", "BankTransaction", "SeoSite", "SeoAudit", "SeoPage", "SeoIssue", "SearchMetric", "ClientReport", "MONTHS_PER_PERIOD",
 ]
 
 MONTHS_PER_PERIOD = {"monthly": 1, "quarterly": 3, "annual": 12}
@@ -45,31 +45,6 @@ class _Ts:
 
 
 # --- Tenancy and service operations -------------------------------------------------------
-
-
-class Client(_Ts, Base):
-    __tablename__ = "clients"
-    __table_args__ = (CheckConstraint("status in ('onboarding','active','paused','cancelled')", name="ck_clients_status"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    prospect_id: Mapped[int | None] = mapped_column(ForeignKey("prospects.id", ondelete="SET NULL"), unique=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    legal_name: Mapped[str | None] = mapped_column(String(255))
-    status: Mapped[str] = mapped_column(String(20), default="onboarding", nullable=False)
-    address_line: Mapped[str | None] = mapped_column(String(255))
-    city: Mapped[str | None] = mapped_column(String(120))
-    state: Mapped[str | None] = mapped_column(String(2))
-    postal_code: Mapped[str | None] = mapped_column(String(10))
-    phone: Mapped[str | None] = mapped_column(String(40))
-    website: Mapped[str | None] = mapped_column(String(500))
-    contact_name: Mapped[str | None] = mapped_column(String(255))
-    contact_email: Mapped[str | None] = mapped_column(String(255))
-    timezone: Mapped[str] = mapped_column(String(64), default="America/Chicago", nullable=False)
-    languages: Mapped[list[Any]] = mapped_column(JSON, default=lambda: ["en", "es"])
-    business_hours: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    response_rules: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    activated_at: Mapped[datetime | None] = mapped_column(DateTime)
-    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class IntegrationConnection(_Ts, Base):

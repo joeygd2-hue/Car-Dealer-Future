@@ -4,11 +4,11 @@
 |---|---|---|
 | **1** | Research, lead generation, CRM, sales operations, persistent outreach agent | **Implemented and tested with simulated providers.** Live integrations not yet verified (no credentials). |
 | **1.5** | Launch-readiness audit | **Done 2026-10-18.** Verdict: not ready for live outreach; blockers in `docs/audit/launch-readiness-audit.md` §7. |
-| 2 | Inventory, listings, publishing | In progress on `claude/dealership-inventory-publishing-iq0aqw` (porting into dealerflow). Phase 4 ships interim tables it must replace (`shared-stack.md`). |
-| 3 | Customer response, conversations, portal | On `claude/magical-darwin-nncp64` as a **separate `app` package — not yet ported into dealerflow**. |
-| **4** | Finance, expenses, usage costs, SEO audits, client reporting, service catalog, onboarding, tickets, client portal, security review | **Implemented and tested with simulated providers** on branch `claude/blissful-davinci-82py6w` (merged with this Phase 1 work). Live integrations not verified. |
+| **2** | Dealership inventory ingestion, bilingual listings, approvals, publishing | **Implemented in this app and tested with fixtures, SIMULATED channel and mocked HTTP.** Meta catalog not live-verified (no credentials). See the Phase 2 section below. |
+| 3 | Customer response, conversations, portal | On `claude/magical-darwin-nncp64` as a **separate `app` package — not yet ported into dealerflow**. Phase 4 ships interim conversation tables it must replace (`shared-stack.md`). |
+| **4** | Finance, expenses, usage costs, SEO audits, client reporting, service catalog, onboarding, tickets, client portal, security review | **Implemented and tested with simulated providers**, merged with Phases 1 and 2 on `claude/blissful-davinci-82py6w`. Live integrations not verified. |
 
-Last updated: 2026-10-18 · Phase 1 on `claude/charming-ritchie-358e1g`; Phase 4 (this file's latest edit) on `claude/blissful-davinci-82py6w`
+Last updated: 2026-10-18 · Phase 1 on `claude/charming-ritchie-358e1g`; Phase 2 on `claude/dealership-inventory-publishing-iq0aqw`; Phases 1+2+4 merged (this file's latest edit) on `claude/blissful-davinci-82py6w`
 
 ## Starting point
 
@@ -37,9 +37,9 @@ SQLAlchemy/Alembic + Jinja, matching the owner's other Python/FastAPI project. D
 
 ## Tests
 
-`pytest` runs 136 tests in about 30 s with no network (102 at the end of Phase 1; 34 added by the audit, including
-`test_adversarial.py`, `test_txdmv.py`, `test_backup.py`, `test_livecheck.py`). The same suite passes on Postgres 16
-(`DF_TEST_PG_URL=postgresql+psycopg://… pytest`).
+`pytest` runs **257 tests** with no network after the Phase 1 + 2 + 4 merge: 136 Phase 1 (102 at the end of Phase 1,
+34 added by the launch audit), 47 Phase 2, 74 Phase 4. The same suite passes on Postgres 16
+(`DF_TEST_PG_URL=postgresql+psycopg://… pytest`). Phase 2 and Phase 4 test tables are in their sections below.
 
 | File | Tests | Covers |
 |---|---|---|
@@ -91,15 +91,63 @@ Pause, Emergency stop.
 6. Send 5–10 human-approved emails, then consider enabling the agent in `manual` approval mode.
 
 
+## Phase 2: dealership inventory, listings and publishing
+
+Last updated 2026-10-18 (Phase 2 chat, branch `claude/dealership-inventory-publishing-iq0aqw`).
+
+**How Phase 2 joined this app.** Phases 1, 2 and 4 had each started from the empty repository at the same time and
+built separate apps on separate branches. The owner chose this Phase 1 `dealerflow` app as the single foundation.
+Phase 2 merged this branch and ported its feature set into `dealerflow` (the earlier standalone Phase 2 code is in
+git history at `786fc1e`). Its duplicate outreach agent was dropped in favour of Phase 1's. Phase 4 was later ported
+into `dealerflow` and merged on top of this (see the Phase 4 section).
+
+| Area | Implemented | Where |
+|---|---|---|
+| Clients and tenancy | `clients` (from won prospects), dealership users bound to one client, tenant-scoped sessions, composite tenant FKs, 404 for other clients' ids, dealership users blocked from all staff pages | `models_dealer.py`, `tenancy.py`, `web/deps.py` |
+| Ingestion | CSV/TSV/XLSX/JSON uploads, DMS exports via column mapping, authorised HTTPS feeds (scheduled, credential from env, SSRF guard), manual entry; raw rows kept; run history | `services/inventory/` |
+| Validation | Missing/contradictory/implausible data, VIN check digit + model-year cross-check, duplicate VINs, branded titles, photo URLs, stale detection | `services/inventory/validate.py`, `dealer_jobs.run_stale_scan` |
+| Sync | Price/detail/photo/status change detection, removal for full snapshots with a mass-removal safeguard, reappearance, idempotent re-import | `services/inventory/importer.py`, `reactions.py` |
+| Listings | Deterministic EN/ES generator (default) + optional Claude generator; titles, descriptions, features, search terms, CTA, 7 FAQ answers, disclaimers; uncertainty notes; immutable revisions with facts snapshot | `services/listings/` |
+| Guardrails | Urgency (EN/ES), unsupported warranty/accident/title/owner/certification/financing claims, year/mileage/price/drivetrain/transmission/fuel mismatches, unverified features, keyword stuffing, limits, required fields, disclaimers, branded-title disclosure | `services/listings/guardrails.py` |
+| Review | Workspace pages: inventory, vehicle detail + history, EN/ES side by side, edit, photos, issues, approve with warning acknowledgement, reject, regenerate, revisions, batch approval (preview, expected count, confirm) | `web/routes_dealers.py`, `templates/dealer_*.html` |
+| Publishing | Facebook Marketplace manual package + recorded publication/edit/removal; Meta vehicle catalog (guarded); SIMULATED channel; idempotent operations, retries with backoff, bounded attempts, withdrawal on sale; CSV export | `services/publishing/`, `integrations/listing_channels.py` |
+| Reports | Imported, generated, approved, API-confirmed vs manually-confirmed publications, manual required, failed, stale, sold needing withdrawal, data issues, sync health | `services/dealer_reports.py` |
+| API | `/api/v1/dealers/{client_id}/...` | `web/routes_dealer_api.py` |
+
+| Test file | Tests | Covers |
+|---|---|---|
+| `test_dealer_inventory.py` | 11 | Normalisation + raw rows, malformed rows, contradictions, VIN, duplicates, idempotent re-import, price change, sold/removed, mass-removal safeguard, XLSX upload page, authorised feed through the worker, SSRF guard, stale scan |
+| `test_dealer_listings.py` | 18 | Bilingual generation from verified facts, worker drafts, 9 guardrail cases, supported claims allowed, missing data flagged, warning acknowledgement + stale facts, agency approval gating, batch safeguards, revisions, AI output still guard-railed |
+| `test_dealer_publishing.py` | 10 | Marketplace manual evidence rules, price change → needs update, sold → withdrawal, API submit/confirm + idempotency, retries, permanent failure + retry, bounded retries, sold → API delete, stale blocks publishing, Meta guard + request shape |
+| `test_dealer_isolation.py` | 6 | Cross-dealer pages/API → 404, dealership users blocked from staff pages, server-side roles + CSRF, staff viewer read-only, ORM tenant filter and write refusal, composite FKs |
+| `test_dealer_web.py` | 2 | Full HTTP workflow (prospect → client → dealer user → settings → upload → worker drafts → batch approve → Marketplace record → SIMULATED API publish → reports → ES export → API key → audit) and every page renders |
+
+Verified by hand on 2026-10-18: full suite 146 passed on SQLite and on **PostgreSQL 16**; migration `0002`
+upgrade → downgrade → upgrade on SQLite; `migrate` → `demo-dealer` → `run-jobs` → `web`, then a headless-Chromium
+pass as a dealership owner (inventory, listing review, approval, Marketplace package, recording publication, reports,
+mobile width; staff pages return 403) and as staff (dealership directory).
+
+### Next steps (Phase 2 scope)
+1. ~~Phase 4: port into this app~~ — done (see Phase 4).
+2. Phase 3 chat: build the client portal and customer messaging on `clients`, `dealer_ctx` and dealership users.
+   Marketplace buyer conversations remain manual (no API).
+3. To verify Meta live: Meta app with App Review, a test vehicle catalog, a system-user token in `DF_META_TOKEN_*`,
+   then publish one SIMULATED dealership's listing to a test catalog.
+4. Get real DMS export samples from pilot dealers and add column-mapping presets.
+
+
 ## Phase 4: what's implemented
 
 Branch `claude/blissful-davinci-82py6w`. Phase 4 began before Phase 1 was pushed, built a parallel foundation,
 and then — on the owner's decision — was **re-implemented inside dealerflow**; the parallel `app` package was
-removed (still in history at `fdfa4f4`).
+removed (still in history at `fdfa4f4`). It was then merged with Phase 2 (`claude/dealership-inventory-publishing-iq0aqw`)
+on the owner's decision: Phase 4 adopted Phase 2's `clients` table and dealership users (`client_id` + `client_role`),
+renumbered its migrations after Phase 2's (`0003` Phase 4, `0004` interim Phase 3), dropped its interim inventory/
+listing/publishing tables, and reads Phase 2's data in monthly reports.
 
 | Area | Implemented | Where |
 |---|---|---|
-| Tenancy | `clients` (1:1 with won prospects), `client` role confined to the portal centrally, scoped queries, portal users managed per client | `models_ops.py`, `services/tenancy.py`, `web/deps.py`, `web/routes_portal.py` |
+| Clients | Phase 2's `clients` + onboarding/contact columns and `onboarding` status; one creation path for `/dealers`, `/clients` and the API; dealership users reach their workspace and the portal only; password reset/deactivation per client | `models_dealer.py`, `services/clients.py`, `web/deps.py`, `web/routes_portal.py` |
 | Finance | Invoices (draft/issued/void/written off; paid state derived), lines (setup/recurring/one-time/discount), payments (only confirmed = cash), credits and refunds, agreements with copied prices and discounts, period invoicing, MRR/ARR, receivables aging, revenue by client, CAC / cost per qualified lead / per booked meeting (or "not measurable"), retention/churn, ARPC, client costs and partial gross margin, cash-flow actuals + labelled forecast, hypothetical break-even, CSV exports, bank-CSV reconciliation, PAN rejection, tax disclaimer | `services/finance.py`, `web/routes_finance.py` |
 | Expenses | Date, vendor, configurable categories (11 defaults incl. AI, software, hosting, data, outreach, ads, domains, contractors, phone, payment processing), amount+currency, purpose, recurrence, client/project, reimbursement, notes, receipt upload, source=manual | `services/finance.py`, `services/maintenance.py` |
 | Usage costs | `cost_entries` extended with provider/metric/quantity/client and verified/estimated/recorded/unknown basis; Claude token recording; billing CSV import; budgets with threshold, limit and spike alerts (hourly job) | `services/usage.py`, `integrations/llm.py` |
@@ -107,33 +155,36 @@ removed (still in history at `fdfa4f4`).
 | Service catalog | 3 proposed packages at $0 placeholders; editable prices/frequency/features; package inclusion | `services/packages.py` |
 | Onboarding | 14-step checklist with evidence, activation gate, per-automation prerequisites (steps + verified integrations), tickets (manual/portal/system) | `services/onboarding.py`, `services/tickets.py`, `web/routes_clients.py` |
 | SEO | Authorized sites only; robots-aware polite crawler (stops on 429, GET/HEAD only); checks for titles, descriptions, duplicates, noindex, sitemap/robots, headings, alt text, JSON-LD validity, AutoDealer/LocalBusiness schema, NAP consistency, inventory (Vehicle schema, price), broken internal links, orphan pages, Spanish-content opportunity, PageSpeed (optional); measured vs heuristic labels; issue lifecycle with before/after across audits; Search Console CSV import | `services/seo_*.py`, `web/routes_seo.py` |
-| Client reports | Immutable monthly snapshots with sources, channel status, simulated exclusion, attribution disclaimer; publish to portal; download/print; email via gated client email; monthly drafting job | `services/client_reports.py`, `services/client_email.py` |
-| Phase 2/3 interim | CSV inventory import, EN/ES template listings with approval, publishing recorded as `manual_required`, simulated inquiries, approved bilingual responses, lead summaries to the dealership | `models_interim.py`, `services/dealer_ops.py` |
-| Hardening | See `docs/security/threat-model.md` (7 issues fixed) | `web/app.py`, `web/deps.py`, `static/app.js` |
+| Client reports | Immutable monthly snapshots with sources (Phase 2 imports, vehicles, listing revisions/reviews, publications API vs staff-attested; interim conversations), channel status (incl. Phase 2 feeds and listing channels), simulated exclusion, attribution disclaimer; publish to portal; download/print; email via gated client email; monthly drafting job | `services/client_reports.py`, `services/client_email.py` |
+| Phase 3 interim | Simulated inquiries, approved bilingual template responses (SIMULATED delivery), lead summaries to the dealership | `models_interim.py`, `services/dealer_ops.py` |
+| Hardening | See `docs/security/threat-model.md` (8 issues fixed) | `web/app.py`, `web/deps.py`, `static/app.js` |
 | Operations | Retention purge, client export and confirmed deletion, backups/restore runbook, deployment guide | `services/maintenance.py`, `docs/operations/` |
 
 ### Phase 4 tests (run 2026-10-18)
 
-`pytest` → **175 passed** (102 Phase 1 + 73 Phase 4) in ~85 s on SQLite; **175 passed** on Postgres 16
-(`DF_TEST_PG_URL=…`), no warnings. `pip-audit`: no known vulnerabilities.
+After the Phase 2 merge: `pytest` → **257 passed** (136 Phase 1 + 47 Phase 2 + 74 Phase 4) in ~115 s on SQLite;
+Postgres 16 run pending at commit time (see the next commit) (`DF_TEST_PG_URL=…`). `pip-audit` (after the merge): no known vulnerabilities.
 
 | File | Cases | Covers |
 |---|---|---|
-| `test_e2e_business_journey.py` | 1 | **Step 8 journey, all 14 steps** in one run: fixture discovery → approved outreach (mock send) → reply matched → meeting booked (mock calendar + Zoom) → won → client created → inventory → EN/ES listings approved → publishing `manual_required` → Spanish inquiry + approved Spanish reply → summary to the right dealership → revenue/expenses → SEO audit → client report reflects data → cross-client access blocked |
-| `test_phase4_security.py` | 39 | Portal isolation (lists + direct ids, both directions), client confinement on 15 staff paths, role matrix, CSRF on cookie JSON, open redirects, headers/CSP/no inline script, API rate limit, PAN rejection + log redaction, Stripe signature/tolerance/dedup/disabled, upload validation, production config, audit scrubbing, unbound/converted client users, portal password reset scoping |
+| `test_e2e_business_journey.py` | 1 | **Step 8 journey, all 14 steps** in one run: fixture discovery → approved outreach (mock send) → reply matched → meeting booked (mock calendar + Zoom) → won → client created → Phase 2 upload → worker drafts EN/ES listing → dealership batch-approves → Marketplace `manual_required` → Spanish inquiry + approved Spanish reply → summary to the right dealership → revenue/expenses → SEO audit → client report reflects data → cross-client access blocked |
+| `test_phase4_security.py` | 40 | Portal isolation (lists + direct ids, both directions), dealership-user confinement on 14 staff paths + home redirect + other workspace 404, shared client creation from `/dealers`, role matrix, CSRF on cookie JSON, open redirects, headers/CSP/no inline script, API rate limit, PAN rejection + log redaction, Stripe signature/tolerance/dedup/disabled, upload validation, production config, audit scrubbing, unbound/converted client users, portal password reset scoping |
 | `test_phase4_finance.py` | 17 | Invoice ≠ cash, drafts ≠ revenue, pending ≠ cash, payment rules, void/credit/refund, discount limits, agreements/MRR/ARR/period invoicing/churn, unmeasurable CAC, CAC + margin, CSV export, reconciliation, break-even, cash-flow labels, Stripe payment once, usage bases + idempotency + billing import, budget/spike alerts (deduped), AI gateway off by default + token recording, finance UI forms |
 | `test_phase4_seo_reports.py` | 12 | Authorization required, evidenced findings, measured vs heuristic, robots honoured, re-audit resolution with before/after, 429 stop, worker job path, read-only crawling, onboarding/automation gating, report contents/channels/attribution/Search Console, simulated email, real provider not used without authorization, monthly job idempotency, lead summary routing |
 | `test_phase4_pages.py` | 4 | Every Phase 4 page renders for admin/manager/viewer/portal with role-appropriate controls |
 
 Also run by hand: `migrate` → admin user → `web` (uvicorn) → `run-jobs` → login → every Phase 4 page (200, CSP
-present) → `/healthz` shows a live worker. Migrations `0002`/`0003`: upgrade → downgrade → upgrade with
-existing rows on SQLite and Postgres 16.
+present) → `/healthz` shows a live worker (before the Phase 2 merge). Migrations `0003`/`0004` after Phase 2's
+`0002`: upgrade with an existing Phase 2 client row → check constraint enforced → downgrade → upgrade → no model
+drift, on SQLite and Postgres 16.
 
 ### Next steps
 
-1. **Phase 2** (in progress): replace the interim tables (`shared-stack.md` → "Phase 4 interim tables"), wire
-   real inventory/listing counts into `client_reports.build_report_data()`.
+1. ~~Phase 2 integration~~ — done (this branch contains Phases 1, 2 and 4).
 2. **Phase 3**: port the separate `app` package on `claude/magical-darwin-nncp64` into dealerflow, using
-   `clients`, the `client` role, `tenancy.scope()` and the shared job queue; replace interim conversations.
-3. Integrate the branches (Phase 1 → 2 → 3 → 4) into `main` in that order, re-running the full suite after each.
+   `clients`, dealership users, `dealer_ctx`/`services/clients.scope()` and the shared job queue; replace the
+   interim conversation tables (`shared-stack.md`).
+3. Wire the onboarding automation gates into Phase 2's scheduled feed sync and publish jobs (today only client
+   `status == active` gates scheduled sync).
+4. Merge into `main`, re-running the full suite.
 4. Verify live integrations one at a time with test accounts (`known-limitations.md`).

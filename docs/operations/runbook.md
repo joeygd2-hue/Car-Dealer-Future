@@ -24,7 +24,7 @@ Logs are JSON lines on stdout (`ts`, `level`, `logger`, `msg` + fields). Secret-
 | Stripe events not appearing | Secret mismatch, wrong endpoint, unmapped client | `webhook_events` table; status `failed` rows have `error`; check alerts |
 | SEO audit failed | Site down, 429, robots disallow | Audit row `error`; a ticket is opened; retry later — never bypass robots or rate limits |
 | Budget alert | Usage spike or estimate rates too low | Costs page; compare with provider billing; import billing CSV for verified figures |
-| A client can't log in | Wrong password, inactive, lockout | Lockout clears after 15 minutes; an admin can set a new password or reactivate on the client's page (Portal users) |
+| A client can't log in | Wrong password, inactive, lockout | Lockout clears after 15 minutes; an admin can set a new password or reactivate on the client's page (Dealership users); new dealership users are created in the dealership's settings |
 
 ## Backups and restore
 

@@ -13,7 +13,8 @@ from .. import audit
 from ..db import get_db, utcnow
 from ..models import Client, ClientAgreement, IntegrationConnection, Prospect, ServicePackage, SupportTicket, User
 from ..security import hash_password
-from ..services import finance, onboarding, tenancy, tickets
+from ..services import clients as client_svc
+from ..services import finance, onboarding, tickets
 from ..services.client_reports import CONNECTABLE_CHANNELS
 from .deps import check_csrf, flash, render, require
 from .forms import parse_date, parse_money
@@ -51,7 +52,7 @@ def client_create(request: Request, name: str = Form(""), prospect_id: str = For
         flash(request, "Name is required.", "error")
         return RedirectResponse("/clients", status_code=303)
     extra = {k: v.strip() for k, v in {"city": city, "phone": phone, "website": website, "contact_email": contact_email}.items() if v.strip()}
-    c = tenancy.create_client(db, name=name, actor=user, prospect=prospect, **extra)
+    c = client_svc.create_client(db, name=name, actor=user, prospect=prospect, **extra)
     flash(request, "Client workspace created. Work through the onboarding checklist before activating services.")
     return _back(c.id)
 
@@ -169,32 +170,12 @@ def agreement_action(aid: int, action: str, request: Request, reason: str = Form
     return _back(a.client_id, "#agreements")
 
 
-@router.post("/clients/{cid}/users")
-def client_user_create(cid: int, request: Request, email: str = Form(...), name: str = Form(""), password: str = Form(...),
-                       user: User = Depends(require("admin")), db: Session = Depends(get_db)):
-    _client(db, cid)
-    email = email.lower().strip()
-    if db.scalar(select(User.id).where(User.email == email)):
-        flash(request, "That email already has an account.", "error")
-        return _back(cid, "#users")
-    try:
-        u = User(email=email, name=name or email.split("@")[0], role="client", client_id=cid, password_hash=hash_password(password))
-    except ValueError as exc:
-        flash(request, str(exc), "error")
-        return _back(cid, "#users")
-    db.add(u)
-    db.flush()
-    audit.record(db, "user.created", actor=user, client_id=cid, details={"user_id": u.id, "role": "client"})
-    flash(request, f"Portal user {email} created.")
-    return _back(cid, "#users")
-
-
 @router.post("/clients/{cid}/users/{uid}")
 def client_user_update(cid: int, uid: int, request: Request, password: str = Form(""), active: str = Form("1"),
                        user: User = Depends(require("admin")), db: Session = Depends(get_db)):
     u = db.get(User, uid)
     if u is None or u.client_id != cid or not u.is_client:
-        raise HTTPException(404, "Portal user not found")
+        raise HTTPException(404, "Dealership user not found")
     try:
         if password:
             u.password_hash = hash_password(password)
@@ -203,7 +184,7 @@ def client_user_update(cid: int, uid: int, request: Request, password: str = For
         flash(request, str(exc), "error")
         return _back(cid, "#users")
     audit.record(db, "user.updated", actor=user, client_id=cid, details={"user_id": u.id, "active": u.active, "password_reset": bool(password)})
-    flash(request, "Portal user updated.")
+    flash(request, "Dealership user updated.")
     return _back(cid, "#users")
 
 

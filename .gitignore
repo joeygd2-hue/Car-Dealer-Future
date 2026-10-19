@@ -4,6 +4,7 @@
 *.pyc
 .env
 .pytest_cache/
+.v/
 .venv/
 __pycache__/
 build/

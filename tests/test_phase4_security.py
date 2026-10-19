@@ -8,6 +8,7 @@ from datetime import date
 import pytest
 
 from dealerflow.integrations.stripe import sign
+from dealerflow.models import Client
 from dealerflow.sensitive import RedactingFilter, contains_card_number, redact
 from tests.conftest import login, make_user
 from tests.phase4 import issued_invoice, portal_login, two_clients
@@ -46,10 +47,16 @@ def test_portal_lists_and_direct_ids_are_isolated(client, t):
 
 @pytest.mark.parametrize("path", [
     "/api/v1/clients", "/api/v1/invoices", "/api/v1/finance/report", "/api/v1/tickets", "/api/v1/costs/usage", "/api/v1/prospects",
-    "/api/v1/reports/weekly", "/api/v1/seo/issues?client_id=1", "/", "/prospects", "/agent", "/settings", "/finance", "/clients", "/audit",
+    "/api/v1/reports/weekly", "/api/v1/seo/issues?client_id=1", "/prospects", "/agent", "/settings", "/finance", "/clients", "/audit",
 ])
 def test_client_users_are_confined_to_the_portal(client, t, path):
     assert client.get(path, headers=t["h"]["alpha"]).status_code == 403
+
+
+def test_dealership_home_is_their_own_workspace(client, t):
+    r = client.get("/", headers=t["h"]["alpha"], follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/dealers/{t['alpha'].id}"
+    assert client.get(f"/dealers/{t['bravo'].id}", headers=t["h"]["alpha"]).status_code == 404
 
 
 def test_client_portal_html_isolation(client, t):
@@ -212,6 +219,11 @@ def test_client_users_cannot_log_in_to_staff_pages_via_next(client, t):
     csrf = r.text.split('name="csrf" value="')[1].split('"')[0]
     r = client.post("/login", data={"email": "alpha@p4.example", "password": "correct horse battery", "csrf": csrf, "next": "/finance"},
                     follow_redirects=False)
+    assert r.headers["location"] == f"/dealers/{t['alpha'].id}"
+    r = client.post("/logout", data={"csrf": client.get("/portal").text.split('name="csrf" value="')[1].split('"')[0]})
+    csrf = client.get("/login").text.split('name="csrf" value="')[1].split('"')[0]
+    r = client.post("/login", data={"email": "alpha@p4.example", "password": "correct horse battery", "csrf": csrf, "next": "/portal"},
+                    follow_redirects=False)
     assert r.headers["location"] == "/portal"
 
 
@@ -227,7 +239,7 @@ def test_settings_cannot_convert_a_portal_user_to_staff(client, db, admin, t):
     from dealerflow.models import User
 
     u = db.query(User).filter_by(email="alpha@p4.example").one()
-    assert u.role == "client" and u.client_id == t["alpha"].id
+    assert u.role == "viewer" and u.client_id == t["alpha"].id and u.client_role == "dealer_admin"
 
 
 def test_admin_resets_portal_password_only_within_that_client(client, db, admin, t):
@@ -243,4 +255,24 @@ def test_admin_resets_portal_password_only_within_that_client(client, db, admin,
     r = other.get("/login")
     c2 = r.text.split('name="csrf" value="')[1].split('"')[0]
     r = other.post("/login", data={"email": "alpha@p4.example", "password": "brand-new-password", "csrf": c2, "next": "/"}, follow_redirects=False)
-    assert r.headers["location"] == "/portal"
+    assert r.headers["location"] == f"/dealers/{t['alpha'].id}"
+
+
+def test_dealer_workspace_creation_uses_the_shared_client_service(client, db, admin):
+    """/dealers (Phase 2) and /clients (Phase 4) create clients the same way: onboarding status, checklist,
+    prospecting stopped and the address suppressed."""
+    from dealerflow.models import OnboardingStep, Prospect, Suppression
+
+    p = Prospect(name="Won Motors (TEST)", normalized_name="won motors", stage="won", email="gm@won.example", city="Katy", state="TX")
+    db.add(p)
+    db.commit()
+    csrf = login(client, admin.email)
+    r = client.post("/dealers", data={"csrf": csrf, "prospect_id": str(p.id)}, follow_redirects=False)
+    cid = int(r.headers["location"].rsplit("/", 1)[-1])
+    db.expire_all()
+    c = db.get(Client, cid)
+    assert c.status == "onboarding" and c.slug == "won-motors-test" and c.contact_email == "gm@won.example"
+    assert db.query(OnboardingStep).filter_by(client_id=cid).count() == 14
+    assert db.query(Suppression).filter_by(value="gm@won.example", reason="existing_client").count() == 1
+    r = client.post("/dealers", data={"csrf": csrf, "prospect_id": str(p.id)}, follow_redirects=False)
+    assert db.query(Client).filter_by(prospect_id=p.id).count() == 1

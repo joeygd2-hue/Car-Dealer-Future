@@ -30,11 +30,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base, utcnow
 
-# "client" is a dealership-client user bound to one ``clients`` row. It is deliberately the lowest
-# rank, so require("viewer") and above never admit it; web.deps.current_user additionally confines
-# client users to the client portal.
-ROLES = ("client", "viewer", "rep", "manager", "admin")
-STAFF_ROLES = ("viewer", "rep", "manager", "admin")
+# Staff roles. A dealership user has ``client_id`` + ``client_role`` set (Phase 2); web.deps confines
+# such users to their dealership workspace and the client portal, and require() never admits them.
+ROLES = ("viewer", "rep", "manager", "admin")
+STAFF_ROLES = ROLES  # dealership users are distinguished by client_id + client_role, not a role
 
 DEALERSHIP_TYPES = ("independent_used", "buy_here_pay_here", "franchise", "wholesale", "other", "unknown")
 
@@ -78,12 +77,15 @@ class User(TimestampMixin, Base):
     api_key_hash: Mapped[str | None] = mapped_column(String(128), unique=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime)
-    # Set only for role == "client": the dealership client this user belongs to.
-    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE", name="fk_users_client_id", use_alter=True), index=True)
+    # Phase 2: a dealership (client) user is bound to exactly one client and can only use the
+    # dealership workspace (/dealers/...). Staff users leave both columns NULL.
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", use_alter=True, name="fk_users_client_id"), index=True)
+    client_role: Mapped[str | None] = mapped_column(String(20))  # dealer_admin | dealer_reviewer | dealer_viewer
 
     @property
     def is_client(self) -> bool:
-        return self.role == "client"
+        """A dealership (client) user: bound to one client, never staff."""
+        return self.client_id is not None
 
 
 class PipelineStage(Base):
@@ -569,6 +571,7 @@ class KnowledgeItem(TimestampMixin, Base):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
-# Phase 2-4 models live in their own module; importing it here registers them with Alembic.
+# Phase 2-4 models live in their own modules; importing them here registers them with Alembic.
+from .models_dealer import *  # noqa: E402,F401,F403
 from .models_ops import *  # noqa: E402,F401,F403
 from .models_interim import *  # noqa: E402,F401,F403

@@ -14,21 +14,28 @@ from sqlalchemy.orm import Session
 
 from .. import audit
 from ..db import utcnow
+from ..integrations.listing_channels import CHANNELS as LISTING_CHANNELS
 from ..models import (
     Appointment,
     Client,
     ClientReport,
     Conversation,
     IntegrationConnection,
-    InventoryImport,
-    Listing,
-    PublishAttempt,
     SearchMetric,
     SeoIssue,
     User,
+)
+from ..models_dealer import (
+    ChannelConnection,
+    ChannelPublication,
+    ImportRun,
+    InventorySource,
+    ListingReview,
+    ListingRevision,
     Vehicle,
 )
 from . import client_email, usage
+from .inventory.feeds import FEED_TYPES
 
 CONNECTABLE_CHANNELS = {
     "inventory_feed": "Inventory feed",
@@ -64,7 +71,29 @@ def build_report_data(db: Session, client: Client, start: date, end: date) -> di
         channels.append({"kind": kind, "label": label, "status": c.status if c else "not_connected", "provider": c.provider if c else None,
                          "verified_at": c.verified_at.isoformat() if c and c.verified_at else None})
 
-    imports = db.scalars(select(InventoryImport).where(InventoryImport.client_id == cid, InventoryImport.started_at >= s, InventoryImport.started_at < e)).all()
+    # Phase 2 data. Plain session: every query filters client_id explicitly.
+    for src in db.scalars(select(InventorySource).where(InventorySource.client_id == cid, InventorySource.source_type.in_(tuple(FEED_TYPES)))):
+        st = ("disabled" if not src.enabled else "connected" if src.last_status in ("succeeded", "partial")
+              else "error" if src.last_status == "failed" else "not_connected")
+        channels.append({"kind": f"inventory_source:{src.id}", "label": f"Inventory source: {src.name}", "status": st,
+                         "provider": src.source_type, "verified_at": src.last_sync_at.isoformat() if src.last_sync_at else None})
+    for cc in db.scalars(select(ChannelConnection).where(ChannelConnection.client_id == cid)):
+        adapter = LISTING_CHANNELS.get(cc.channel)
+        st = "sandbox" if adapter and adapter.simulated else "connected" if cc.live_publishing and cc.authorized_at else "not_connected"
+        channels.append({"kind": f"listing_channel:{cc.channel}", "label": f"Listing channel: {cc.channel}", "status": st,
+                         "provider": adapter.mode if adapter else None, "verified_at": cc.authorized_at.isoformat() if cc.authorized_at else None})
+    imports = db.scalars(select(ImportRun).where(ImportRun.client_id == cid, ImportRun.started_at >= s, ImportRun.started_at < e)).all()
+    pubs = db.execute(select(ChannelPublication.channel, ChannelPublication.status, ChannelPublication.confirmation_type, func.count())
+                      .where(ChannelPublication.client_id == cid, ChannelPublication.confirmed_at >= s, ChannelPublication.confirmed_at < e,
+                             ChannelPublication.status == "published_confirmed")
+                      .group_by(ChannelPublication.channel, ChannelPublication.status, ChannelPublication.confirmation_type)).all()
+    simulated_channels = {k for k, a in LISTING_CHANNELS.items() if a.simulated}
+    api_confirmed = sum(n for ch, _st, ct, n in pubs if ct == "api" and ch not in simulated_channels)
+    manual_confirmed = sum(n for ch, _st, ct, n in pubs if ct == "manual_attested" and ch not in simulated_channels)
+    simulated_pubs = sum(n for ch, _st, _ct, n in pubs if ch in simulated_channels)
+
+    def distinct_listings(q) -> int:
+        return int(db.scalar(select(func.count()).select_from(q.distinct().subquery())) or 0)
     all_convs = db.scalars(select(Conversation).where(Conversation.client_id == cid, Conversation.created_at >= s, Conversation.created_at < e)).all()
     convs = [c for c in all_convs if not c.simulated]  # SIMULATED test conversations are reported separately, never as real
     response_minutes = [
@@ -95,15 +124,26 @@ def build_report_data(db: Session, client: Client, start: date, end: date) -> di
         "generated_at": utcnow().isoformat(timespec="seconds"),
         "channels": channels,
         "inventory": {
-            "imports_run": metric(len(imports), "inventory_imports"),
-            "vehicles_processed": metric(sum(i.rows_created + i.rows_updated for i in imports), "inventory_imports"),
-            "vehicles_in_stock_at_end": metric(count(Vehicle, Vehicle.status == "available"), "vehicles"),
+            "imports_run": metric(len(imports), "import_runs"),
+            "imports_failed": metric(sum(1 for i in imports if i.status == "failed"), "import_runs"),
+            "vehicles_processed": metric(sum(int((i.counts or {}).get("created", 0)) + int((i.counts or {}).get("updated", 0)) for i in imports), "import_runs"),
+            "vehicles_added": metric(count(Vehicle, Vehicle.first_seen_at >= s, Vehicle.first_seen_at < e), "vehicles"),
+            "vehicles_available_now": metric(count(Vehicle, Vehicle.inventory_status.in_(("available", "pending"))), "vehicles",
+                                             "Current count when the report was generated, not a period figure"),
         },
         "listings": {
-            "generated": metric(count(Listing, Listing.created_at >= s, Listing.created_at < e), "listings"),
-            "approved": metric(count(Listing, Listing.approved_at >= s, Listing.approved_at < e), "listings"),
-            "publishing_confirmed": metric(count(PublishAttempt, PublishAttempt.status == "published_confirmed", PublishAttempt.created_at >= s, PublishAttempt.created_at < e), "publish_attempts", "Confirmed by the channel's API"),
-            "manual_publication_required": metric(count(PublishAttempt, PublishAttempt.status == "manual_required", PublishAttempt.created_at >= s, PublishAttempt.created_at < e), "publish_attempts", "Channel has no supported publishing API; the dealership must post these"),
+            "generated": metric(distinct_listings(select(ListingRevision.listing_id).where(
+                ListingRevision.client_id == cid, ListingRevision.origin != "human_edit", ListingRevision.created_at >= s, ListingRevision.created_at < e)),
+                "listing_revisions", "Listings with a generated draft in the period"),
+            "approved": metric(distinct_listings(select(ListingReview.listing_id).where(
+                ListingReview.client_id == cid, ListingReview.decision == "approved", ListingReview.created_at >= s, ListingReview.created_at < e)),
+                "listing_reviews"),
+            "publishing_confirmed_via_api": metric(api_confirmed, "channel_publications", "Confirmed by the channel's API"),
+            "publishing_confirmed_manually": metric(manual_confirmed, "channel_publications",
+                                                    "A person recorded the live URL; the platform cannot verify it is still live"),
+            "manual_publication_required": metric(count(ChannelPublication, ChannelPublication.status == "manual_required"), "channel_publications",
+                                                  "Current count; channel has no supported publishing API, the dealership must post these"),
+            "simulated_excluded": simulated_pubs,
         },
         "inquiries": {
             "received": metric(len(convs), "conversations", "Connected channels only; excludes SIMULATED test conversations"),

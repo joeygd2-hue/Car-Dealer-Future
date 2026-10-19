@@ -26,23 +26,35 @@ from ..models import (
     Expense,
     ExpenseCategory,
     Invoice,
-    Listing,
     Prospect,
-    PublishAttempt,
     SeoAudit,
     SeoIssue,
     SeoSite,
     ServicePackage,
     SupportTicket,
     User,
-    Vehicle,
 )
-from ..services import client_reports, dealer_ops, finance, onboarding, packages, seo_audit, tenancy, tickets, usage
+from ..models_dealer import Vehicle
+from ..services import (
+    client_reports,
+    dealer_ops,
+    finance,
+    onboarding,
+    packages,
+    seo_audit,
+    tickets,
+    usage,
+)
+from ..services import clients as client_svc
 from .deps import check_csrf, require
 from .routes_clients import record_integration
 from .routes_seo import import_search_csv
 
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(check_csrf)])
+
+
+class CsvIn(BaseModel):
+    csv: str = Field(max_length=5_000_000)
 
 
 def bad(exc: Exception) -> HTTPException:
@@ -91,7 +103,7 @@ def client_create(body: ClientIn, user: User = Depends(require("rep")), db: Sess
     if not name:
         raise HTTPException(400, "Name is required")
     extra = {k: v for k, v in body.model_dump(exclude={"name", "prospect_id"}).items() if v}
-    return client_out(tenancy.create_client(db, name=name, actor=user, prospect=prospect, **extra))
+    return client_out(client_svc.create_client(db, name=name, actor=user, prospect=prospect, **extra))
 
 
 @router.get("/clients/{cid}/onboarding")
@@ -179,57 +191,7 @@ def ticket_create(body: TicketIn, user: User = Depends(require("rep")), db: Sess
         raise bad(exc) from exc
 
 
-# --- Phase 2/3 shared scaffolding ---------------------------------------------------------------
-
-
-class CsvIn(BaseModel):
-    csv: str = Field(max_length=5_000_000)
-
-
-@router.post("/clients/{cid}/inventory/import")
-def inventory_import(cid: int, body: CsvIn, user: User = Depends(require("rep")), db: Session = Depends(get_db)):
-    imp = dealer_ops.import_inventory_csv(db, _get(db, Client, cid), body.csv, user)
-    return {"id": imp.id, "created": imp.rows_created, "updated": imp.rows_updated, "failed": imp.rows_failed, "errors": imp.errors[:20]}
-
-
-@router.post("/clients/{cid}/listings/generate")
-def listings_generate(cid: int, user: User = Depends(require("rep")), db: Session = Depends(get_db)):
-    _get(db, Client, cid)
-    out = []
-    for v in db.scalars(select(Vehicle).where(Vehicle.client_id == cid, Vehicle.status == "available")):
-        out += [{"id": li.id, "vehicle_id": v.id, "language": li.language, "status": li.status} for li in dealer_ops.generate_listings(db, v)]
-    return out
-
-
-@router.post("/clients/{cid}/listings/{lid}/approve")
-def listing_approve(cid: int, lid: int, user: User = Depends(require("rep")), db: Session = Depends(get_db)):
-    li = _get(db, Listing, lid, cid)
-    dealer_ops.approve_listing(db, li, user)
-    return {"id": li.id, "status": li.status}
-
-
-class PublishIn(BaseModel):
-    channel: str = Field(min_length=1, max_length=40)
-
-
-@router.post("/clients/{cid}/listings/{lid}/publish")
-def listing_publish(cid: int, lid: int, body: PublishIn, user: User = Depends(require("rep")), db: Session = Depends(get_db)):
-    try:
-        a = dealer_ops.publish_listing(db, _get(db, Listing, lid, cid), body.channel)
-    except ValueError as exc:
-        raise bad(exc) from exc
-    return {"id": a.id, "status": a.status, "note": a.note}
-
-
-class ConfirmIn(BaseModel):
-    url: str = Field(min_length=8, max_length=500)
-
-
-@router.post("/clients/{cid}/publish-attempts/{pid}/confirm")
-def publish_confirm(cid: int, pid: int, body: ConfirmIn, user: User = Depends(require("rep")), db: Session = Depends(get_db)):
-    a = _get(db, PublishAttempt, pid, cid)
-    dealer_ops.confirm_manual_publication(db, a, body.url, user)
-    return {"id": a.id, "status": a.status}
+# --- interim Phase 3 scaffolding (inventory/listings/publishing: Phase 2 API under /api/v1/dealers) ---------------------------------------------------------------
 
 
 class InquiryIn(BaseModel):

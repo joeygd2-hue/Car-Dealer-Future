@@ -1,17 +1,18 @@
-"""Phase 4: clients (tenancy), service operations, finance, usage costs, SEO, client reports.
+"""Phase 4: finance, expenses, usage costs, SEO, client reports, onboarding, tickets.
 
-Additive only: new tables plus nullable/defaulted columns on users and cost_entries.
+Builds on Phase 2's ``clients`` (adds onboarding/contact columns and the ``onboarding`` status) and extends
+Phase 1's ``cost_entries`` (provider/metric/quantity/client/verified). Additive only: no existing column is
+dropped or rewritten, so downgrade loses only Phase 4 data.
 
-Revision ID: 0002
-Revises: 0001
-Create Date: 2026-10-18 18:59:51.917058
+Revision ID: 0003
+Revises: 0002
 """
 from alembic import op
 import sqlalchemy as sa
 
 
-revision = '0002'
-down_revision = '0001'
+revision = '0003'
+down_revision = '0002'
 branch_labels = None
 depends_on = None
 
@@ -106,33 +107,6 @@ def upgrade() -> None:
     with op.batch_alter_table('attachments', schema=None) as batch_op:
         batch_op.create_index('ix_attachments_owner', ['owner_type', 'owner_id'], unique=False)
 
-    op.create_table('clients',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('prospect_id', sa.Integer(), nullable=True),
-    sa.Column('name', sa.String(length=255), nullable=False),
-    sa.Column('legal_name', sa.String(length=255), nullable=True),
-    sa.Column('status', sa.String(length=20), nullable=False),
-    sa.Column('address_line', sa.String(length=255), nullable=True),
-    sa.Column('city', sa.String(length=120), nullable=True),
-    sa.Column('state', sa.String(length=2), nullable=True),
-    sa.Column('postal_code', sa.String(length=10), nullable=True),
-    sa.Column('phone', sa.String(length=40), nullable=True),
-    sa.Column('website', sa.String(length=500), nullable=True),
-    sa.Column('contact_name', sa.String(length=255), nullable=True),
-    sa.Column('contact_email', sa.String(length=255), nullable=True),
-    sa.Column('timezone', sa.String(length=64), nullable=False),
-    sa.Column('languages', sa.JSON(), nullable=False),
-    sa.Column('business_hours', sa.JSON(), nullable=False),
-    sa.Column('response_rules', sa.JSON(), nullable=False),
-    sa.Column('activated_at', sa.DateTime(), nullable=True),
-    sa.Column('cancelled_at', sa.DateTime(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), nullable=False),
-    sa.CheckConstraint("status in ('onboarding','active','paused','cancelled')", name='ck_clients_status'),
-    sa.ForeignKeyConstraint(['prospect_id'], ['prospects.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('prospect_id')
-    )
     op.create_table('automation_settings',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('client_id', sa.Integer(), nullable=False),
@@ -544,6 +518,21 @@ def upgrade() -> None:
     with op.batch_alter_table('bank_transactions', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_bank_transactions_posted_date'), ['posted_date'], unique=False)
 
+    with op.batch_alter_table('clients', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('legal_name', sa.String(length=255), nullable=True))
+        batch_op.add_column(sa.Column('address_line', sa.String(length=255), nullable=True))
+        batch_op.add_column(sa.Column('postal_code', sa.String(length=10), nullable=True))
+        batch_op.add_column(sa.Column('phone', sa.String(length=40), nullable=True))
+        batch_op.add_column(sa.Column('website', sa.String(length=500), nullable=True))
+        batch_op.add_column(sa.Column('contact_name', sa.String(length=255), nullable=True))
+        batch_op.add_column(sa.Column('contact_email', sa.String(length=255), nullable=True))
+        batch_op.add_column(sa.Column('languages', sa.JSON(), server_default=sa.text("'[\"en\", \"es\"]'"), nullable=False))
+        batch_op.add_column(sa.Column('business_hours', sa.JSON(), server_default=sa.text("'{}'"), nullable=False))
+        batch_op.add_column(sa.Column('response_rules', sa.JSON(), server_default=sa.text("'{}'"), nullable=False))
+        batch_op.add_column(sa.Column('activated_at', sa.DateTime(), nullable=True))
+        batch_op.add_column(sa.Column('cancelled_at', sa.DateTime(), nullable=True))
+        batch_op.create_check_constraint('ck_clients_status', "status in ('onboarding','active','paused','offboarded')")
+
     with op.batch_alter_table('cost_entries', schema=None) as batch_op:
         batch_op.add_column(sa.Column('provider', sa.String(length=80), nullable=True))
         batch_op.add_column(sa.Column('metric', sa.String(length=60), nullable=True))
@@ -554,21 +543,11 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_cost_entries_provider'), ['provider'], unique=False)
         batch_op.create_foreign_key('fk_cost_entries_client_id', 'clients', ['client_id'], ['id'], ondelete='SET NULL')
 
-    with op.batch_alter_table('users', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('client_id', sa.Integer(), nullable=True))
-        batch_op.create_index(batch_op.f('ix_users_client_id'), ['client_id'], unique=False)
-        batch_op.create_foreign_key('fk_users_client_id', 'clients', ['client_id'], ['id'], ondelete='CASCADE')
-
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
-    with op.batch_alter_table('users', schema=None) as batch_op:
-        batch_op.drop_constraint('fk_users_client_id', type_='foreignkey')
-        batch_op.drop_index(batch_op.f('ix_users_client_id'))
-        batch_op.drop_column('client_id')
-
     with op.batch_alter_table('cost_entries', schema=None) as batch_op:
         batch_op.drop_constraint('fk_cost_entries_client_id', type_='foreignkey')
         batch_op.drop_index(batch_op.f('ix_cost_entries_provider'))
@@ -578,6 +557,21 @@ def downgrade() -> None:
         batch_op.drop_column('quantity')
         batch_op.drop_column('metric')
         batch_op.drop_column('provider')
+
+    with op.batch_alter_table('clients', schema=None) as batch_op:
+        batch_op.drop_constraint('ck_clients_status', type_='check')
+        batch_op.drop_column('cancelled_at')
+        batch_op.drop_column('activated_at')
+        batch_op.drop_column('response_rules')
+        batch_op.drop_column('business_hours')
+        batch_op.drop_column('languages')
+        batch_op.drop_column('contact_email')
+        batch_op.drop_column('contact_name')
+        batch_op.drop_column('website')
+        batch_op.drop_column('phone')
+        batch_op.drop_column('postal_code')
+        batch_op.drop_column('address_line')
+        batch_op.drop_column('legal_name')
 
     with op.batch_alter_table('bank_transactions', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_bank_transactions_posted_date'))
@@ -656,7 +650,6 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_automation_settings_client_id'))
 
     op.drop_table('automation_settings')
-    op.drop_table('clients')
     with op.batch_alter_table('attachments', schema=None) as batch_op:
         batch_op.drop_index('ix_attachments_owner')
 

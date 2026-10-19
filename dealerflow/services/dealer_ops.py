@@ -1,15 +1,12 @@
-"""Minimal Phase 2/3 workflows needed by reporting and end-to-end validation.
+"""INTERIM Phase 3 workflows needed by reporting and end-to-end validation.
 
-SCOPE NOTE: this is shared scaffolding, not the full Phase 2/3 feature set.
-Inventory CSV import, deterministic (template) EN/ES listing generation with
-approval, publish-status recording, and customer conversations with approved
-bilingual responses and summaries. Phase 2/3 should extend these functions and
-the models in app/models/dealer_ops.py rather than create parallel ones.
+SCOPE NOTE: shared scaffolding, not the Phase 3 feature set: simulated customer inquiries, approved
+bilingual template responses (delivery SIMULATED) and lead summaries to the dealership. Inventory,
+listings and publishing are Phase 2's (services/inventory, services/listings, services/publishing).
+Phase 3 replaces this module and models_interim.py.
 """
 from __future__ import annotations
 
-import csv
-import io
 import re
 
 from sqlalchemy import select
@@ -17,102 +14,9 @@ from sqlalchemy.orm import Session
 
 from .. import audit
 from ..db import utcnow
-from ..models import Appointment, Client, Conversation, ConversationMessage, InventoryImport, Listing, PublishAttempt, User, Vehicle
+from ..models import Appointment, Client, Conversation, ConversationMessage, User
+from ..models_dealer import Vehicle
 from . import client_email
-from .onboarding import automation_enabled
-
-VIN_RE = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$")
-
-# Channels with a supported, implemented publishing API. Everything else is manual.
-SUPPORTED_PUBLISH_CHANNELS: set[str] = set()
-
-
-def import_inventory_csv(db: Session, client: Client, content: str, actor: User | None) -> InventoryImport:
-    imp = InventoryImport(client_id=client.id, source="csv")
-    db.add(imp)
-    db.flush()
-    errors = []
-    for i, row in enumerate(csv.DictReader(io.StringIO(content)), start=2):
-        imp.rows_total += 1
-        vin = (row.get("vin") or "").strip().upper()
-        if not VIN_RE.match(vin):
-            imp.rows_failed += 1
-            errors.append(f"line {i}: invalid VIN")
-            continue
-        try:
-            year = int(row["year"]) if row.get("year") else None
-            mileage = int(row["mileage"].replace(",", "")) if row.get("mileage") else None
-            price = int(round(float(row["price"].replace(",", "").replace("$", "")) * 100)) if row.get("price") else None
-        except ValueError:
-            imp.rows_failed += 1
-            errors.append(f"line {i}: invalid number")
-            continue
-        if price is not None and price < 0:
-            imp.rows_failed += 1
-            errors.append(f"line {i}: negative price")
-            continue
-        v = db.scalar(select(Vehicle).where(Vehicle.client_id == client.id, Vehicle.vin == vin))
-        fields = dict(year=year, make=(row.get("make") or "").strip() or None, model=(row.get("model") or "").strip() or None,
-                      trim=(row.get("trim") or "").strip() or None, mileage=mileage, price_cents=price,
-                      stock_number=(row.get("stock_number") or "").strip() or None, import_id=imp.id)
-        if v is None:
-            db.add(Vehicle(client_id=client.id, vin=vin, **fields))
-            imp.rows_created += 1
-        else:
-            for k, val in fields.items():
-                setattr(v, k, val)
-            imp.rows_updated += 1
-    imp.errors, imp.finished_at = errors[:200], utcnow()
-    audit.record(db, "inventory.imported", actor=actor, entity=imp, details={"created": imp.rows_created, "failed": imp.rows_failed})
-    return imp
-
-
-def generate_listings(db: Session, vehicle: Vehicle) -> list[Listing]:
-    """Deterministic EN/ES listing drafts from verified vehicle fields only. Requires human approval."""
-    out = []
-    name = " ".join(str(x) for x in (vehicle.year, vehicle.make, vehicle.model, vehicle.trim) if x)
-    price = f"${vehicle.price_cents / 100:,.0f}" if vehicle.price_cents is not None else None
-    miles = f"{vehicle.mileage:,}" if vehicle.mileage is not None else None
-    texts = {
-        "en": (f"{name}" + (f" — {price}" if price else ""),
-               f"{name}. " + (f"{miles} miles. " if miles else "") + f"VIN {vehicle.vin}. Contact us to schedule a test drive."),
-        "es": (f"{name}" + (f" — {price}" if price else ""),
-               f"{name}. " + (f"{miles} millas. " if miles else "") + f"VIN {vehicle.vin}. Contáctenos para agendar una prueba de manejo."),
-    }
-    for lang, (title, body) in texts.items():
-        existing = db.scalar(select(Listing).where(Listing.vehicle_id == vehicle.id, Listing.language == lang))
-        if existing:
-            out.append(existing)
-            continue
-        listing = Listing(client_id=vehicle.client_id, vehicle_id=vehicle.id, language=lang, title=title[:300], body=body, generated_by="template")
-        db.add(listing)
-        out.append(listing)
-    db.flush()
-    return out
-
-
-def approve_listing(db: Session, listing: Listing, actor: User) -> None:
-    listing.status, listing.approved_by_id, listing.approved_at = "approved", actor.id, utcnow()
-    audit.record(db, "listing.approved", actor=actor, entity=listing)
-
-
-def publish_listing(db: Session, listing: Listing, channel: str) -> PublishAttempt:
-    if listing.status != "approved":
-        raise ValueError("Only approved listings can be published")
-    if channel in SUPPORTED_PUBLISH_CHANNELS and automation_enabled(db, listing.client_id, "listing_publish"):
-        raise NotImplementedError("No channel publishing API is implemented yet")
-    attempt = PublishAttempt(client_id=listing.client_id, listing_id=listing.id, channel=channel, status="manual_required",
-                             note=f"No supported publishing integration for '{channel}'. Post manually and record the URL.")
-    db.add(attempt)
-    db.flush()
-    return attempt
-
-
-def confirm_manual_publication(db: Session, attempt: PublishAttempt, url: str, actor: User) -> None:
-    attempt.status, attempt.external_url, attempt.confirmed_at = "published_confirmed", url, utcnow()
-    attempt.note = (attempt.note or "") + f" Confirmed manually by {actor.email}."
-    audit.record(db, "listing.publication_confirmed", actor=actor, entity=attempt)
-
 
 APPROVED_RESPONSES = {
     "availability": {
@@ -124,11 +28,13 @@ APPROVED_RESPONSES = {
         "es": "Con gusto le agendamos una prueba de manejo del {vehicle}. ¿Qué día y hora le conviene?",
     },
 }
-ESCALATE_RE = re.compile(r"\b(lawyer|complaint|accident|warranty claim|credit score|financing approval|abogado|queja|accidente|garantía)\b", re.I)
+ESCALATE_RE = re.compile(r"\b(lawyer|complaint|accident|warranty claim|credit score|financing approval|abogado|queja|accidente|garantía)\b", re.IGNORECASE)
 
 
 def receive_inquiry(db: Session, client: Client, *, channel: str, customer_name: str | None, customer_contact: str | None,
                     body: str, language: str, vehicle: Vehicle | None, provider_message_id: str, simulated: bool = True) -> Conversation:
+    if vehicle is not None and vehicle.client_id != client.id:
+        raise ValueError("Vehicle belongs to another dealership")
     existing = db.scalar(select(ConversationMessage).where(ConversationMessage.provider_message_id == provider_message_id))
     if existing:
         return db.get(Conversation, existing.conversation_id)
@@ -140,7 +46,7 @@ def receive_inquiry(db: Session, client: Client, *, channel: str, customer_name:
     db.add(ConversationMessage(client_id=client.id, conversation_id=conv.id, direction="inbound", body=body, language=conv.language, provider_message_id=provider_message_id))
     if ESCALATE_RE.search(body):
         conv.status, conv.escalated_at = "escalated", now
-    if re.search(r"test drive|prueba de manejo", body, re.I):
+    if re.search(r"test drive|prueba de manejo", body, re.IGNORECASE):
         conv.lead_qualified = True
         db.add(Appointment(client_id=client.id, conversation_id=conv.id, kind="test_drive"))
     db.flush()

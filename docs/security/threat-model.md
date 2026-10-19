@@ -14,7 +14,7 @@ outbound sending reputation; the ability to send email or book meetings in the b
 | Actor | Boundary | Main threats |
 |---|---|---|
 | Anonymous internet | `/login`, `/u/{token}`, `/webhooks/*`, `/healthz`, `/static` | Credential stuffing, forged webhooks, unsubscribe-token abuse, DoS |
-| Client user | Portal only | Reading another dealership's data (IDOR), reaching staff pages, escalating role |
+| Dealership user | Own workspace (`/dealers/{id}`) and portal only | Reading another dealership's data (IDOR), reaching staff pages, escalating role |
 | Staff (viewer → admin) | Role checks | Over-privileged actions, accidental live sending, data export |
 | Providers / webhooks | Signed requests | Spoofed or replayed events, duplicate deliveries |
 | Crawled/researched websites | Untrusted HTML | Parser abuse, SSRF via redirects, prompt injection if AI is enabled |
@@ -25,10 +25,10 @@ outbound sending reputation; the ability to send email or book meetings in the b
 | Area | Control | Test |
 |---|---|---|
 | Authentication | PBKDF2 password hashes (390k iterations); signed session cookie (HttpOnly, SameSite=Lax, Secure in production, 12 h max age); per-user API keys stored as SHA-256; failed-login limiter (5 / 15 min per email+IP); per-IP API rate limit (default 300/min) | `test_web.py`, `test_phase4_security.py::test_api_rate_limit` |
-| Authorization | Ordered staff roles; `client` role confined to `/portal` centrally in `current_user`; settings/CLI cannot create unbound client users | `test_client_users_are_confined_to_the_portal` (15 paths), `test_role_matrix_*`, `test_staff_user_creation_cannot_make_unbound_client_users`, `test_settings_cannot_convert_a_portal_user_to_staff`, `test_admin_resets_portal_password_only_within_that_client` |
-| Client isolation | `tenancy.scope()` / `owned_or_404()` on every portal query; 404 for out-of-scope ids; drafts never visible; portal tickets bound to the user's client; staff Phase 2/3 routes check the URL client owns the row | `test_portal_lists_and_direct_ids_are_isolated`, `test_drafts_never_visible_in_portal`, e2e step 14, `test_lead_summary_reaches_the_correct_dealership` |
+| Authorization | Ordered staff roles; dealership users (`client_id` + `client_role`) confined centrally in `current_user` to their workspace and the portal, and never admitted by `require()`; settings/CLI cannot create or convert dealership users | `test_client_users_are_confined_to_the_portal` (14 paths), `test_dealership_home_is_their_own_workspace`, Phase 2 `test_dealer_isolation.py`, `test_role_matrix_*`, `test_staff_user_creation_cannot_make_unbound_client_users`, `test_settings_cannot_convert_a_portal_user_to_staff`, `test_admin_resets_portal_password_only_within_that_client` |
+| Client isolation | Portal: `services/clients.scope()` / `owned_or_404()` on every query; workspace: Phase 2 tenant session + composite FKs; 404 for out-of-scope ids; drafts never visible; portal tickets bound to the user's client; staff routes check the URL client owns the row | `test_portal_lists_and_direct_ids_are_isolated`, `test_drafts_never_visible_in_portal`, e2e step 14, `test_lead_summary_reaches_the_correct_dealership` |
 | CSRF | Token on every cookie-authenticated POST (form field or `X-CSRF-Token`); Bearer API calls exempt | `test_csrf_required_for_form_posts`, `test_cookie_json_post_needs_csrf_header` |
-| Redirects | `safe_next()` blocks `//host` and `/\host`; client users always land in `/portal` | `test_open_redirect_variants_blocked`, `test_client_users_cannot_log_in_to_staff_pages_via_next` |
+| Redirects | `safe_next()` blocks `//host` and `/\host`; dealership users land in their workspace, and `next` is honoured only inside it or the portal | `test_open_redirect_variants_blocked`, `test_client_users_cannot_log_in_to_staff_pages_via_next` |
 | Browser hardening | CSP (`script-src 'self'`, `frame-ancestors 'none'`, `form-action 'self'`, `object-src 'none'`), X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy, HSTS in production, `Cache-Control: no-store` on app pages; inline event handlers moved to `static/app.js` | `test_security_headers_and_no_inline_script` |
 | Input validation | Pydantic schemas on the JSON API; DB check constraints on statuses, signs and amounts; money parsed to cents with ≤2 decimals; dates ISO | finance tests |
 | Payment data | No card data stored: free-text fields rejected if they contain a Luhn-valid PAN; Stripe payloads reduced to an allow-list of fields | `test_card_numbers_rejected_and_redacted`, `test_stripe_invoice_paid_records_confirmed_payment_once` |
@@ -40,7 +40,7 @@ outbound sending reputation; the ability to send email or book meetings in the b
 | Jobs | Atomic claim, idempotency keys, stale-lock recovery, bounded retries, failure hooks → alerts/tickets | `test_failures.py`, `test_audit_job_runs_through_worker_queue` |
 | Production config | Startup refused with a weak `DF_SECRET_KEY`, or with non-https `DF_BASE_URL` when real email is enabled; warnings for SQLite/http | `test_production_refuses_insecure_config` |
 | Errors | Generic 500 body; exception details only in logs | — |
-| Dependencies | `pip-audit` reported no known vulnerabilities (2026-10-18) | manual run |
+| Dependencies | `pip-audit` reported no known vulnerabilities (2026-10-19, after the Phase 2 merge) | manual run |
 
 ## Issues found and fixed in Phase 4
 
@@ -49,8 +49,9 @@ outbound sending reputation; the ability to send email or book meetings in the b
 3. Settings and CLI could create a `client` user with no client → restricted to staff roles.
 4. Inline `onsubmit`/`onclick` handlers prevented a strict CSP → moved to `static/app.js`; CSP added.
 5. No API rate limit, cache headers or production configuration validation → added.
-6. A foreign-key cycle (clients ↔ prospects ↔ users) made schema ordering undefined → `use_alter` on `users.client_id`.
-7. The Settings user form could convert an existing client portal user into staff (keeping `client_id`) → refused; portal users are managed (password reset, deactivation) only from their client's page.
+6. A foreign-key cycle (clients ↔ prospects ↔ users) made schema ordering undefined → resolved; after the Phase 2 merge `users.client_id` comes from Phase 2's migration.
+7. The Settings user form could convert an existing dealership user into staff (keeping `client_id`) → refused; dealership users are created in the dealership's settings and reset/deactivated only from their client's page.
+8. (Phase 2 merge) Two client-creation paths (`/dealers`, `/clients`) behaved differently: `/dealers` skipped the onboarding checklist and did not suppress the won prospect's address → both now use `services/clients.create_client`; new clients start in `onboarding`, so scheduled feed sync waits for activation.
 
 ## Remaining risks (accepted or open)
 

@@ -82,6 +82,26 @@ The compliance rules in the code (CAN-SPAM footer and opt-out, suppression, Texa
 recording) reflect the research in `docs/research/`. They are **not legal advice**. Have counsel review
 templates, the data sources you choose, and any move to automated (`auto`) sending before going live.
 
+
+## Phase 2 (inventory, listings, publishing)
+
+Last updated 2026-10-18 by the Phase 2 chat.
+
+| Item | Status / what's needed |
+|---|---|
+| Facebook Marketplace publishing | **No API exists** for organic dealer vehicle listings (ended 2021/2023). Publication, edits, removal and buyer messages are manual. The app records staff-attested URLs but cannot verify a Marketplace listing is still live. Browser automation is deliberately not used. |
+| Meta vehicle catalog (`meta_catalog`) | Code + mocked-HTTP test only. Needs Meta App Review (`catalog_management` + `business_management`), Business Verification, a vehicle catalog, vehicle detail page URLs and a system-user token. The batch-status response shape is handled defensively but unverified. Items power paid ads, not organic listings. |
+| Real inventory feeds | No dealer feed has been connected; feeds tested with mocked HTTP. No SFTP receiver for HomeNet/vAuto-style drops. No DMS vendor presets until real export samples exist. |
+| AI listing prose | Off by default; tested with a mocked client only. Template generator cannot apply free-text reviewer feedback (it records it). |
+| Spanish | Fixed vocabulary; unknown features/colours stay in English and are flagged for review. |
+| Photos | URLs only: no download, reachability check, resizing or moderation. |
+| VIN decode | Offline check digit + model-year only; NHTSA vPIC not integrated. |
+| Metrics | Listing views, inquiries and sales are not measured (no reliable source), so none are reported. |
+| Tenancy | Enforced by tenant-scoped ORM sessions, composite FKs and route checks; PostgreSQL row-level security is not configured. Phase 1 tables (CRM) are agency-wide by design. |
+| Dealership users | Created by a dealership admin or agency manager with a temporary password; no invite email, password reset or MFA yet. |
+| Docs from Phase 1 | `docs/research/feasibility-report.md` and Phase 1's `docs/research/source-register.md` (IDs like `[S-OSM]`) are referenced but were never committed on the Phase 1 branch. Phase 2 sources are in `docs/research/phase2-source-register.md`. |
+| Phase 4 branch | Merged: Phase 4 was ported into `dealerflow` and builds on this Phase 2 code (see Phase 4 below). |
+
 ## Phase 4
 
 Every Phase 4 end-to-end test ran with SIMULATED providers and synthetic data. **No real payment, accounting,
@@ -97,13 +117,14 @@ PageSpeed, Search Console, Claude API or client email call has been made.**
 | PageSpeed Insights | Parser only, never called | API key (`DF_PAGESPEED_API_KEY`) |
 | Claude API | Stubbed-client test only | API key; `DF_AI_ENABLED=true`. Nothing in Phase 4 depends on it |
 | Client email (reports, lead summaries) | Mock only | Real provider (Phase 1), `DF_CLIENT_EMAIL_SENDING_ENABLED=true`, and per-client authorized `report_email` connection |
-| Listing publication channels (Phase 2) | None; all attempts `manual_required` | Phase 2 |
+| Listing publication channels (Phase 2) | See the Phase 2 table above | Phase 2 |
 | Customer messaging channels (Phase 3) | None; inquiries are simulated | Phase 3 |
 
 ### Functional gaps
 
-* **Interim Phase 2/3 tables** (`models_interim.py`, migration `0003`) are minimal stand-ins; the real Phase 2/3
-  models must replace them. Reports read these tables today.
+* **Interim Phase 3 tables** (`models_interim.py`: conversations, messages, appointments; migration `0004`) are
+  minimal stand-ins until Phase 3 is integrated. Inventory, listings and publishing use the Phase 2 tables, and
+  monthly reports read them.
 * Phase 3 lives in a separate `app` package (`claude/magical-darwin-nncp64`) with its own auth and models; it is
   not integrated, so the client portal shows only Phase 4 data plus interim conversations.
 * Finance is single-currency for reporting (USD); other currencies are excluded and counted, not converted.
@@ -116,7 +137,8 @@ PageSpeed, Search Console, Claude API or client email call has been made.**
   rendered sites are seen as raw HTML only. External links are not checked (internal only).
 * Gross margin covers only directly allocated costs; overhead allocation is not modelled.
 * Automations listed on the client page are gates only: the Phase 2/3 automation workers they protect do not
-  exist yet (`inventory_sync`, `listing_publish`, `inquiry_auto_response`); `seo_monitoring` does not schedule
+  are not yet wired into the Phase 2 import/publish code paths (`inventory_sync`, `listing_publish`) and the
+  Phase 3 responder does not exist (`inquiry_auto_response`); `seo_monitoring` does not schedule
   audits yet — audits are started by staff; `monthly_report_email` is implemented.
 * Client data deletion and export are service functions (no UI) — deliberate, see the runbook.
 
@@ -125,4 +147,4 @@ PageSpeed, Search Console, Claude API or client email call has been made.**
 See `docs/security/threat-model.md`. Open items: in-process rate limiting (single process only), no MFA,
 attachments unencrypted at rest on local disk, no external penetration test, `style-src 'unsafe-inline'` kept
 for Phase 1 templates. **The platform is not production-ready** until live integrations are verified, MFA or
-an identity-aware proxy is in place, backups are tested, and the Phase 2/3 code is integrated.
+an identity-aware proxy is in place, backups are tested, and the Phase 3 code is integrated.

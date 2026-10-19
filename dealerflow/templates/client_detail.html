@@ -83,16 +83,13 @@
 </section>
 
 <section class="card" id="users">
-  <h2>Client portal users</h2>
-  {% if client_users %}<ul>{% for u in client_users %}<li>{{ u.email }}{% if not u.active %} (inactive){% endif %}
+  <h2>Dealership users</h2>
+  {% if client_users %}<ul>{% for u in client_users %}<li>{{ u.email }} — {{ (u.client_role or '')|label }}{% if not u.active %} (inactive){% endif %}
     {% if role_at_least(user.role, 'admin') %}<form method="post" action="/clients/{{ client.id }}/users/{{ u.id }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
     <label class="sr" for="pw{{ u.id }}">New password</label><input id="pw{{ u.id }}" name="password" type="password" minlength="10" placeholder="new password (optional)" autocomplete="new-password">
     <select name="active" aria-label="Active"><option value="1" {% if u.active %}selected{% endif %}>active</option><option value="" {% if not u.active %}selected{% endif %}>inactive</option></select>
     <button class="secondary">Update</button></form>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="empty">No portal users.</p>{% endif %}
-  {% if role_at_least(user.role, 'admin') %}<form method="post" action="/clients/{{ client.id }}/users" class="fgrid"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>Email<input name="email" type="email" required></label><label>Name<input name="name"></label>
-    <label>Initial password (min 10 chars; share securely)<input name="password" type="password" minlength="10" required autocomplete="new-password"></label>
-    <button>Create portal user</button></form>{% endif %}
+  <p class="muted">Dealership users sign in to their workspace (<a href="/dealers/{{ client.id }}">inventory and listings</a>) and the client portal (reports, invoices, tickets). Create them in the <a href="/dealers/{{ client.id }}/settings">dealership settings</a>; reset passwords or deactivate them here.</p>
 </section>
 
 <section class="card">

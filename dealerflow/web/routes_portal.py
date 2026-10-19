@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import get_db
 from ..models import Client, ClientReport, Conversation, Invoice, SeoIssue, SupportTicket, User
 from ..services import finance, tickets
-from ..services.tenancy import owned_or_404, scope
+from ..services.clients import owned_or_404, scope
 from .deps import check_csrf, flash, render, require_client
 
 router = APIRouter(dependencies=[Depends(check_csrf)])

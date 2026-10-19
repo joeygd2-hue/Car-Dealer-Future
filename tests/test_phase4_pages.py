@@ -33,7 +33,7 @@ def test_pages_render_for_admin(client, db, t_admin=None):
     login(client, admin.email)
     for path in STAFF_PAGES + MANAGER_PAGES + [f"/clients/{t['alpha'].id}", f"/finance/invoices/{inv['id']}", f"/seo/clients/{t['alpha'].id}",
                                               f"/client-reports/{rep['id']}", f"/client-reports/{rep['id']}/download",
-                                              f"/finance/export/summary.csv", "/finance/export/invoices.csv"]:
+                                              "/finance/export/summary.csv", "/finance/export/invoices.csv"]:
         r = client.get(path)
         assert r.status_code == 200, (path, r.text[:300])
     page = client.get("/finance/invoices").text

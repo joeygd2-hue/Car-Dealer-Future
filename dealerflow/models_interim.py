@@ -1,100 +1,31 @@
-"""INTERIM Phase 2/3 tables, used by Phase 4 reporting and end-to-end tests until the real Phase 2
-(inventory, listings, publishing) and Phase 3 (customer conversations, appointments) models land in
-dealerflow.
+"""INTERIM Phase 3 tables (customer conversations, appointments), used by Phase 4 reporting and the
+end-to-end test until the real Phase 3 models land in dealerflow. Inventory, listings and publishing
+are Phase 2's (models_dealer.py).
 
-Kept in their own module and their own migration (0003) so the Phase 2/3 ports can replace them
-cleanly: drop this module and migration 0003 (or add a migration that drops these tables), then point
-``services/client_reports.py`` and ``services/dealer_ops.py`` at the real models. See
-docs/architecture/shared-stack.md ("Phase 4 interim tables").
+Kept in their own module and their own migration (0004) so the Phase 3 port can replace them cleanly:
+add a migration that drops or converts these tables, then point ``services/client_reports.py`` and
+``services/dealer_ops.py`` at the real models. See docs/architecture/shared-stack.md.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base, utcnow
 from .models_ops import _Ts
 
-__all__ = ["InventoryImport", "Vehicle", "Listing", "PublishAttempt", "Conversation", "ConversationMessage", "Appointment"]
+__all__ = ["Appointment", "Conversation", "ConversationMessage"]
 
-
-
-class InventoryImport(Base):
-    __tablename__ = "inventory_imports"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True, nullable=False)
-    source: Mapped[str] = mapped_column(String(40), nullable=False)
-    started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
-    rows_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    rows_created: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    rows_updated: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    rows_failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    errors: Mapped[list[Any]] = mapped_column(JSON, default=list)
-
-
-class Vehicle(_Ts, Base):
-    __tablename__ = "vehicles"
-    __table_args__ = (
-        UniqueConstraint("client_id", "vin", name="uq_vehicle_vin"),
-        CheckConstraint("price_cents IS NULL OR price_cents >= 0", name="ck_vehicles_price"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True, nullable=False)
-    vin: Mapped[str] = mapped_column(String(17), nullable=False)
-    stock_number: Mapped[str | None] = mapped_column(String(40))
-    year: Mapped[int | None] = mapped_column(Integer)
-    make: Mapped[str | None] = mapped_column(String(60))
-    model: Mapped[str | None] = mapped_column(String(60))
-    trim: Mapped[str | None] = mapped_column(String(60))
-    mileage: Mapped[int | None] = mapped_column(Integer)
-    price_cents: Mapped[int | None] = mapped_column(Integer)
-    status: Mapped[str] = mapped_column(String(20), default="available", nullable=False)
-    import_id: Mapped[int | None] = mapped_column(ForeignKey("inventory_imports.id", ondelete="SET NULL"))
-
-
-class Listing(_Ts, Base):
-    __tablename__ = "listings"
-    __table_args__ = (
-        UniqueConstraint("vehicle_id", "language", name="uq_listing_vehicle_lang"),
-        CheckConstraint("language in ('en','es')", name="ck_listings_language"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True, nullable=False)
-    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), index=True, nullable=False)
-    language: Mapped[str] = mapped_column(String(5), nullable=False)
-    title: Mapped[str] = mapped_column(String(300), nullable=False)
-    body: Mapped[str] = mapped_column(Text, nullable=False)
-    generated_by: Mapped[str] = mapped_column(String(10), default="template", nullable=False)
-    status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False)  # draft|approved|rejected
-    approved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime)
-
-
-class PublishAttempt(Base):
-    """``published_confirmed`` only when the channel confirmed it; ``manual_required`` when no supported API exists."""
-
-    __tablename__ = "publish_attempts"
-    __table_args__ = (
-        CheckConstraint("status in ('pending','published_confirmed','manual_required','failed','removed')", name="ck_publish_attempts_status"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True, nullable=False)
-    listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id", ondelete="CASCADE"), index=True, nullable=False)
-    channel: Mapped[str] = mapped_column(String(40), nullable=False)
-    status: Mapped[str] = mapped_column(String(30), nullable=False)
-    external_url: Mapped[str | None] = mapped_column(String(500))
-    note: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
-    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class Conversation(_Ts, Base):

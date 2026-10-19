@@ -37,6 +37,9 @@ def schedule_tick(now=None) -> bool:
         bucket = bucket.replace(minute=bucket.minute - bucket.minute % minutes) if minutes < 60 else bucket.replace(minute=0)
         _, created = enqueue(db, "agent_tick", f"agent_tick:{bucket.isoformat()}", {}, max_attempts=1)
         schedule_daily(db, now)
+        from .services import dealer_jobs
+
+        dealer_jobs.schedule(db, now)  # Phase 2: inventory feed syncs + hourly stale scan
         return created
 
 

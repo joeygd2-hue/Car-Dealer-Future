@@ -10,20 +10,24 @@ from dealerflow.security import hash_password, new_api_key
 PW = "correct horse battery"
 
 
-def user_with_key(db, email: str, role: str, client_id: int | None = None) -> tuple[User, dict]:
+def user_with_key(db, email: str, role: str, client_id: int | None = None, client_role: str = "dealer_admin") -> tuple[User, dict]:
+    """``client_id`` set = a dealership user (Phase 2 model: role viewer + client_role)."""
     key, digest = new_api_key()
-    u = User(email=email, name=email.split("@")[0], role=role, client_id=client_id, password_hash=hash_password(PW), api_key_hash=digest)
+    u = User(email=email, name=email.split("@")[0], role="viewer" if client_id else role, client_id=client_id,
+             client_role=client_role if client_id else None, password_hash=hash_password(PW), api_key_hash=digest)
     db.add(u)
     db.commit()
     return u, {"Authorization": f"Bearer {key}"}
 
 
 def two_clients(db) -> dict:
-    """Alpha and Bravo dealerships, staff of every role, and a portal user per dealership."""
+    """Alpha and Bravo dealerships, staff of every role, and a dealership admin user per dealership."""
     from dealerflow.services import onboarding
 
-    a = Client(name="Alpha Motors (TEST)", city="Sugar Land", phone="281-555-0101", contact_email="owner@alpha.example")
-    b = Client(name="Bravo Auto (TEST)", city="Stafford", phone="281-555-0202", contact_email="owner@bravo.example")
+    a = Client(name="Alpha Motors (TEST)", slug="alpha-motors", status="onboarding", city="Sugar Land", phone="281-555-0101",
+               contact_email="owner@alpha.example")
+    b = Client(name="Bravo Auto (TEST)", slug="bravo-auto", status="onboarding", city="Stafford", phone="281-555-0202",
+               contact_email="owner@bravo.example")
     db.add_all([a, b])
     db.flush()
     onboarding.ensure_checklist(db, a)
@@ -41,7 +45,7 @@ def portal_login(client, email: str) -> str:
     r = client.get("/login")
     csrf = r.text.split('name="csrf" value="')[1].split('"')[0]
     r = client.post("/login", data={"email": email, "password": PW, "csrf": csrf, "next": "/"}, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/portal", r.text[:300]
+    assert r.status_code == 303 and r.headers["location"].startswith("/dealers/"), r.text[:300]
     page = client.get("/portal").text
     return page.split('name="csrf" value="')[1].split('"')[0]
 

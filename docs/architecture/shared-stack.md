@@ -100,46 +100,88 @@ Public, unauthenticated endpoints: `GET /healthz`, `GET|POST /u/{token}` (unsubs
 Errors: raise `CredentialError` (not retried), `RateLimitedError` (retried, honours Retry-After),
 `PermanentError` (not retried), or `IntegrationError` (retried).
 
+## Phase 2 additions (dealership inventory, listings, publishing)
+
+Added by the Phase 2 chat on top of this foundation (no second app, login or queue).
+
+**Clients and tenancy.** A signed dealership is a `clients` row (`clients.prospect_id` links the won CRM prospect;
+create it from `/dealers`). Dealership-owned tables inherit `models_dealer.TenantMixin` (`client_id NOT NULL`) and
+reference parents through composite `(client_id, parent_id)` foreign keys, so the database refuses cross-dealership
+links. `tenancy.tenant_session(client_id)` filters every query on tenant models and refuses writes for another client.
+Web routes get a `ClientContext` only through `routes_dealers.dealer_ctx(permission)` → `tenancy.authorize_client`.
+Another client's ids return 404. **Phase 3 (client portal) must reuse `clients`, `dealer_ctx` and these rules.**
+
+**Dealership users.** `users.client_id` + `users.client_role` (`dealer_admin | dealer_reviewer | dealer_viewer`).
+Such users can only open `/dealers/{their id}/...` and `/api/v1/dealers/{their id}/...`; `web/deps.current_user`
+returns 403 for every other path and `require()` rejects them, so they never see the CRM, agent or settings.
+Staff open any client workspace; viewer = read, rep = import/edit/publish, manager/admin = also settings and channel
+connections. Staff approve listings only if the dealership allows agency approval in its settings.
+
+| Area | Module |
+|---|---|
+| Models + migration | `models_dealer.py`, `migrations/versions/0002_phase2_inventory_listings.py` |
+| Tenancy | `tenancy.py` |
+| Inventory | `services/inventory/` (parsers, normalize, validate, vin, importer, feeds, reactions) |
+| Listings | `services/listings/` (dealer_settings, facts, i18n, template_generator, ai_generator, guardrails, service) |
+| Publishing | `services/publishing/service.py`, channels in `integrations/listing_channels.py` |
+| AI | `integrations/llm.py` (`structured_call`; optional, off by default; Phase 3/4 should reuse it) |
+| Jobs | `services/dealer_jobs.py`: `inventory_sync`, `listing_generate`, `publish_operation`, `inventory_stale_scan`; scheduled from `worker.schedule_tick` |
+| Reports | `services/dealer_reports.py` |
+| Pages / API | `web/routes_dealers.py` (`/dealers/...`), `web/routes_dealer_api.py` (`/api/v1/dealers/{client_id}/...`) |
+
+`ListingChannel` interface (`integrations/listing_channels.py`): `build_payload`, `validate_payload`, `publish`,
+`update`, `delete`, `check_status` → `ChannelResult(outcome=confirmed|submitted|manual_required|failed)`; each channel
+documents itself in `DOCS`. Implementations: `facebook_marketplace` (manual), `meta_catalog` (API, guarded), `mock`
+(SIMULATED). Same error conventions as the other providers. A listing is `published_confirmed` only after a channel
+confirms (`confirmation_type=api`) or a person records the live URL with an attestation (`manual_attested`).
+
+Phase 2 JSON API (`/api/v1/dealers/{client_id}`, same auth): `GET vehicles`, `GET vehicles/{id}`, `POST imports`
+(multipart), `GET imports/{id}`, `GET listings`, `GET listings/{id}`, `POST listings/{id}/approve`,
+`POST listings-batch/preview|approve`, `GET publications`, `GET publications/{id}`, `POST publications/{id}/publish`,
+`POST publications/{id}/confirm-manual`, `GET reports/summary`, `GET export.csv`.
+
+Secrets stay in the environment: a feed credential is read from the variable named in `inventory_sources.secret_env`
+(must start `DF_FEED_`), a Meta token from `channel_connections.token_env` (must start `DF_META_TOKEN_`).
 
 ## Phase 4 additions (shared by every phase)
 
-Added on branch `claude/blissful-davinci-82py6w` (migrations `0002`, `0003`). Details:
-`docs/architecture/system-design.md`.
+Added on branch `claude/blissful-davinci-82py6w` after Phase 2 (migrations `0003` Phase 4, `0004` interim
+Phase 3). Details: `docs/architecture/system-design.md`.
 
-### Clients and the `client` role
+### Clients, dealership users and the portal
 
-* `clients` is the tenant boundary for dealership data. A won `Prospect` becomes a `Client`
-  (`clients.prospect_id`, unique) via `services.tenancy.create_client()`, which also stops prospecting
-  sequences and suppresses the address. Phase 2/3 tables that belong to a dealership must have
-  `client_id → clients.id` (indexed, NOT NULL, `ON DELETE CASCADE`).
-* Role `client` (lowest rank, `users.client_id` set) may only reach `/portal` and `/api/v1/portal/*`;
-  `web.deps.current_user` enforces this for every route. Portal code must use `services.tenancy.scope()` /
-  `owned_or_404()` and must never take a client id from the request. Use `Depends(require_client)` for portal
-  routes; `require("viewer")` and above never admit client users.
-* Staff-side Phase 2/3 routes under `/clients/{cid}/…` must check that the row's `client_id` equals `cid`.
+* Phase 4 uses Phase 2's `clients` table and adds onboarding/contact columns (`legal_name`, `address_line`,
+  `postal_code`, `phone`, `website`, `contact_name`, `contact_email`, `languages`, `business_hours`,
+  `response_rules`, `activated_at`, `cancelled_at`) and the status `onboarding` (new clients start there;
+  `active | paused | offboarded` as in Phase 2). Create clients with `services.clients.create_client()` —
+  `/dealers` and `/clients` both use it; it sets the slug, links the won prospect, stops prospecting
+  sequences and suppresses the address.
+* Dealership users are Phase 2's `users.client_id` + `client_role`. Besides `/dealers/{id}` they may open the
+  Phase 4 portal (`/portal`, `/api/v1/portal/*`: reports, invoices, tickets). Portal code uses
+  `Depends(require_client)` and `services.clients.scope()` / `owned_or_404()` and never takes a client id
+  from the request.
+* Phase 4 tables reference `clients.id` directly (`ON DELETE CASCADE`, or `SET NULL` for costs/expenses).
 
 ### Shared Phase 4 services other phases should use
 
 | Need | Use |
 |---|---|
 | Record metered provider usage (AI tokens, API calls) | `services.usage.record_usage(db, provider=, category=, metric=, quantity=, ref=, client_id=)` (idempotent by `ref`) |
-| Call Claude | `integrations.llm.complete()` (records tokens; raises `AIUnavailable` when off) |
+| Call Claude for free text | `integrations.llm.complete()` (records tokens; raises `AIUnavailable` when off). Structured output: Phase 2's `structured_call` |
 | Email a client dealership | `services.client_email.send()` (gated; SIMULATED by default) |
 | Open a ticket for a client-facing failure | `services.tickets.open_system_ticket(db, client_id=, kind="integration_failure", …, dedupe_key=)` |
 | Raise an operator alert | `services.alerts.raise_alert(db, kind, message, severity, dedupe_key)` |
 | Gate an automation on onboarding | add an entry to `services.onboarding.AUTOMATION_PREREQS`; check `automation_enabled(db, client_id, feature)` before acting |
 | Audit with an entity | `audit.record(db, action, actor=, entity=, details=)` (secret-named keys redacted) |
 
-### Phase 4 interim tables — Phase 2/3 must replace these
+### Interim Phase 3 tables — Phase 3 must replace these
 
-`models_interim.py` + migration `0003` define minimal `inventory_imports`, `vehicles`, `listings`,
-`publish_attempts`, `conversations`, `conversation_messages`, `appointments`, used only so Phase 4 reporting and
-the end-to-end test work before Phases 2/3 land in dealerflow. When the real Phase 2 (inventory, listings,
-publishing) or Phase 3 (conversations, appointments) models are ported:
+`models_interim.py` + migration `0004` define minimal `conversations`, `conversation_messages` and
+`appointments` so Phase 4 reporting and the end-to-end test work before Phase 3 lands in dealerflow. When the
+real Phase 3 models are ported:
 
-1. Rebase your migration onto `0002` (not `0003`), or add a migration after `0003` that drops the interim tables
-   your models replace. Do not keep two definitions of the same table.
-2. Delete the replaced classes from `models_interim.py` and the matching functions in `services/dealer_ops.py`.
+1. Add a migration after `0004` that drops or converts these tables. Do not keep two definitions of a table.
+2. Delete the classes from `models_interim.py` and the functions in `services/dealer_ops.py`.
 3. Update `services/client_reports.build_report_data()` to read your tables (keep: one source per metric,
    SIMULATED rows excluded from real counts, channel status from `integration_connections`).
-4. Keep `tests/test_e2e_business_journey.py` passing (swap its Phase 2/3 steps to your APIs).
+4. Keep `tests/test_e2e_business_journey.py` passing (swap its Phase 3 steps to your APIs).

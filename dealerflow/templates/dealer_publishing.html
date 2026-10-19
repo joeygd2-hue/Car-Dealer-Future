@@ -1,0 +1,24 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, st %}{% block title %}Publishing · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'publishing', user) }}<h1>Publishing</h1>
+<div class="card"><h2>Needs action ({{ attention|length }})</h2>{% if attention %}<div class="tablewrap"><table>{% for p in attention %}
+<tr><td><a href="/dealers/{{ client.id }}/publications/{{ p.id }}">{{ p.channel_label }}</a></td><td>{{ st(p.status, labels) }}</td><td class="small">{{ p.update_reason or p.last_error or '' }}</td>
+<td><a class="small" href="/dealers/{{ client.id }}/listings/{{ p.listing_id }}">listing</a></td></tr>{% endfor %}</table></div>
+{% else %}<p style="color:var(--ok)">Nothing needs attention.</p>{% endif %}</div>
+<div class="card"><h2>Channels</h2>{% for key, ch in channels.items() %}{% set conn = connections[key] %}<details><summary><strong>{{ ch.label }}</strong>
+<span class="pill">{{ 'manual workflow' if ch.mode == 'manual' else ('API integration' if ch.mode == 'api' else 'SIMULATED') }}</span>{% if conn and conn.live_publishing %} <span class="pill warn">live publishing authorized</span>{% endif %}</summary>
+<table class="kv">{% for k, val in ch.DOCS.items() %}<tr><td>{{ k.replace('_',' ') }}</td><td class="small">{{ val|join(', ') if val is not string else val }}</td></tr>{% endfor %}</table>
+{% if key == 'meta_catalog' and ctx.can('manage') %}<form method="post" action="/dealers/{{ client.id }}/channels/{{ key }}" class="card"><input type="hidden" name="csrf" value="{{ csrf }}">
+<p class="small muted">The access token is never stored here: set it in the server environment and enter the variable name.</p><div class="grid">
+<div><label>catalog_id</label><input name="catalog_id" value="{{ conn.config.catalog_id if conn else '' }}"></div>
+<div><label>vehicle page URL template</label><input name="vdp_url_template" value="{{ conn.config.vdp_url_template if conn else '' }}" placeholder="https://dealer.com/inventory/{stock_number}"></div>
+<div><label>token env var</label><input name="token_env" value="{{ conn.token_env if conn and conn.token_env else '' }}" placeholder="DF_META_TOKEN_ALPHA"></div>
+<div><label>language</label><select name="language"><option value="en">English</option><option value="es" {% if conn and conn.config.language == 'es' %}selected{% endif %}>Español</option></select></div></div>
+<label class="row"><input type="checkbox" name="live_publishing" value="yes" {% if conn and conn.live_publishing %}checked{% endif %}> Authorize live publishing to this dealership's Meta catalog</label>
+<label>To authorize, type: AUTHORIZE {{ client.name }}</label><input name="confirm_live" style="width:100%"><p><button>Save connection</button></p></form>{% endif %}
+</details>{% endfor %}</div>
+<div class="card"><h2>Exports</h2><p class="small muted">Approved, available listings as CSV for authorised manual upload (for example Commerce Manager or a syndication provider). An export is not a publication.</p>
+<p class="row"><a class="btn secondary" href="/dealers/{{ client.id }}/export.csv?lang=en">Download English CSV</a><a class="btn secondary" href="/dealers/{{ client.id }}/export.csv?lang=es">Download Spanish CSV</a></p></div>
+<div class="card"><h2>All publications</h2><div class="tablewrap"><table>{% for p in pubs %}<tr><td><a href="/dealers/{{ client.id }}/publications/{{ p.id }}">{{ p.channel_label }}</a></td><td>{{ st(p.status, labels) }}</td>
+<td class="small">{{ p.confirmation_type or '' }}</td><td class="small">{% if p.external_url %}<a href="{{ p.external_url|safe_url }}" target="_blank" rel="noopener noreferrer">live listing</a>{% endif %}</td></tr>
+{% else %}<tr><td class="muted">None yet.</td></tr>{% endfor %}</table></div></div>
+{% endblock %}

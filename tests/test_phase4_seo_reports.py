@@ -157,15 +157,21 @@ def test_onboarding_blocks_premature_automation_and_activation(client, db, t):
 
 
 def test_report_reflects_data_and_states_channels_and_attribution(client, db, t):
-    cid, h = t["alpha"].id, t["h"]["rep"]
-    client.post(f"/api/v1/clients/{cid}/inventory/import", headers=h, json={"csv": "vin,year,make,model,price,mileage\n"
-                "2HGFC2F59KH123456,2019,Honda,Civic,15995,42000\n1FTFW1E50KFA12345,2019,Ford,F-150,28995,61000\nBADVIN,2019,X,Y,1,1\n"})
-    listings = client.post(f"/api/v1/clients/{cid}/listings/generate", headers=h).json()
-    assert len(listings) == 4 and {li["language"] for li in listings} == {"en", "es"}
-    client.post(f"/api/v1/clients/{cid}/listings/{listings[0]['id']}/approve", headers=h)
-    pub = client.post(f"/api/v1/clients/{cid}/listings/{listings[0]['id']}/publish", headers=h, json={"channel": "facebook_marketplace"}).json()
-    assert pub["status"] == "manual_required"
-    assert client.post(f"/api/v1/clients/{cid}/listings/{listings[1]['id']}/publish", headers=h, json={"channel": "x"}).status_code == 400  # unapproved
+    from tests.dealer_helpers import SAMPLE_CSV, drain
+
+    cid, h, hd = t["alpha"].id, t["h"]["rep"], t["h"]["alpha"]
+    imp = client.post(f"/api/v1/dealers/{cid}/imports", headers=h, files={"file": ("inv.csv", SAMPLE_CSV.encode(), "text/csv")}).json()
+    assert imp["counts"]["created"] == 3
+    drain()  # Phase 2 worker drafts EN/ES listings
+    ids = [li["id"] for li in client.get(f"/api/v1/dealers/{cid}/listings", headers=hd).json()["items"]]
+    assert len(ids) == 3
+    preview = client.post(f"/api/v1/dealers/{cid}/listings-batch/preview", headers=hd, json={"listing_ids": ids}).json()
+    first = next(i["listing_id"] for i in preview["items"] if i["eligible"])
+    done = client.post(f"/api/v1/dealers/{cid}/listings-batch/approve", headers=hd, json={
+        "listing_ids": [first], "expected_count": 1, "confirm": True, "acknowledge_all_warnings": True}).json()
+    assert len(done["approved"]) == 1
+    pubs = client.get(f"/api/v1/dealers/{cid}/publications", headers=hd).json()
+    assert [(p["channel"], p["status"]) for p in pubs] == [("facebook_marketplace", "manual_required")]
     sim = client.post(f"/api/v1/clients/{cid}/inquiries/simulated", headers=h, json={"body": "Is it available for a test drive?",
                                                                                    "provider_message_id": "m1"}).json()
     assert sim["simulated"] is True
@@ -174,8 +180,9 @@ def test_report_reflects_data_and_states_channels_and_attribution(client, db, t)
     start, end = date.today().replace(day=1), date.today()
     r = client.post("/api/v1/client-reports", headers=h, json={"client_id": cid, "period_start": str(start), "period_end": str(end)}).json()
     d = r["data"]
-    assert d["inventory"]["vehicles_processed"]["value"] == 2 and d["listings"]["generated"]["value"] == 4
-    assert d["listings"]["approved"]["value"] == 1 and d["listings"]["manual_publication_required"]["value"] == 1
+    assert d["inventory"]["vehicles_processed"]["value"] == 3 and d["inventory"]["vehicles_added"]["value"] == 3
+    assert d["listings"]["generated"]["value"] == 3 and d["listings"]["approved"]["value"] == 1
+    assert d["listings"]["manual_publication_required"]["value"] == 1 and d["listings"]["publishing_confirmed_via_api"]["value"] == 0
     assert d["inquiries"]["received"]["value"] == 0 and d["inquiries"]["simulated_excluded"] == 1  # simulated never counted as real
     channels = {c["kind"]: c["status"] for c in d["channels"]}
     assert channels["inventory_feed"] == "connected" and channels["search_console"] == "not_connected"

@@ -37,7 +37,7 @@ R5 only appears under timing contention, which is why it took repeated runs to c
 | Fresh migration `4122abfb2c23 → 44a34c76e0bf`, `alembic check` | OK, "No new upgrade operations detected" |
 | Seed | OK |
 | `ruff check .` | clean |
-| `pytest` | 184 passed after R5/R6 |
+| `pytest` | 184 passed after R5/R6; stress: all 10 worker-resilience tests × 150 consecutive runs, **0 failures** (before the fix: 1 failure in 54) |
 | Separate web + worker processes, `smoke_e2e.py` | **32/32 checks passed**, including a `kill -9` of the worker mid-run and a replacement worker; 0 tracebacks in web/worker logs |
 
 ### What the 32 smoke checks verify

@@ -1,0 +1,189 @@
+"""Phase 3 automation Modes A/B/C, authorization + evaluation gating, pauses, takeover, rate limits, hours."""
+
+from datetime import timedelta
+
+from sqlalchemy import select
+
+import pytest
+
+from dealerflow.db import utcnow
+from dealerflow.models import Client, IntegrationConnection
+from dealerflow.models_conversations import EvaluationRun, ModeAuthorization, ResponseDraft
+from dealerflow.models_conversations import ConversationMessage as Message
+from dealerflow.models_conversations import ResponseAutomationSettings as AutomationSettings
+from dealerflow.models_conversations import ResponseTemplate as ApprovedTemplate
+from dealerflow.services.conversations import automation_policy as controls
+from dealerflow.services.conversations.common import set_flag
+from dealerflow.services.conversations.responder.engine import ENGINE_VERSION
+from tests.phase3 import build_world, chat, run_worker
+
+
+@pytest.fixture
+def world(db):
+    return build_world(db)
+
+
+def enable_mode_b(db, world, key="a"):
+    d = world[key]["d"]
+    run = EvaluationRun(client_id=d.id, engine_version=ENGINE_VERSION, total_cases=1, metrics={}, passed=True)
+    db.add(run)
+    db.flush()
+    db.add(ModeAuthorization(client_id=d.id, mode="B_FAQ_AUTOMATION", statement="test", evaluation_run_id=run.id,
+                             authorized_by_id=world[key]["admin"].id))
+    s = db.scalar(select(AutomationSettings).where(AutomationSettings.client_id == d.id))
+    s.mode = "B_FAQ_AUTOMATION"
+    for intent, body in (("price", "The listed price for the {vehicle} is {price}."),
+                         ("availability", "The {vehicle} is currently available."),
+                         ("greeting", "Hi{name}! Thanks for contacting {dealer_name}.")):
+        db.add(ApprovedTemplate(client_id=d.id, intent=intent, language="en", body=body, auto_send_allowed=True,
+                                approved_by_id=world[key]["admin"].id, approved_at=utcnow()))
+    db.commit()
+
+
+def last_draft(db, conv_id):
+    return db.scalar(select(ResponseDraft).where(ResponseDraft.conversation_id == conv_id).order_by(ResponseDraft.id.desc()))
+
+
+def outbound(db, conv_id):
+    return list(db.scalars(select(Message).where(Message.conversation_id == conv_id, Message.direction == "OUTBOUND")))
+
+
+def test_mode_a_never_auto_sends(db, world):
+    _, cid, _ = chat(world["a"]["d"], "m-a", "How much is the Civic?")
+    run_worker()
+    assert last_draft(db, cid).decision == "DRAFT_ONLY" and outbound(db, cid) == []
+
+
+def test_mode_b_requires_authorization_and_eval(db, world):
+    s = db.scalar(select(AutomationSettings).where(AutomationSettings.client_id == world["a"]["d"].id))
+    s.mode = "B_FAQ_AUTOMATION"  # configured without authorization
+    db.commit()
+    _, cid, _ = chat(world["a"]["d"], "m-b0", "How much is the Civic?")
+    run_worker()
+    d = last_draft(db, cid)
+    assert d.decision == "DRAFT_ONLY" and any("authorization" in r for r in d.decision_reasons)
+
+
+def test_mode_b_auto_answers_low_risk_with_templates(db, world):
+    enable_mode_b(db, world)
+    _, cid, _ = chat(world["a"]["d"], "m-b1", "How much is the Civic?")
+    run_worker()
+    d = last_draft(db, cid)
+    assert d.decision == "AUTO_SEND", d.decision_reasons
+    msgs = outbound(db, cid)
+    assert len(msgs) == 1 and msgs[0].sender_type == "AI_AUTO" and msgs[0].delivery_status == "SIMULATED"
+    assert "$18,995" in msgs[0].body
+
+
+def test_mode_b_escalates_risky_questions(db, world):
+    enable_mode_b(db, world)
+    _, cid, _ = chat(world["a"]["d"], "m-b2", "How much is the Civic and can you do financing?")
+    run_worker()
+    d = last_draft(db, cid)
+    assert d.decision == "DRAFT_ONLY" and "financing" in d.escalation_reasons and outbound(db, cid) == []
+
+
+def test_global_dealer_channel_and_conversation_pauses(db, world):
+    enable_mode_b(db, world)
+    set_flag(db, controls.GLOBAL_AUTOMATION_PAUSE, True, actor_id=None, reason="test")
+    db.commit()
+    _, cid, _ = chat(world["a"]["d"], "p-1", "How much is the Civic?")
+    run_worker()
+    assert any("global" in r for r in last_draft(db, cid).decision_reasons) and outbound(db, cid) == []
+    set_flag(db, controls.GLOBAL_AUTOMATION_PAUSE, False, actor_id=None, reason="test")
+    s = db.scalar(select(AutomationSettings).where(AutomationSettings.client_id == world["a"]["d"].id))
+    s.paused = True
+    db.commit()
+    _, cid, _ = chat(world["a"]["d"], "p-2", "How much is the Civic?")
+    run_worker()
+    assert any("dealership automation is paused" in r for r in last_draft(db, cid).decision_reasons)
+    s.paused = False
+    conn = db.scalar(select(IntegrationConnection).where(IntegrationConnection.client_id == world["a"]["d"].id,
+                                                         IntegrationConnection.provider == "website_chat"))
+    conn.paused = True
+    db.commit()
+    _, cid, _ = chat(world["a"]["d"], "p-3", "How much is the Civic?")
+    run_worker()
+    assert any("channel" in r for r in last_draft(db, cid).decision_reasons)
+    conn.paused = False
+    db.commit()
+    _, cid, _ = chat(world["a"]["d"], "p-4", "Is the Civic available?")
+    run_worker()
+    from dealerflow.models_conversations import Conversation
+
+    conv = db.get(Conversation, cid)
+    conv.human_takeover = True
+    db.commit()
+    chat(world["a"]["d"], "p-4", "And how much is it?")
+    run_worker()
+    assert any("taken over" in r for r in last_draft(db, cid).decision_reasons)
+
+
+def test_emergency_pause_blocks_already_queued_auto_message(db, world):
+    enable_mode_b(db, world)
+    _, cid, _ = chat(world["a"]["d"], "p-5", "How much is the Civic?")
+    from dealerflow.services.conversations.inbox import process_message
+
+    msg = db.scalar(select(Message).where(Message.conversation_id == cid))
+    process_message(db, msg.id)  # auto-send queued, not yet delivered
+    set_flag(db, controls.GLOBAL_AUTOMATION_PAUSE, True, actor_id=None, reason="emergency")
+    db.commit()
+    run_worker()
+    msgs = outbound(db, cid)
+    assert len(msgs) == 1 and msgs[0].delivery_status == "BLOCKED"
+
+
+def test_rate_limits(db, world):
+    enable_mode_b(db, world)
+    s = db.scalar(select(AutomationSettings).where(AutomationSettings.client_id == world["a"]["d"].id))
+    s.max_auto_replies_per_conversation_per_hour = 1
+    s.min_seconds_between_auto_replies = 5
+    db.commit()
+    _, cid, _ = chat(world["a"]["d"], "r-1", "How much is the Civic?")
+    run_worker()
+    chat(world["a"]["d"], "r-1", "Is it still available?")
+    run_worker()
+    d = last_draft(db, cid)
+    assert d.decision == "DRAFT_ONLY" and any("rate limit" in r for r in d.decision_reasons)
+    assert len([m for m in outbound(db, cid) if m.sender_type == "AI_AUTO"]) == 1
+
+
+def test_business_hours_rule(db, world):
+    enable_mode_b(db, world)
+    s = db.scalar(select(AutomationSettings).where(AutomationSettings.client_id == world["a"]["d"].id))
+    s.auto_reply_outside_business_hours = False
+    db.get(Client, world["a"]["d"].id).business_hours = {str(d): None for d in range(7)}  # closed every day
+    db.commit()
+    _, cid, _ = chat(world["a"]["d"], "h-1", "How much is the Civic?")
+    run_worker()
+    assert any("business hours" in r for r in last_draft(db, cid).decision_reasons)
+
+
+def test_stale_eval_or_old_engine_disables_mode(db, world):
+    enable_mode_b(db, world)
+    run = db.scalar(select(EvaluationRun))
+    run.created_at = utcnow() - timedelta(days=45)
+    db.commit()
+    _, cid, _ = chat(world["a"]["d"], "e-1", "How much is the Civic?")
+    run_worker()
+    assert last_draft(db, cid).decision == "DRAFT_ONLY"
+
+
+def test_emergency_stop_blocks_already_queued_auto_message(db, world):
+    """The Phase 1 emergency stop (agent page) also stops customer messages that were queued before it."""
+    from dealerflow.models import AgentState
+
+    enable_mode_b(db, world)
+    _, cid, _ = chat(world["a"]["d"], "p-6", "How much is the Civic?")
+    from dealerflow.services.conversations.inbox import process_message
+
+    msg = db.scalar(select(Message).where(Message.conversation_id == cid))
+    process_message(db, msg.id)
+    state = db.get(AgentState, 1) or AgentState(id=1)
+    state.status = "emergency_stopped"
+    db.add(state)
+    db.commit()
+    run_worker()
+    db.expire_all()
+    msgs = outbound(db, cid)
+    assert len(msgs) == 1 and msgs[0].delivery_status == "BLOCKED" and "emergency stop" in msgs[0].delivery_error

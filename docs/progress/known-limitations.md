@@ -1,4 +1,4 @@
-# Known limitations (Phase 1 + 1.5 audit)
+# Known limitations (Phases 1, 1.5, 2 and 4)
 
 Last updated 2026-10-18 (after the launch-readiness audit; see `docs/audit/launch-readiness-audit.md` for
 blockers and priorities). Be explicit with anyone relying on this system: **no real email, calendar, Zoom,
@@ -85,19 +85,65 @@ templates, the data sources you choose, and any move to automated (`auto`) sendi
 
 ## Phase 2 (inventory, listings, publishing)
 
-Last updated 2026-10-18 by the Phase 2 chat.
+Last updated 2026-10-19 (Phase 4 integration).
 
 | Item | Status / what's needed |
 |---|---|
 | Facebook Marketplace publishing | **No API exists** for organic dealer vehicle listings (ended 2021/2023). Publication, edits, removal and buyer messages are manual. The app records staff-attested URLs but cannot verify a Marketplace listing is still live. Browser automation is deliberately not used. |
 | Meta vehicle catalog (`meta_catalog`) | Code + mocked-HTTP test only. Needs Meta App Review (`catalog_management` + `business_management`), Business Verification, a vehicle catalog, vehicle detail page URLs and a system-user token. The batch-status response shape is handled defensively but unverified. Items power paid ads, not organic listings. |
 | Real inventory feeds | No dealer feed has been connected; feeds tested with mocked HTTP. No SFTP receiver for HomeNet/vAuto-style drops. No DMS vendor presets until real export samples exist. |
-| AI listing prose | Off by default; tested with a mocked client only. Template generator cannot apply free-text reviewer feedback (it records it). |
+| AI listing prose | Off by default: needs `DF_LISTING_AI_ENABLED`, the shared `DF_AI_ENABLED` switch and a key. Tested with a mocked client only. Token usage is recorded per client in `cost_entries` (estimated cost). Template generator cannot apply free-text reviewer feedback (it records it). |
 | Spanish | Fixed vocabulary; unknown features/colours stay in English and are flagged for review. |
-| Photos | URLs only: no download, reachability check, resizing or moderation. |
+| Photos | URLs only: no download, reachability check, resizing or moderation. The CSP allows `https:` images so staff and dealers can preview dealer-hosted photos; this lets a photo host see the viewer's IP (never the page URL: `Referrer-Policy: same-origin`). |
 | VIN decode | Offline check digit + model-year only; NHTSA vPIC not integrated. |
 | Metrics | Listing views, inquiries and sales are not measured (no reliable source), so none are reported. |
 | Tenancy | Enforced by tenant-scoped ORM sessions, composite FKs and route checks; PostgreSQL row-level security is not configured. Phase 1 tables (CRM) are agency-wide by design. |
-| Dealership users | Created by a dealership admin or agency manager with a temporary password; no invite email, password reset or MFA yet. |
-| Docs from Phase 1 | `docs/research/feasibility-report.md` and Phase 1's `docs/research/source-register.md` (IDs like `[S-OSM]`) are referenced but were never committed on the Phase 1 branch. Phase 2 sources are in `docs/research/phase2-source-register.md`. |
-| Phase 4 branch | `claude/blissful-davinci-82py6w` is still a separate app (`app/` package) and is not merged; it must be ported into `dealerflow`. |
+| Dealership users | One model for portal and workspace: `role="client"` + `client_role`. Created by an agency admin (client page) or a dealership admin (workspace settings) with a temporary password; no invite email, self-service password reset or MFA yet. A client user without a `client_role` is denied the workspace (fails closed). |
+| Cancelled clients | Staff and dealership users can still open a cancelled client's workspace and change it; only the stale scan and scheduled feed syncs stop. Decide whether cancelled workspaces should become read-only. |
+| Scheduled feed sync | Runs only when the client's Phase 4 `inventory_sync` automation is enabled (onboarding prerequisites + connected `inventory_feed`). "Sync now" by a person is not gated. |
+## Phase 4
+
+Every Phase 4 end-to-end test ran with SIMULATED providers and synthetic data. **No real payment, accounting,
+PageSpeed, Search Console, Claude API or client email call has been made.**
+
+### Integrations needing credentials or third-party approval
+
+| Integration | Status | What's needed |
+|---|---|---|
+| Stripe webhooks | Verified locally with self-signed payloads only | Stripe account; a **test-mode** endpoint for `/webhooks/stripe` (events `invoice.paid`, `invoice.payment_failed`, `charge.refunded`) and `DF_STRIPE_WEBHOOK_SECRET`; public HTTPS. Creating Stripe invoices from the app is **not** built (invoices are created here, payments recorded from Stripe events or manually) |
+| QuickBooks Online / Xero | **Not implemented** | OAuth app + sandbox company; for now use manual entry, CSV export and bank-CSV reconciliation |
+| Google Search Console | **API not implemented**; CSV export import works | Property owner access + OAuth (`webmasters.readonly`) to automate |
+| PageSpeed Insights | Parser only, never called | API key (`DF_PAGESPEED_API_KEY`) |
+| Claude API | Stubbed-client test only | API key; `DF_AI_ENABLED=true`. Nothing in Phase 4 depends on it |
+| Client email (reports, lead summaries) | Mock only | Real provider (Phase 1), `DF_CLIENT_EMAIL_SENDING_ENABLED=true`, and per-client authorized `report_email` connection |
+| Listing publication channels (Phase 2) | Facebook Marketplace is manual by design (no API); Meta catalog is mocked-HTTP only | See the Phase 2 table above |
+| Customer messaging channels (Phase 3) | None; inquiries are simulated | Phase 3 |
+
+### Functional gaps
+
+* **Interim Phase 3 tables** (`models_interim.py`, migration `0004`: conversations, messages, appointments) are
+  minimal stand-ins until Phase 3 is ported. Inventory, listing and publishing figures in client reports come from
+  the real Phase 2 tables (the interim Phase 2 tables were removed during integration).
+* Phase 3 lives in a separate `app` package (`claude/magical-darwin-nncp64`) with its own auth and models; it is
+  not integrated, so the portal's conversation list shows only interim (SIMULATED) conversations.
+* Finance is single-currency for reporting (USD); other currencies are excluded and counted, not converted.
+  No sales tax handling. Expense categories are management categories, not tax advice.
+* Invoices are not emailed or sent to clients; there is no PDF invoice. Reports are HTML (print to PDF).
+* Stripe mapping needs either `invoices.external_id` = Stripe invoice id or `metadata.client_id`; unmatched
+  events fail and raise an alert.
+* No receipts OCR; no recurring-expense automation (recurrence is a label used by the forecast).
+* SEO checks are rule-based; no AI recommendations are generated yet (`detection='ai'` is reserved). JavaScript-
+  rendered sites are seen as raw HTML only. External links are not checked (internal only).
+* Gross margin covers only directly allocated costs; overhead allocation is not modelled.
+* Automations on the client page: `inventory_sync` now gates Phase 2 scheduled feed syncs; `monthly_report_email`
+  is implemented. `listing_publish` gates nothing yet (Phase 2 never publishes automatically; every API publish is a
+  person's click on an authorised connection). `inquiry_auto_response` waits for Phase 3. `seo_monitoring` does not
+  schedule audits yet; staff start them.
+* Client data deletion and export are service functions (no UI) — deliberate, see the runbook.
+
+### Phase 4 security notes
+
+See `docs/security/threat-model.md`. Open items: in-process rate limiting (single process only), no MFA,
+attachments unencrypted at rest on local disk, no external penetration test, `style-src 'unsafe-inline'` kept
+for Phase 1 templates. **The platform is not production-ready** until live integrations are verified, MFA or
+an identity-aware proxy is in place, backups are tested, and Phase 3 is integrated.

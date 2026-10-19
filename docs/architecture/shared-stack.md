@@ -4,10 +4,10 @@
 before Phase 1, so no earlier stack existed to keep. Every later phase (2–4) extends this one
 application. **Do not create a second app, database, login system or navigation.**
 
-> **Branch status (2026-10-18 audit):** Phase 2 (`claude/dealership-inventory-publishing-iq0aqw`) merged onto
-> `dealerflow`. Phase 3 (`claude/magical-darwin-nncp64`) and Phase 4 (`claude/blissful-davinci-82py6w`) built separate
-> `app/` packages with their own models, auth and agents, and must be ported onto `dealerflow` before merging.
-> See `docs/audit/launch-readiness-audit.md` §7.
+> **Branch status (2026-10-19):** Phases 1, 1.5, 2 and 4 run in this one `dealerflow` app (integration branch
+> `claude/phase4-integration`). Phase 3 (`claude/magical-darwin-nncp64`) is still a separate `app/` package with its
+> own models and auth and must be ported here; until then `models_interim.py` stands in for its tables.
+> See `docs/audit/launch-readiness-audit.md` §7 (blocker #5).
 
 ## Stack
 
@@ -104,28 +104,31 @@ Errors: raise `CredentialError` (not retried), `RateLimitedError` (retried, hono
 
 Added by the Phase 2 chat on top of this foundation (no second app, login or queue).
 
-**Clients and tenancy.** A signed dealership is a `clients` row (`clients.prospect_id` links the won CRM prospect;
-create it from `/dealers`). Dealership-owned tables inherit `models_dealer.TenantMixin` (`client_id NOT NULL`) and
+**Clients and tenancy.** A signed dealership is a `clients` row (`models_ops.Client`, shared with Phase 4;
+`clients.prospect_id` links the won CRM prospect; create it from `/clients`, which calls
+`services.tenancy.create_client`). Dealership-owned tables inherit `models_dealer.TenantMixin` (`client_id NOT NULL`) and
 reference parents through composite `(client_id, parent_id)` foreign keys, so the database refuses cross-dealership
 links. `tenancy.tenant_session(client_id)` filters every query on tenant models and refuses writes for another client.
 Web routes get a `ClientContext` only through `routes_dealers.dealer_ctx(permission)` → `tenancy.authorize_client`.
 Another client's ids return 404. **Phase 3 (client portal) must reuse `clients`, `dealer_ctx` and these rules.**
 
-**Dealership users.** `users.client_id` + `users.client_role` (`dealer_admin | dealer_reviewer | dealer_viewer`).
-Such users can only open `/dealers/{their id}/...` and `/api/v1/dealers/{their id}/...`; `web/deps.current_user`
-returns 403 for every other path and `require()` rejects them, so they never see the CRM, agent or settings.
+**Dealership users.** `users.role = "client"` + `users.client_id` + `users.client_role` (`dealer_admin |
+dealer_reviewer | dealer_viewer`), created only through `services.tenancy.create_client_user`. Such users can only open
+their portal (`/portal`, `/api/v1/portal/*`) and `/dealers/{their id}/...`, `/api/v1/dealers/{their id}/...`;
+`web/deps.current_user` returns 403 for every other path (`CLIENT_ALLOWED_PREFIXES`) and `require()` rejects them, so
+they never see the CRM, agent, finance or settings. `GET /` sends them to `/portal`.
 Staff open any client workspace; viewer = read, rep = import/edit/publish, manager/admin = also settings and channel
 connections. Staff approve listings only if the dealership allows agency approval in its settings.
 
 | Area | Module |
 |---|---|
-| Models + migration | `models_dealer.py`, `migrations/versions/0002_phase2_inventory_listings.py` |
+| Models + migration | `models_dealer.py`, `migrations/versions/0003_phase2_inventory_listings_publishing.py` |
 | Tenancy | `tenancy.py` |
 | Inventory | `services/inventory/` (parsers, normalize, validate, vin, importer, feeds, reactions) |
 | Listings | `services/listings/` (dealer_settings, facts, i18n, template_generator, ai_generator, guardrails, service) |
 | Publishing | `services/publishing/service.py`, channels in `integrations/listing_channels.py` |
-| AI | `integrations/llm.py` (`structured_call`; optional, off by default; Phase 3/4 should reuse it) |
-| Jobs | `services/dealer_jobs.py`: `inventory_sync`, `listing_generate`, `publish_operation`, `inventory_stale_scan`; scheduled from `worker.schedule_tick` |
+| AI | `integrations/llm.py` (`structured_call`; one gateway with Phase 4's `complete`; off unless `DF_AI_ENABLED`) |
+| Jobs | `services/dealer_jobs.py`: `inventory_sync`, `listing_generate`, `publish_operation`, `inventory_stale_scan`; scheduled from `worker.schedule_tick`. Scheduled syncs need the client's `inventory_sync` automation |
 | Reports | `services/dealer_reports.py` |
 | Pages / API | `web/routes_dealers.py` (`/dealers/...`), `web/routes_dealer_api.py` (`/api/v1/dealers/{client_id}/...`) |
 
@@ -142,3 +145,54 @@ Phase 2 JSON API (`/api/v1/dealers/{client_id}`, same auth): `GET vehicles`, `GE
 
 Secrets stay in the environment: a feed credential is read from the variable named in `inventory_sources.secret_env`
 (must start `DF_FEED_`), a Meta token from `channel_connections.token_env` (must start `DF_META_TOKEN_`).
+
+## Phase 4 additions (shared by every phase)
+
+Built on branch `claude/blissful-davinci-82py6w`, integrated into this app on `claude/phase4-integration`
+(migration `0002`). Details: `docs/architecture/system-design.md`.
+
+**Migration chain:** `0001` Phase 1 → `0002` Phase 4 core (`clients`, finance, SEO, reporting, `users.client_id`) →
+`0003` Phase 2 (inventory, listings, publishing; `clients.simulated`, `users.client_role`) → `0004` interim Phase 3
+tables. The revisions were renumbered during integration (nothing had been deployed).
+
+### Clients and the `client` role
+
+* `clients` is the tenant boundary for dealership data. A won `Prospect` becomes a `Client`
+  (`clients.prospect_id`, unique) via `services.tenancy.create_client()`, which also stops prospecting
+  sequences and suppresses the address. Phase 2/3 tables that belong to a dealership must have
+  `client_id → clients.id` (indexed, NOT NULL, `ON DELETE CASCADE`).
+* Role `client` (lowest rank, `users.client_id` set) may only reach `/portal`, `/api/v1/portal/*` and its own
+  Phase 2 workspace (`/dealers/{id}`, `/api/v1/dealers/{id}`); `web.deps.current_user` enforces this for every route.
+  Two tenancy helpers exist on purpose: `services.tenancy.scope()/owned_or_404()` filter one query for portal code;
+  `tenancy.tenant_session()/authorize_client()` scope a whole session (plus composite FKs) for Phase 2 workspaces. Portal code must use `services.tenancy.scope()` /
+  `owned_or_404()` and must never take a client id from the request. Use `Depends(require_client)` for portal
+  routes; `require("viewer")` and above never admit client users.
+* Staff-side Phase 2/3 routes under `/clients/{cid}/…` must check that the row's `client_id` equals `cid`.
+
+### Shared Phase 4 services other phases should use
+
+| Need | Use |
+|---|---|
+| Record metered provider usage (AI tokens, API calls) | `services.usage.record_usage(db, provider=, category=, metric=, quantity=, ref=, client_id=)` (idempotent by `ref`) |
+| Call Claude | `integrations.llm.complete()` (free text; raises `AIUnavailable` when off) or `structured_call()` (schema output; integration errors). Both record tokens per client and pass the emergency-stop gate |
+| Email a client dealership | `services.client_email.send()` (gated; SIMULATED by default) |
+| Open a ticket for a client-facing failure | `services.tickets.open_system_ticket(db, client_id=, kind="integration_failure", …, dedupe_key=)` |
+| Raise an operator alert | `services.alerts.raise_alert(db, kind, message, severity, dedupe_key)` |
+| Gate an automation on onboarding | add an entry to `services.onboarding.AUTOMATION_PREREQS`; check `automation_enabled(db, client_id, feature)` before acting (Phase 2 scheduled syncs do) |
+| Fetch a user-supplied URL server-side | `services.netguard.assert_public_url()` (wraps the one SSRF check in `integrations.website`) on every request and redirect |
+| Audit with an entity | `audit.record(db, action, actor=, entity=, details=)` (secret-named keys redacted) |
+
+### Interim Phase 3 tables — Phase 3 must replace these
+
+`models_interim.py` + migration `0004` define minimal `conversations`, `conversation_messages` and `appointments`
+(SIMULATED inquiries, approved responses, lead summaries in `services/dealer_ops.py`), used by Phase 4 reporting and
+the end-to-end test until the Phase 3 engine is ported. A conversation references a Phase 2 vehicle through
+`(client_id, vehicle_id)`. The interim Phase 2 tables Phase 4 once shipped are gone: reports read `import_runs`,
+`listing_revisions`, `listing_reviews` and `channel_publications`. When Phase 3 is ported:
+
+1. Replace migration `0004` (or add one that drops these tables). Do not keep two definitions of a table.
+2. Delete the replaced classes from `models_interim.py` and the functions in `services/dealer_ops.py`, and the
+   `/api/v1/clients/{cid}/inquiries|conversations` endpoints in `web/routes_ops_api.py`.
+3. Point `services/client_reports.build_report_data()` inquiries/appointments at your tables (one source per metric,
+   SIMULATED rows excluded from real counts).
+4. Keep `tests/test_e2e_business_journey.py` passing (swap its Phase 3 steps to your APIs).

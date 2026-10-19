@@ -34,7 +34,7 @@ Policy and legal sources for each row are in `docs/research/source-register.md` 
 | Accounting | QuickBooks Online / Xero | OAuth 2.0 (sandbox companies available) | — | **Not implemented.** Manual entry + CSV export + bank-CSV reconciliation instead | — | — |
 | Bank data | Bank statement CSV import | n/a | Reconciliation | Tested | Import only; no bank credentials stored | free |
 | Provider billing | Billing CSV import (date, metric, quantity, cost) | n/a | Verified usage costs | Tested | Marks rows `verified_billing` | — |
-| AI | Claude API (`DF_AI_ENABLED`, `DF_ANTHROPIC_API_KEY`) | API key | Optional; records measured tokens and estimated cost | Tested with a stubbed SDK client; **no live call made** | AI output never sent without approval | Opus 5.5 $4 / $20 per MTok in/out (list price, cached 2026-10-06; re-verify) |
+| AI | Claude API (`DF_AI_ENABLED`, `DF_ANTHROPIC_API_KEY`) — one gateway (`integrations/llm.py`) for all phases | API key | Optional; records measured tokens and estimated cost per client; passes the emergency-stop gate | Tested with a stubbed SDK client; **no live call made** | AI output never sent without approval | Opus 5.5 $4 / $20 per MTok in/out (list price, cached 2026-10-06; re-verify) |
 | Website performance | Google PageSpeed Insights API v5 (`DF_PAGESPEED_API_KEY`) | API key | Mobile Lighthouse score, LCP, CLS, TBT in SEO audits | Parser written against the documented response; **not called** | Within quota | free within quota |
 | SEO crawl | Client dealership websites | Written authorization recorded per site | Audits | Tested against an in-memory site | robots.txt, ≥0.5 s delay, page cap, stop on 429, GET/HEAD only, never modifies the site | free |
 | Organic search | Google Search Console | — | Clicks/impressions in client reports | **API not implemented**; CSV export import tested | Authorized property owner exports the performance report | free |
@@ -52,3 +52,21 @@ Policy and legal sources for each row are in `docs/research/source-register.md` 
 | Buying email lists | ESP and mailbox-provider policies; deliverability and legal risk |
 | Microsoft Graph | Not needed for a Google Workspace setup; SMTP/IMAP covers M365 where allowed. Candidate for a later phase |
 | Open/click tracking | Not needed; avoids tracking pixels |
+
+## Phase 2: inventory sources and listing channels
+
+Research: `docs/research/meta-and-inventory-integrations-2026-10.md`, sources in `docs/research/phase2-source-register.md`.
+*Nothing in Phase 2 is live-verified yet.*
+
+| Capability | Provider | Auth / minimum permissions | Used for | Status | Allowed use / constraints | Cost |
+|---|---|---|---|---|---|---|
+| Inventory | CSV/TSV, XLSX, JSON upload | dealership or agency user | Dealer files, DMS exports (generic column mapping) | Mock-tested | Original rows kept; unreadable values flagged, never guessed | — |
+| Inventory | Authorised HTTPS feed (`feed_api`, `website_feed`, `dms_export`) | Optional bearer/header/basic credential from `DF_FEED_*` env var | Scheduled sync, change/removal detection | HTTP-tested | Dealer authorisation note required; HTTPS + public address only (SSRF guard); no HTML scraping | — |
+| Inventory | DMS vendor APIs (Dealertrack Opentrack etc.) | Partner agreements | — | Not implemented | REPORTED: no public APIs; use exports | — |
+| Inventory | NHTSA vPIC VIN decode | none | — | Not implemented (offline check digit + model-year check only) | Public API, no fee listed | free |
+| Publish | Facebook Marketplace (`facebook_marketplace`) | none stored; a person posts from their own account | Listing package, copy/export, record publication/edit/removal | Mock-tested (manual workflow) | **No API for organic Marketplace vehicle listings** (partner feeds ended 2021-09-13; Page listings ended 2023-01-30). No browser automation (Meta Terms). Buyer messages not API-accessible | free |
+| Publish | Meta vehicle catalog / Automotive Inventory Ads (`meta_catalog`) | System-user token (`catalog_management` + `business_management`, App Review, Business Verification); `DF_META_LIVE_PUBLISHING_ALLOWED=true` + connection authorised | Catalog upsert/delete via `items_batch`, status via `check_batch_request_status` | HTTP-tested | Paid ads (can show in the Marketplace placement), not organic listings. ~8+ batch calls/min/catalog | ad spend |
+| Publish | Mock channel (`mock`) | none | Tests and demos | Mock-tested | SIMULATED; never counted as an API publication in reports | free |
+| Publish | CSV export of approved listings | dealership user | Manual upload to Commerce Manager or a syndication provider | Mock-tested | Export ≠ publication | — |
+| Publish | Google vehicle ads, Cars.com/Autotrader/CarGurus feeds, Craigslist bulk | — | — | Not implemented | See research brief | — |
+| AI | Anthropic Claude (`DF_LISTING_AI_ENABLED` + `DF_AI_ENABLED` + `DF_ANTHROPIC_API_KEY`), same gateway as Phase 4 | API key | Listing prose only; facts, features, FAQ, disclaimers stay deterministic | Mocked client test | Output re-checked by guardrails; tokens recorded per client in `cost_entries` (excluded from CAC) and in the audit log | per token |

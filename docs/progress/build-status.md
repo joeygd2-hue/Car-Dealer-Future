@@ -13,6 +13,15 @@
 | 4 | Client back office (finance, SEO, portal, reports) | **Not yet ported.** `dealerflow`-based on `claude/blissful-davinci-82py6w`, with table and migration collisions; porting-plan increment 3. |
 
 Last updated: 2026-10-18 · branch `claude/mybot-unification` (204 tests)
+| Phase | Scope | Status |
+|---|---|---|
+| **1** | Research, lead generation, CRM, sales operations, persistent outreach agent | **Implemented and tested with simulated providers.** Live integrations not yet verified (no credentials). |
+| **1.5** | Launch-readiness audit | **Done 2026-10-18.** Verdict: not ready for live outreach; blockers in `docs/audit/launch-readiness-audit.md` §7. |
+| **2** | Dealership inventory ingestion, bilingual listings, approvals, publishing | **Implemented in this app and tested with fixtures, SIMULATED channel and mocked HTTP.** Meta catalog not live-verified (no credentials). See the Phase 2 section below. |
+| 3 | Customer response, conversations, portal | On `claude/magical-darwin-nncp64` as a **separate `app` package — not yet ported into dealerflow**. Phase 4 ships interim conversation tables it must replace (`shared-stack.md`). |
+| **4** | Finance, expenses, usage costs, SEO audits, client reporting, service catalog, onboarding, tickets, client portal, security review | **Implemented and tested with simulated providers**, merged with Phases 1 and 2 on `claude/blissful-davinci-82py6w`. Live integrations not verified. |
+
+Last updated: 2026-10-18 · Phase 1 on `claude/charming-ritchie-358e1g`; Phase 2 on `claude/dealership-inventory-publishing-iq0aqw`; Phases 1+2+4 merged (this file's latest edit) on `claude/blissful-davinci-82py6w`
 
 ## Starting point
 
@@ -45,6 +54,9 @@ SQLAlchemy/Alembic + Jinja, matching the owner's other Python/FastAPI project. D
 `pytest` runs 136 tests in about 30 s with no network (102 at the end of Phase 1; 34 added by the audit, including
 `test_adversarial.py`, `test_txdmv.py`, `test_backup.py`, `test_livecheck.py`). The same suite passes on Postgres 16
 (`DF_TEST_PG_URL=postgresql+psycopg://… pytest`).
+`pytest` runs **257 tests** with no network after the Phase 1 + 2 + 4 merge: 136 Phase 1 (102 at the end of Phase 1,
+34 added by the launch audit), 47 Phase 2, 74 Phase 4. The same suite passes on Postgres 16
+(`DF_TEST_PG_URL=postgresql+psycopg://… pytest`). Phase 2 and Phase 4 test tables are in their sections below.
 
 | File | Tests | Covers |
 |---|---|---|
@@ -93,6 +105,9 @@ Pause, Emergency stop.
 3. Create the Google Calendar and Zoom S2S credentials; run Integrations → Verify credentials.
 4. Decide on lead sources (see feasibility report); import a first real list by CSV.
 5. Send 5–10 human-approved emails, then consider enabling the agent in `manual` approval mode.
+4. Download the TxDMV *Motor Vehicle Dealers List* and import it (dry run first). Google Places is not usable for stored leads.
+5. Before a cold-calling routine, settle the Texas Chapter 302 question (feasibility report §4).
+6. Send 5–10 human-approved emails, then consider enabling the agent in `manual` approval mode.
 
 
 ## Phase 2: dealership inventory, listings and publishing
@@ -102,8 +117,8 @@ Last updated 2026-10-18 (Phase 2 chat, branch `claude/dealership-inventory-publi
 **How Phase 2 joined this app.** Phases 1, 2 and 4 had each started from the empty repository at the same time and
 built separate apps on separate branches. The owner chose this Phase 1 `dealerflow` app as the single foundation.
 Phase 2 merged this branch and ported its feature set into `dealerflow` (the earlier standalone Phase 2 code is in
-git history at `786fc1e`). Its duplicate outreach agent was dropped in favour of Phase 1's. The Phase 4 branch
-(`claude/blissful-davinci-82py6w`) has **not** been merged; it still contains a separate app and needs porting too.
+git history at `786fc1e`). Its duplicate outreach agent was dropped in favour of Phase 1's. Phase 4 was later ported
+into `dealerflow` and merged on top of this (see the Phase 4 section).
 
 | Area | Implemented | Where |
 |---|---|---|
@@ -132,7 +147,7 @@ pass as a dealership owner (inventory, listing review, approval, Marketplace pac
 mobile width; staff pages return 403) and as staff (dealership directory).
 
 ### Next steps (Phase 2 scope)
-1. Phase 4 chat: port its finance/SEO/portal modules into this app (its branch is still a separate app).
+1. ~~Phase 4: port into this app~~ — done (see Phase 4).
 2. Phase 3 chat: build the client portal and customer messaging on `clients`, `dealer_ctx` and dealership users.
    Marketplace buyer conversations remain manual (no API).
 3. To verify Meta live: Meta app with App Review, a test vehicle catalog, a system-user token in `DF_META_TOKEN_*`,
@@ -141,3 +156,59 @@ mobile width; staff pages return 403) and as staff (dealership directory).
 4. Download the TxDMV *Motor Vehicle Dealers List* and import it (dry run first). Google Places is not usable for stored leads.
 5. Before a cold-calling routine, settle the Texas Chapter 302 question (feasibility report §4).
 6. Send 5–10 human-approved emails, then consider enabling the agent in `manual` approval mode.
+
+
+## Phase 4: what's implemented
+
+Branch `claude/blissful-davinci-82py6w`. Phase 4 began before Phase 1 was pushed, built a parallel foundation,
+and then — on the owner's decision — was **re-implemented inside dealerflow**; the parallel `app` package was
+removed (still in history at `fdfa4f4`). It was then merged with Phase 2 (`claude/dealership-inventory-publishing-iq0aqw`)
+on the owner's decision: Phase 4 adopted Phase 2's `clients` table and dealership users (`client_id` + `client_role`),
+renumbered its migrations after Phase 2's (`0003` Phase 4, `0004` interim Phase 3), dropped its interim inventory/
+listing/publishing tables, and reads Phase 2's data in monthly reports.
+
+| Area | Implemented | Where |
+|---|---|---|
+| Clients | Phase 2's `clients` + onboarding/contact columns and `onboarding` status; one creation path for `/dealers`, `/clients` and the API; dealership users reach their workspace and the portal only; password reset/deactivation per client | `models_dealer.py`, `services/clients.py`, `web/deps.py`, `web/routes_portal.py` |
+| Finance | Invoices (draft/issued/void/written off; paid state derived), lines (setup/recurring/one-time/discount), payments (only confirmed = cash), credits and refunds, agreements with copied prices and discounts, period invoicing, MRR/ARR, receivables aging, revenue by client, CAC / cost per qualified lead / per booked meeting (or "not measurable"), retention/churn, ARPC, client costs and partial gross margin, cash-flow actuals + labelled forecast, hypothetical break-even, CSV exports, bank-CSV reconciliation, PAN rejection, tax disclaimer | `services/finance.py`, `web/routes_finance.py` |
+| Expenses | Date, vendor, configurable categories (11 defaults incl. AI, software, hosting, data, outreach, ads, domains, contractors, phone, payment processing), amount+currency, purpose, recurrence, client/project, reimbursement, notes, receipt upload, source=manual | `services/finance.py`, `services/maintenance.py` |
+| Usage costs | `cost_entries` extended with provider/metric/quantity/client and verified/estimated/recorded/unknown basis; Claude token recording; billing CSV import; budgets with threshold, limit and spike alerts (hourly job) | `services/usage.py`, `integrations/llm.py` |
+| Payments integration | Stripe webhook: signature, tolerance, dedup, job processing, failure alerts | `integrations/stripe.py` |
+| Service catalog | 3 proposed packages at $0 placeholders; editable prices/frequency/features; package inclusion | `services/packages.py` |
+| Onboarding | 14-step checklist with evidence, activation gate, per-automation prerequisites (steps + verified integrations), tickets (manual/portal/system) | `services/onboarding.py`, `services/tickets.py`, `web/routes_clients.py` |
+| SEO | Authorized sites only; robots-aware polite crawler (stops on 429, GET/HEAD only); checks for titles, descriptions, duplicates, noindex, sitemap/robots, headings, alt text, JSON-LD validity, AutoDealer/LocalBusiness schema, NAP consistency, inventory (Vehicle schema, price), broken internal links, orphan pages, Spanish-content opportunity, PageSpeed (optional); measured vs heuristic labels; issue lifecycle with before/after across audits; Search Console CSV import | `services/seo_*.py`, `web/routes_seo.py` |
+| Client reports | Immutable monthly snapshots with sources (Phase 2 imports, vehicles, listing revisions/reviews, publications API vs staff-attested; interim conversations), channel status (incl. Phase 2 feeds and listing channels), simulated exclusion, attribution disclaimer; publish to portal; download/print; email via gated client email; monthly drafting job | `services/client_reports.py`, `services/client_email.py` |
+| Phase 3 interim | Simulated inquiries, approved bilingual template responses (SIMULATED delivery), lead summaries to the dealership | `models_interim.py`, `services/dealer_ops.py` |
+| Hardening | See `docs/security/threat-model.md` (8 issues fixed) | `web/app.py`, `web/deps.py`, `static/app.js` |
+| Operations | Retention purge, client export and confirmed deletion, backups/restore runbook, deployment guide | `services/maintenance.py`, `docs/operations/` |
+
+### Phase 4 tests (run 2026-10-18)
+
+After the Phase 2 merge: `pytest` → **257 passed** (136 Phase 1 + 47 Phase 2 + 74 Phase 4) in ~115 s on SQLite;
+**256 passed, 1 skipped** (the SQLite-only backup test) on Postgres 16 (`DF_TEST_PG_URL=…`). Two test-only fixes
+were needed for Postgres: the Phase 2 feed test faked DNS for every host (including the database's `localhost`), and
+the Phase 1 backup test's skip condition never fired. `pip-audit` (after the merge): no known vulnerabilities.
+
+| File | Cases | Covers |
+|---|---|---|
+| `test_e2e_business_journey.py` | 1 | **Step 8 journey, all 14 steps** in one run: fixture discovery → approved outreach (mock send) → reply matched → meeting booked (mock calendar + Zoom) → won → client created → Phase 2 upload → worker drafts EN/ES listing → dealership batch-approves → Marketplace `manual_required` → Spanish inquiry + approved Spanish reply → summary to the right dealership → revenue/expenses → SEO audit → client report reflects data → cross-client access blocked |
+| `test_phase4_security.py` | 40 | Portal isolation (lists + direct ids, both directions), dealership-user confinement on 14 staff paths + home redirect + other workspace 404, shared client creation from `/dealers`, role matrix, CSRF on cookie JSON, open redirects, headers/CSP/no inline script, API rate limit, PAN rejection + log redaction, Stripe signature/tolerance/dedup/disabled, upload validation, production config, audit scrubbing, unbound/converted client users, portal password reset scoping |
+| `test_phase4_finance.py` | 17 | Invoice ≠ cash, drafts ≠ revenue, pending ≠ cash, payment rules, void/credit/refund, discount limits, agreements/MRR/ARR/period invoicing/churn, unmeasurable CAC, CAC + margin, CSV export, reconciliation, break-even, cash-flow labels, Stripe payment once, usage bases + idempotency + billing import, budget/spike alerts (deduped), AI gateway off by default + token recording, finance UI forms |
+| `test_phase4_seo_reports.py` | 12 | Authorization required, evidenced findings, measured vs heuristic, robots honoured, re-audit resolution with before/after, 429 stop, worker job path, read-only crawling, onboarding/automation gating, report contents/channels/attribution/Search Console, simulated email, real provider not used without authorization, monthly job idempotency, lead summary routing |
+| `test_phase4_pages.py` | 4 | Every Phase 4 page renders for admin/manager/viewer/portal with role-appropriate controls |
+
+Also run by hand: `migrate` → admin user → `web` (uvicorn) → `run-jobs` → login → every Phase 4 page (200, CSP
+present) → `/healthz` shows a live worker (before the Phase 2 merge). Migrations `0003`/`0004` after Phase 2's
+`0002`: upgrade with an existing Phase 2 client row → check constraint enforced → downgrade → upgrade → no model
+drift, on SQLite and Postgres 16.
+
+### Next steps
+
+1. ~~Phase 2 integration~~ — done (this branch contains Phases 1, 2 and 4).
+2. **Phase 3**: port the separate `app` package on `claude/magical-darwin-nncp64` into dealerflow, using
+   `clients`, dealership users, `dealer_ctx`/`services/clients.scope()` and the shared job queue; replace the
+   interim conversation tables (`shared-stack.md`).
+3. Wire the onboarding automation gates into Phase 2's scheduled feed sync and publish jobs (today only client
+   `status == active` gates scheduled sync).
+4. Merge into `main`, re-running the full suite.
+4. Verify live integrations one at a time with test accounts (`known-limitations.md`).

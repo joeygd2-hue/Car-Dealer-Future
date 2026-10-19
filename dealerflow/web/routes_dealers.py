@@ -9,8 +9,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-import re
-from typing import Iterator
+from collections.abc import Iterator
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
@@ -23,10 +22,22 @@ from ..db import get_db, utcnow
 from ..integrations.listing_channels import CHANNELS
 from ..models import Prospect, User
 from ..models_dealer import (
-    CLIENT_ROLES, SOURCE_TYPES, ChannelPublication, Client, ImportRawRecord, ImportRun, InventorySource, Listing,
-    ListingReview, ListingRevision, Vehicle, VehicleChange, VehiclePhoto,
+    CLIENT_ROLES,
+    SOURCE_TYPES,
+    ChannelPublication,
+    Client,
+    ImportRawRecord,
+    ImportRun,
+    InventorySource,
+    Listing,
+    ListingReview,
+    ListingRevision,
+    Vehicle,
+    VehicleChange,
+    VehiclePhoto,
 )
 from ..security import hash_password, role_at_least
+from ..services import clients as client_svc
 from ..services import dealer_jobs
 from ..services.dealer_errors import BadRequest, NotFound
 from ..services.dealer_reports import dealership_metrics
@@ -103,16 +114,8 @@ def create_client(request: Request, name: str = Form(""), prospect_id: str = For
     if prospect and db.scalar(select(Client).where(Client.prospect_id == prospect.id)):
         flash(request, "That prospect is already a client", "error")
         return go("/dealers")
-    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "client"
-    slug, n = base, 2
-    while db.scalar(select(Client).where(Client.slug == slug)):
-        slug, n = f"{base}-{n}", n + 1
-    c = Client(name=name, slug=slug, prospect_id=prospect.id if prospect else None, city=prospect.city if prospect else None,
-               state=prospect.state if prospect else None, simulated=bool(prospect and prospect.simulated))
-    db.add(c)
-    db.flush()
-    audit(db, "client.created", actor_id=user.id, entity_type="client", entity_id=c.id, data={"prospect_id": c.prospect_id})
-    flash(request, f"Created dealership workspace for {name}")
+    c = client_svc.create_client(db, name=name, actor=user, prospect=prospect)
+    flash(request, f"Created dealership workspace for {name}. Complete its onboarding checklist (/clients/{c.id}) before enabling automations.")
     return go(f"/dealers/{c.id}")
 
 
@@ -520,8 +523,8 @@ def settings_page(request: Request, ctx: ClientContext = Depends(dealer_ctx())):
 @router.post("/dealers/{client_id}/settings")
 async def settings_save(request: Request, ctx: ClientContext = Depends(dealer_ctx("manage"))):
     f = await request.form()
-    g = lambda k: str(f.get(k) or "").strip()  # noqa: E731
-    split = lambda k: [x.strip() for x in g(k).split(",") if x.strip()]  # noqa: E731
+    g = lambda k: str(f.get(k) or "").strip()
+    split = lambda k: [x.strip() for x in g(k).split(",") if x.strip()]
     s, _ = get_listing_settings(ctx)
     disclaimers = []
     for line in g("disclaimers").splitlines():

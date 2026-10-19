@@ -5,11 +5,13 @@ from dealerflow.config import get_settings
 from dealerflow.db import reset_engine, session_scope
 from dealerflow.models import Prospect
 from dealerflow.services.discovery import run_source
-from tests.conftest import PG_URL
 
 
-@pytest.mark.skipif(bool(PG_URL), reason="SQLite backup path")
 def test_sqlite_backup_and_restore(tmp_path):
+    # Checked at run time: conftest removes DF_TEST_PG_URL from the environment, so a re-imported
+    # tests.conftest.PG_URL is always None and a skipif on it never skipped on Postgres.
+    if not get_settings().database_url.startswith("sqlite"):
+        pytest.skip("SQLite backup path")
     with session_scope() as db:
         run_source(db, "fixture")
     res = backup(str(tmp_path / "bk"))

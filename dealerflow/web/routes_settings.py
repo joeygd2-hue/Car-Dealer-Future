@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from ..audit import audit
 from ..config import get_settings
 from ..db import get_db, utcnow
-from ..models import ROLES, AuditLog, Campaign, CostEntry, IntegrationLog, KnowledgeItem, PipelineStage, Template, User
+from ..models import STAFF_ROLES, AuditLog, Campaign, CostEntry, IntegrationLog, KnowledgeItem, PipelineStage, Template, User
 from ..security import hash_password, new_api_key
 from ..services import reports
 from ..services.outreach import ALLOWED_VARS, validate_template
@@ -32,7 +32,7 @@ def settings_page(request: Request, user: User = Depends(current_user), db: Sess
                   knowledge=list(db.scalars(select(KnowledgeItem).order_by(KnowledgeItem.topic))),
                   campaigns=list(db.scalars(select(Campaign).order_by(Campaign.name))),
                   stages=list(db.scalars(select(PipelineStage).order_by(PipelineStage.position))),
-                  users=list(db.scalars(select(User).order_by(User.email))), roles=ROLES, allowed_vars=ALLOWED_VARS,
+                  users=list(db.scalars(select(User).order_by(User.email))), roles=STAFF_ROLES, allowed_vars=ALLOWED_VARS,
                   costs=list(db.scalars(select(CostEntry).order_by(CostEntry.incurred_on.desc()).limit(50))))
 
 
@@ -141,7 +141,7 @@ def stage_save(request: Request, key: str = Form(...), label: str = Form(...), p
 def user_save(request: Request, email: str = Form(...), name: str = Form(""), role: str = Form("rep"),
               password: str = Form(""), active: str = Form("1"), user: User = Depends(require("admin")),
               db: Session = Depends(get_db)):
-    if role not in ROLES:
+    if role not in STAFF_ROLES:  # client users are created from the client's page, bound to that client
         raise HTTPException(400, "bad role")
     u = db.scalar(select(User).where(User.email == email.lower().strip()))
     try:
@@ -149,6 +149,8 @@ def user_save(request: Request, email: str = Form(...), name: str = Form(""), ro
             u = User(email=email.lower().strip(), name=name, role=role, password_hash=hash_password(password))
             db.add(u)
         else:
+            if u.is_client:
+                raise ValueError("That address belongs to a client portal user; manage it from the client's page")
             if u.id == user.id and (role != "admin" or not active):
                 raise ValueError("You cannot demote or deactivate yourself")
             u.name, u.role, u.active = name or u.name, role, bool(active)

@@ -20,6 +20,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -28,6 +29,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column
 
@@ -65,13 +67,29 @@ class Client(Base):
     prospect_id: Mapped[int | None] = mapped_column(ForeignKey("prospects.id"), unique=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)  # active | paused | offboarded
+    # onboarding (Phase 4: new clients start here until the checklist is done) | active | paused | offboarded
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
     timezone: Mapped[str] = mapped_column(String(64), default="America/Chicago", nullable=False)
     city: Mapped[str | None] = mapped_column(String(120))
     state: Mapped[str | None] = mapped_column(String(2))
     simulated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Phase 4 onboarding and contact details.
+    legal_name: Mapped[str | None] = mapped_column(String(255))
+    address_line: Mapped[str | None] = mapped_column(String(255))
+    postal_code: Mapped[str | None] = mapped_column(String(10))
+    phone: Mapped[str | None] = mapped_column(String(40))
+    website: Mapped[str | None] = mapped_column(String(500))
+    contact_name: Mapped[str | None] = mapped_column(String(255))
+    contact_email: Mapped[str | None] = mapped_column(String(255))
+    languages: Mapped[list[Any]] = mapped_column(JSON, default=lambda: ["en", "es"], server_default=text("'[\"en\", \"es\"]'"))
+    business_hours: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default=text("'{}'"))
+    response_rules: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default=text("'{}'"))
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    __table_args__ = (CheckConstraint("status in ('onboarding','active','paused','offboarded')", name="ck_clients_status"),)
 
 
 class InventorySource(TenantMixin, Base):

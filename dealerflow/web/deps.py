@@ -74,7 +74,8 @@ class DealerHome(Exception):
 
 
 # Dealership (client) users may only use their own workspace. Everything else is staff-only.
-DEALER_ALLOWED_PREFIXES = ("/dealers", "/api/v1/dealers", "/logout")
+# /portal holds Phase 4 reports, invoices, SEO findings and support requests for the same dealership.
+DEALER_ALLOWED_PREFIXES = ("/dealers", "/api/v1/dealers", "/portal", "/api/v1/portal", "/logout")
 
 
 def _restrict_dealer_user(request: Request, user: User) -> None:
@@ -119,6 +120,13 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         raise NotAuthenticated()
     request.state.api = False
     _restrict_dealer_user(request, user)
+    return user
+
+
+def require_client(user: User = Depends(current_user)) -> User:
+    """Client-portal dependency: only dealership users bound to a client."""
+    if user.client_id is None:
+        raise HTTPException(403, "Client portal only")
     return user
 
 

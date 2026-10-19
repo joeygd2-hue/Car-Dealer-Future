@@ -10,6 +10,7 @@ import pytest
 from dealerflow.models import SeoAudit, SeoIssue, SeoSite, User
 from dealerflow.services import client_reports, onboarding, seo_audit
 from dealerflow.services.seo_crawler import Crawler
+from tests.dealer_helpers import drain
 from tests.phase4 import phase2_listings, two_clients
 
 HOME_V1 = """<html><head><title>Alpha</title></head><body>
@@ -166,7 +167,7 @@ def test_report_reflects_data_and_states_channels_and_attribution(client, db, t)
     assert [li["status"] for li in p2["listings"]] == ["approved", "awaiting_approval", "draft_generated"]
     assert p2["import"]["counts"]["created"] == 3
     assert [x["status"] for x in p2["publications"]] == ["manual_required"]  # only the approved listing has a Marketplace package
-    sim = client.post(f"/api/v1/clients/{cid}/inquiries/simulated", headers=h, json={"body": "Is it available for a test drive?",
+    sim = client.post(f"/api/v1/clients/{cid}/inquiries/simulated", headers=h, json={"text": "Is it available for a test drive?",
                                                                                    "provider_message_id": "m1"}).json()
     assert sim["simulated"] is True
     client.post(f"/api/v1/clients/{cid}/integrations", headers=t["h"]["manager"], json={"kind": "inventory_feed", "provider": "csv", "status": "connected",
@@ -226,12 +227,27 @@ def test_lead_summary_reaches_the_correct_dealership(client, db, t):
     from dealerflow.integrations.email import MockEmailProvider
 
     cid, h = t["alpha"].id, t["h"]["rep"]
-    conv = client.post(f"/api/v1/clients/{cid}/inquiries/simulated", headers=h, json={"body": "¿Está disponible para una prueba de manejo?",
-                                                                                    "language": "es", "provider_message_id": "es-1"}).json()
-    draft = client.post(f"/api/v1/clients/{cid}/conversations/{conv['conversation_id']}/draft", headers=h, json={"template": "test_drive"}).json()
-    assert draft["language"] == "es" and "prueba de manejo" in draft["body"] and draft["status"] == "pending_approval"
-    # Bravo's staff path cannot touch Alpha's conversation.
-    assert client.post(f"/api/v1/clients/{t['bravo'].id}/conversations/{conv['conversation_id']}/messages/{draft['message_id']}/approve", headers=h).status_code == 404
-    res = client.post(f"/api/v1/clients/{cid}/conversations/{conv['conversation_id']}/messages/{draft['message_id']}/approve", headers=h).json()
-    assert res["summary_delivered"] is True and "Test-drive requested" in res["summary"]
+    conv = client.post(f"/api/v1/clients/{cid}/inquiries/simulated", headers=h, json={"text": "¿Está disponible para una prueba de manejo?",
+                                                                                    "provider_message_id": "es-1"}).json()
+    assert conv["simulated"] is True
+    db.commit()
+    drain()
+    full = client.get(f"/api/v1/dealers/{cid}/conversations/{conv['conversation_id']}", headers=h).json()
+    draft = next(d for d in full["drafts"] if d["status"] == "PENDING_REVIEW")
+    assert full["language"] == "es" and draft["language"] == "es"
+    # Bravo's workspace path cannot read or answer Alpha's conversation.
+    bravo = t["bravo"].id
+    assert client.get(f"/api/v1/dealers/{bravo}/conversations/{conv['conversation_id']}", headers=h).status_code == 404
+    assert client.post(f"/api/v1/dealers/{bravo}/conversations/{conv['conversation_id']}/send", headers=h,
+                       json={"body": draft["body"], "draft_id": draft["id"]}).status_code == 404
+    sent = client.post(f"/api/v1/dealers/{cid}/conversations/{conv['conversation_id']}/send", headers=h,
+                       json={"body": draft["body"], "draft_id": draft["id"], "acknowledge_warnings": True}).json()
+    assert sent["queued"] is True
+    db.commit()
+    drain()
+    res = client.post(f"/api/v1/dealers/{cid}/conversations/{conv['conversation_id']}/summary", headers=h).json()
+    assert res["delivery"] == "simulated" and res["summary_delivered"] is True
     assert [m.to for m, _ in MockEmailProvider.outbox] == ["owner@alpha.example"]
+    out = [m for m in client.get(f"/api/v1/dealers/{cid}/conversations/{conv['conversation_id']}", headers=h).json()["messages"]
+           if m["direction"] == "OUTBOUND"]
+    assert [m["delivery_status"] for m in out] == ["SIMULATED"]  # nothing left the system

@@ -12,6 +12,8 @@ Conventions (in addition to those in models.py):
 from __future__ import annotations
 
 import re
+import secrets
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
@@ -36,7 +38,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 from .db import Base, utcnow
 
 __all__ = [
-    "Client", "slugify", "IntegrationConnection", "SupportTicket", "OnboardingStep", "AutomationSetting", "Attachment", "WebhookEvent", "Alert", "Budget", "ServicePackage", "ClientAgreement", "Invoice", "InvoiceLine", "Payment", "CreditNote", "ExpenseCategory", "Expense", "BankTransaction", "SeoSite", "SeoAudit", "SeoPage", "SeoIssue", "SearchMetric", "ClientReport", "MONTHS_PER_PERIOD",
+    "Client", "BusinessDay", "slugify", "IntegrationConnection", "SupportTicket", "OnboardingStep", "AutomationSetting", "Attachment", "WebhookEvent", "Alert", "Budget", "ServicePackage", "ClientAgreement", "Invoice", "InvoiceLine", "Payment", "CreditNote", "ExpenseCategory", "Expense", "BankTransaction", "SeoSite", "SeoAudit", "SeoPage", "SeoIssue", "SearchMetric", "ClientReport", "MONTHS_PER_PERIOD",
 ]
 
 MONTHS_PER_PERIOD = {"monthly": 1, "quarterly": 3, "annual": 12}
@@ -56,7 +58,10 @@ class Client(_Ts, Base):
     ``slug`` is filled from ``name`` on insert when not given (see ``_fill_client_slugs``)."""
 
     __tablename__ = "clients"
-    __table_args__ = (CheckConstraint("status in ('onboarding','active','paused','cancelled')", name="ck_clients_status"),)
+    __table_args__ = (
+        CheckConstraint("status in ('onboarding','active','paused','cancelled')", name="ck_clients_status"),
+        UniqueConstraint("public_chat_key", name="uq_clients_public_chat_key"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     prospect_id: Mapped[int | None] = mapped_column(ForeignKey("prospects.id"), unique=True)
@@ -79,6 +84,38 @@ class Client(_Ts, Base):
     response_rules: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     activated_at: Mapped[datetime | None] = mapped_column(DateTime)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Phase 3 customer messaging. ``business_hours`` holds {"weekly": [[open, close] | null] * 7} (Monday first,
+    # "HH:MM" local time). Business details are quoted to customers only after the dealership approves them.
+    public_chat_key: Mapped[str] = mapped_column(String(64), nullable=False, default=lambda: secrets.token_urlsafe(24))
+    business_info_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    business_info_approved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    business_info_approved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", use_alter=True, name="fk_clients_business_info_approved_by"))
+
+    @property
+    def full_address(self) -> str | None:
+        parts = [self.address_line, self.city, " ".join(p for p in [self.state, self.postal_code] if p)]
+        parts = [p for p in parts if p]
+        return ", ".join(parts) if parts else None
+
+    @property
+    def website_origin(self) -> str | None:
+        return self.website.rstrip("/") if self.website else None
+
+    @property
+    def hours(self) -> list[BusinessDay]:
+        """Configured weekly hours, one entry per configured weekday (empty when hours are not set)."""
+        weekly = (self.business_hours or {}).get("weekly")
+        if not isinstance(weekly, list) or len(weekly) != 7:
+            return []
+        return [BusinessDay(wd, h is None, h[0] if h else None, h[1] if h else None) for wd, h in enumerate(weekly)]
+
+
+@dataclass(frozen=True)
+class BusinessDay:
+    weekday: int  # 0 = Monday
+    closed: bool
+    open_time: str | None  # "09:00"
+    close_time: str | None
 
 
 def slugify(name: str) -> str:
@@ -122,6 +159,12 @@ class IntegrationConnection(_Ts, Base):
     authorization_note: Mapped[str] = mapped_column(Text, default="")
     authorized_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     last_error: Mapped[str | None] = mapped_column(Text)
+    # Phase 3 customer channels (kind "customer_messaging", provider = channel, e.g. "WEBSITE_CHAT"):
+    # ``paused`` stops automation on that channel, ``external_account_id`` maps provider events to the client,
+    # ``config`` holds non-secret settings (e.g. the SHA-256 of an ADF feed token). No secrets are stored here.
+    paused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    external_account_id: Mapped[str | None] = mapped_column(String(200))
+    config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
 
 class SupportTicket(_Ts, Base):

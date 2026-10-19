@@ -21,8 +21,6 @@ from ..models import (
     Client,
     ClientAgreement,
     ClientReport,
-    Conversation,
-    ConversationMessage,
     Expense,
     ExpenseCategory,
     Invoice,
@@ -35,7 +33,8 @@ from ..models import (
     User,
     Vehicle,
 )
-from ..services import client_reports, dealer_ops, finance, onboarding, packages, seo_audit, tenancy, tickets, usage
+from ..services import client_reports, finance, onboarding, packages, seo_audit, tenancy, tickets, usage
+from ..services.conversations import channels, processing, runtime
 from .deps import check_csrf, require
 from .routes_clients import record_integration
 from .routes_seo import import_search_csv
@@ -181,53 +180,35 @@ class CsvIn(BaseModel):
     csv: str = Field(max_length=5_000_000)
 
 
-# --- Phase 3 interim scaffolding (inventory/listings/publishing are Phase 2: /api/v1/dealers/{id}/...) ---
+# --- customer conversations (staff test tool; the inbox itself is /dealers/{id}/inbox and /api/v1/dealers/{id}) ---
 
 
 class InquiryIn(BaseModel):
-    channel: str = "web_form"
-    customer_name: str | None = None
-    customer_contact: str | None = None
-    body: str = Field(min_length=1, max_length=10000)
-    language: str = "en"
+    text: str = Field(min_length=1, max_length=2000)
+    channel: str = "WEBSITE_CHAT"
+    visitor_id: str = Field(default="staff-test-visitor", min_length=8, max_length=64)
+    provider_message_id: str = Field(min_length=1, max_length=200)
+    customer_name: str | None = Field(default=None, max_length=100)
     vehicle_id: int | None = None
-    provider_message_id: str = Field(min_length=1, max_length=300)
 
 
 @router.post("/clients/{cid}/inquiries/simulated", status_code=201)
 def inquiry_simulated(cid: int, body: InquiryIn, user: User = Depends(require("rep")), db: Session = Depends(get_db)):
-    """Record a SIMULATED car-buyer inquiry (no real customer channel is connected in Phase 4)."""
+    """Inject a SIMULATED car-buyer message into the real pipeline (drafted by the worker; never reported as real)."""
     c = _get(db, Client, cid)
-    v = _get(db, Vehicle, body.vehicle_id, cid) if body.vehicle_id else None
-    conv = dealer_ops.receive_inquiry(db, c, vehicle=v, simulated=True, **body.model_dump(exclude={"vehicle_id"}))
-    return {"conversation_id": conv.id, "status": conv.status, "language": conv.language, "simulated": conv.simulated}
-
-
-class DraftIn(BaseModel):
-    template: str
-
-
-@router.post("/clients/{cid}/conversations/{conv_id}/draft")
-def conversation_draft(cid: int, conv_id: int, body: DraftIn, user: User = Depends(require("rep")), db: Session = Depends(get_db)):
-    conv = _get(db, Conversation, conv_id, cid)
-    if body.template not in dealer_ops.APPROVED_RESPONSES:
-        raise HTTPException(400, "Unknown approved response")
-    m = dealer_ops.draft_response(db, conv, body.template)
-    return {"message_id": m.id, "body": m.body, "language": m.language, "status": m.status}
-
-
-@router.post("/clients/{cid}/conversations/{conv_id}/messages/{mid}/approve")
-def conversation_approve(cid: int, conv_id: int, mid: int, user: User = Depends(require("rep")), db: Session = Depends(get_db)):
-    m = _get(db, ConversationMessage, mid, cid)
-    if m.conversation_id != conv_id:
-        raise HTTPException(404, "Not found")
+    if body.channel not in channels.CUSTOMER_CHANNELS:
+        raise HTTPException(400, "Unknown channel")
+    vehicle_id = _get(db, Vehicle, body.vehicle_id, cid).id if body.vehicle_id else None
     try:
-        dealer_ops.approve_and_send_response(db, m, user)
+        res = processing.ingest_inbound(db, dealership=c, channel=body.channel, external_conversation_id=f"web:{body.visitor_id}",
+                                        text=body.text, provider_message_id=f"staff-test:{body.provider_message_id}",
+                                        contact_hints={"name": body.customer_name}, vehicle_id=vehicle_id, simulated=True)
     except ValueError as exc:
         raise bad(exc) from exc
-    conv = db.get(Conversation, conv_id)
-    summary = dealer_ops.summarize_and_deliver(db, conv)
-    return {"status": m.status, "summary": summary, "summary_delivered": conv.summary_delivered_at is not None}
+    runtime.record(db, "conversation.simulated_inquiry", actor_type="USER", actor_user_id=user.id, client_id=cid,
+                   entity_type="message", entity_id=res.message.id)
+    return {"conversation_id": res.conversation.id, "message_id": res.message.id, "created": res.created,
+            "simulated": res.conversation.simulated}
 
 
 # --- finance --------------------------------------------------------------------------------------

@@ -1,0 +1,83 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav %}{% from "_conv_macros.html" import cst %}{% block title %}Customer replies · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'replies', user) }}<h1>Customer replies</h1>
+{% if emergency %}<div class="flash error">Emergency stop is active: no customer message can be sent (Agent page).</div>{% endif %}
+{% if global_pause %}<div class="note">Automated replies are paused for every dealership by the agency (drafts are still prepared).</div>{% endif %}
+{% set manage = ctx.can('manage') %}
+<div class="card" id="business"><h2>Business details customers may be told</h2>
+<p class="small muted">Replies quote the phone, address and hours below only after they are approved here.</p>
+<form method="post" action="/dealers/{{ client.id }}/replies/business"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="grid">{% for f, label in [("phone","Phone"),("website","Website (also the only origin allowed to embed the chat)"),("address_line","Street address"),("city","City"),("state","State (2 letters)"),("postal_code","ZIP")] %}
+<div><label>{{ label }}</label><input name="{{ f }}" value="{{ client[f] or '' }}" {% if not manage %}disabled{% endif %}></div>{% endfor %}</div>
+<table><tr><th>Day</th><th>Open</th><th>Close</th><th>Closed</th></tr>{% for wd in range(7) %}{% set h = hours.get(wd) %}
+<tr><td>{{ days[wd] }}</td><td><input type="time" name="open_{{ wd }}" value="{{ h.open_time if h and h.open_time else '' }}" {% if not manage %}disabled{% endif %}></td>
+<td><input type="time" name="close_{{ wd }}" value="{{ h.close_time if h and h.close_time else '' }}" {% if not manage %}disabled{% endif %}></td>
+<td><input type="checkbox" name="closed_{{ wd }}" {% if h and h.closed %}checked{% endif %} {% if not manage %}disabled{% endif %}></td></tr>{% endfor %}</table>
+<label class="row"><input type="checkbox" name="approve" {% if client.business_info_approved %}checked{% endif %} {% if not manage %}disabled{% endif %}> These details are correct and approved for use in customer replies</label>
+{% if manage %}<p><button>Save business details</button></p>{% endif %}</form>
+<p class="small">Status: {{ cst('CONFIRMED' if client.business_info_approved else 'PENDING') }} {% if client.business_info_approved_at %}approved {{ client.business_info_approved_at|local }}{% endif %}</p>
+<p class="small muted">Website chat test page: <a href="{{ chat_url }}">{{ chat_url }}</a>. Embed on the dealership website with
+<code>&lt;script src="{{ settings.base_url }}/static/chat-widget.js" data-key="{{ client.public_chat_key }}" data-base="{{ settings.base_url }}" defer&gt;&lt;/script&gt;</code></p></div>
+
+<div class="card" id="content"><h2>Approved answers</h2>
+<h3>FAQs</h3><div class="tablewrap"><table><tr><th>Lang</th><th>Question</th><th>Answer</th><th>Keywords</th><th>Auto-send</th><th></th></tr>
+{% for f in faqs %}<tr class="{{ '' if f.active else 'muted' }}"><td>{{ f.language|upper }}</td><td>{{ f.question }}</td><td>{{ f.answer }}</td><td class="small">{{ f.keywords|join(", ") }}</td><td>{{ "yes" if f.auto_send_allowed else "no" }}</td>
+<td>{% if f.active and manage %}<form method="post" action="/dealers/{{ client.id }}/replies/faqs/{{ f.id }}/deactivate"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Deactivate</button></form>{% elif not f.active %}inactive{% endif %}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No FAQs yet.</td></tr>{% endfor %}</table></div>
+{% if manage %}<form method="post" action="/dealers/{{ client.id }}/replies/faqs"><input type="hidden" name="csrf" value="{{ csrf }}"><div class="grid">
+<div><label>Question</label><input name="question" required></div><div><label>Answer (only verified facts)</label><input name="answer" required></div>
+<div><label>Keywords (comma-separated)</label><input name="keywords"></div><div><label>Language</label><select name="language"><option value="en">English</option><option value="es">Español</option></select></div></div>
+<label class="row"><input type="checkbox" name="auto_send_allowed"> May be sent automatically (Modes B/C)</label><p><button>Approve FAQ</button></p></form>{% endif %}
+<h3>Templates</h3><div class="tablewrap"><table><tr><th>Intent</th><th>Lang</th><th>Body</th><th>Auto-send</th><th>Status</th></tr>
+{% for t in templates %}<tr class="{{ '' if t.active else 'muted' }}"><td>{{ t.intent }}</td><td>{{ t.language|upper }}</td><td>{{ t.body }}</td><td>{{ "yes" if t.auto_send_allowed else "no" }}</td><td>{{ "active" if t.active else "replaced" }}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">No templates: the built-in reviewed sentence frames are used.</td></tr>{% endfor %}</table></div>
+{% if manage %}<form method="post" action="/dealers/{{ client.id }}/replies/templates"><input type="hidden" name="csrf" value="{{ csrf }}"><div class="grid">
+<div><label>Intent</label><select name="intent">{% for i in intents %}<option>{{ i }}</option>{% endfor %}</select></div><div><label>Language</label><select name="language"><option value="en">English</option><option value="es">Español</option></select></div></div>
+<label>Body (placeholders like {vehicle}, {price}, {mileage}, {phone}, {hours} are filled from verified facts only)</label><textarea name="body" rows="2" style="width:100%" required></textarea>
+<label class="row"><input type="checkbox" name="auto_send_allowed"> May be sent automatically (Modes B/C)</label><p><button>Approve template</button></p></form>{% endif %}</div>
+
+<div class="card" id="automation"><h2>Automation</h2>
+<div class="row"><div><span class="muted small">Configured mode</span> <strong>{{ s.mode|label }}</strong></div><div><span class="muted small">Effective mode</span> <strong>{{ mode|label }}</strong></div>
+<div><span class="muted small">Dealership pause</span> {{ cst('BLOCKED' if s.paused else 'CONFIRMED') }}</div>
+<div><span class="muted small">Agency gate "{{ gate }}"</span> {{ cst('CONFIRMED' if gate_on else 'PENDING') }}</div></div>
+{% if ctx.can('respond') %}<form method="post" action="/dealers/{{ client.id }}/replies/pause"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% if s.paused %}<input type="hidden" name="on" value="0"><button {% if not manage %}disabled{% endif %}>Resume automation</button> <span class="small muted">Paused {{ s.paused_at|local }}: {{ s.paused_reason or "" }}</span>
+{% else %}<input type="hidden" name="on" value="1"><div class="row"><input name="reason" placeholder="Reason (optional)"><button>Pause all automation now</button></div>{% endif %}</form>{% endif %}
+<ul class="small"><li><strong>A: Draft only</strong> (default). Every reply is a draft a person reviews and sends.</li>
+<li><strong>B: Approved FAQ automation</strong>. Low-risk questions (availability, price, mileage, features, hours, location) are answered automatically only from verified data and templates/FAQs marked auto-send. Everything else is drafted and escalated.</li>
+<li><strong>C: Controlled automation</strong>. B plus the extra conversation types approved below.</li></ul>
+<p class="small">B and C require a passing evaluation (last 30 days), the authorization of a dealership administrator, and the agency's "{{ gate }}" gate (Clients page, after onboarding). Live delivery additionally needs the channel to be live-authorized; otherwise automatic replies are SIMULATED.
+Latest evaluation: {% if latest_eval %}{{ cst('CONFIRMED' if latest_eval.passed else 'FAILED') }} {{ latest_eval.created_at|local }}: {% for k, v in latest_eval.metrics.items() if k != "thresholds" %}{{ k|label }} {{ v }}; {% endfor %}{% else %}none{% endif %}</p>
+{% if manage %}<form class="inline" method="post" action="/dealers/{{ client.id }}/replies/evaluate"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Run evaluation (46 synthetic conversations)</button></form>
+<form method="post" action="/dealers/{{ client.id }}/replies/mode"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="row"><select name="mode">{% for m in modes %}<option value="{{ m }}" {% if s.mode == m %}selected{% endif %}>{{ m|label }}</option>{% endfor %}</select>
+<label class="row" style="flex:3"><input type="checkbox" name="statement_ack"> I authorize the selected mode for {{ client.name }}. Automated replies may only use verified inventory, approved business details and approved templates, must escalate everything else, and can be paused at any time.</label><button>Set mode</button></div>
+{% if not is_dealership_admin %}<p class="small muted">Only a dealership administrator signed in with their own account can authorize Modes B or C. You can always switch back to A.</p>{% endif %}</form>{% endif %}
+{% if auths %}<h3>Authorization history</h3>{% for a in auths %}<div class="small">{{ a.authorized_at|local }} · {{ a.mode|label }} · evaluation #{{ a.evaluation_run_id }} · {{ "revoked " ~ (a.revoked_at|local) if a.revoked_at else "active" }}</div>{% endfor %}{% endif %}
+<h3>Channels</h3><div class="tablewrap"><table><tr><th>Channel</th><th>Status</th><th>Automation</th></tr>
+{% for c in conns %}<tr><td>{{ channel_labels.get(c.provider, c.provider) }}</td><td>{{ c.status|label }}{% if c.status == 'connected' %} (live only if enabled on the server){% endif %}</td>
+<td>{% if ctx.can('respond') %}<form method="post" action="/dealers/{{ client.id }}/replies/channels/{{ c.id }}/pause"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% if c.paused %}<input type="hidden" name="on" value="0"><button {% if not manage %}disabled{% endif %}>Resume channel</button>{% else %}<input type="hidden" name="on" value="1"><button class="secondary">Pause channel</button>{% endif %}</form>{% endif %}</td></tr>
+{% else %}<tr><td colspan="3" class="muted">No customer channels recorded. Staff record them on the client page (kind "customer_messaging").</td></tr>{% endfor %}</table></div>
+<h3>Rules</h3><form method="post" action="/dealers/{{ client.id }}/replies/limits"><input type="hidden" name="csrf" value="{{ csrf }}"><div class="grid">
+<div><label>Max auto-replies / conversation / hour</label><input type="number" name="max_conv" value="{{ s.max_auto_replies_per_conversation_per_hour }}"></div>
+<div><label>Max auto-replies / dealership / hour</label><input type="number" name="max_dealer" value="{{ s.max_auto_replies_per_dealership_per_hour }}"></div>
+<div><label>Min seconds between auto-replies</label><input type="number" name="min_interval" value="{{ s.min_seconds_between_auto_replies }}"></div>
+<div><label>Inventory considered stale after (hours)</label><input type="number" name="stale_hours" value="{{ s.stale_inventory_hours }}"></div>
+<div><label>Confidence threshold (0.5–1.0)</label><input type="number" step="0.05" name="threshold" value="{{ s.confidence_threshold }}"></div>
+<div><label>Extra escalation emails</label><input name="escalation_emails" value="{{ s.escalation_emails|join(', ') }}"></div></div>
+<label class="row"><input type="checkbox" name="after_hours" {% if s.auto_reply_outside_business_hours %}checked{% endif %}> Allow auto-replies outside business hours</label>
+<p class="small">Mode C extra conversation types: {% for i in controllable %}<label class="row" style="display:inline-flex"><input type="checkbox" name="controlled_intents" value="{{ i }}" {% if i in s.controlled_intents %}checked{% endif %}> {{ i|label }}</label> {% endfor %}</p>
+<p class="small muted">Financing, credit, warranty, trade-in, negotiation, condition/history, complaints, human requests and sensitive data are always escalated and can't be automated.</p>
+{% if manage %}<p><button>Save rules</button></p>{% endif %}</form></div>
+
+<div class="card" id="notifications"><h2>Staff notifications</h2>
+<p class="small muted">Escalations go to the assigned dealership user and to every dealership administrator. Email notifications are SIMULATED in this release (shown below with their real status).</p>
+<form method="post" action="/dealers/{{ client.id }}/replies/notifications"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% for f, label in [("immediate_alerts","Immediate alerts"),("daily_digest","Daily digest"),("notify_assigned","Notify the assigned user"),("email_enabled","Email in addition to in-app")] %}
+<label class="row"><input type="checkbox" name="{{ f }}" {% if prefs[{'notify_assigned':'notify_assigned_user'}.get(f, f)] %}checked{% endif %} {% if not manage %}disabled{% endif %}> {{ label }}</label>{% endfor %}
+<label>Digest hour (local)</label><input type="number" name="digest_hour" min="0" max="23" value="{{ prefs.digest_hour_local }}" {% if not manage %}disabled{% endif %}>
+{% if manage %}<p><button>Save notification preferences</button></p>{% endif %}</form>
+<h3>Recent notifications</h3><div class="tablewrap"><table><tr><th>When</th><th>Kind</th><th>Channel</th><th>To</th><th>Subject</th><th>Status</th></tr>
+{% for n in sent %}<tr><td class="small">{{ n.created_at|local }}</td><td>{{ n.kind|label }}</td><td>{{ n.channel|label }}</td><td class="small">{{ n.recipient_address or ('user #' ~ n.user_id if n.user_id else '') }}</td><td>{{ n.subject }}</td><td>{{ cst(n.status) }}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">None yet.</td></tr>{% endfor %}</table></div></div>
+{% endblock %}

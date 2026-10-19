@@ -1,0 +1,3 @@
+{% extends "base.html" %}{% block title %}Chat test · {{ dealership.name }}{% endblock %}{% block content %}<h1>{{ dealership.name }}: website chat test page</h1>
+<p class="muted small">This page loads the same embeddable widget a dealership puts on its own website. Replies appear here only when they were actually delivered (live-authorized website chat); SIMULATED replies stay inside the app.</p>
+<script src="/static/chat-widget.js" data-key="{{ dealership.public_chat_key }}" data-base="" data-name="{{ dealership.name }}" defer></script>{% endblock %}

@@ -18,6 +18,7 @@ from dealerflow.models import Client, InboundMessage, Meeting, OutreachMessage, 
 from dealerflow.services import crm, meetings, outreach, seo_audit
 from dealerflow.services.discovery import run_source
 from dealerflow.services.inbox import poll_inbox_job
+from tests.dealer_helpers import drain
 from tests.phase4 import phase2_listings, user_with_key
 from tests.test_phase4_seo_reports import FakeSite
 
@@ -76,11 +77,19 @@ def test_complete_business_journey(client, db, admin):
 
     # 9-10. Spanish inquiry -> approved Spanish response -> summary to this dealership only.
     conv = client.post(f"/api/v1/clients/{cid}/inquiries/simulated", headers=h_rep,
-                       json={"body": "Hola, ¿puedo hacer una prueba de manejo del Civic?", "language": "es", "provider_message_id": "e2e-1"}).json()
-    d = client.post(f"/api/v1/clients/{cid}/conversations/{conv['conversation_id']}/draft", headers=h_rep, json={"template": "test_drive"}).json()
-    assert d["language"] == "es"
-    res = client.post(f"/api/v1/clients/{cid}/conversations/{conv['conversation_id']}/messages/{d['message_id']}/approve", headers=h_rep).json()
+                       json={"text": "Hola, ¿puedo hacer una prueba de manejo del Civic?", "provider_message_id": "e2e-1"}).json()
+    db.commit()
+    drain()
+    full = client.get(f"/api/v1/dealers/{cid}/conversations/{conv['conversation_id']}", headers=h_rep).json()
+    d = next(x for x in full["drafts"] if x["status"] == "PENDING_REVIEW")
+    assert full["language"] == "es" and d["language"] == "es"
+    sent = client.post(f"/api/v1/dealers/{cid}/conversations/{conv['conversation_id']}/send", headers=h_rep,
+                       json={"body": d["body"], "draft_id": d["id"], "acknowledge_warnings": True}).json()
+    assert sent["queued"] is True
+    drain()
+    res = client.post(f"/api/v1/dealers/{cid}/conversations/{conv['conversation_id']}/summary", headers=h_rep).json()
     assert res["summary_delivered"] and MockEmailProvider.outbox[-1][0].to == "owner@brazos.example"
+    assert client.get(f"/api/v1/dealers/{other['id']}/conversations/{conv['conversation_id']}", headers=h_rep).status_code == 404
 
     # 11. Revenue and expenses.
     today = date.today()

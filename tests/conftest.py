@@ -150,3 +150,6 @@ def login(client, email, password="correct horse battery"):
 def csrf_of(client) -> str:
     r = client.get("/settings")
     return r.text.split('name="csrf" value="')[1].split('"')[0]
+
+
+from tests.conv_helpers import world  # noqa: E402,F401  (customer-conversation fixture)

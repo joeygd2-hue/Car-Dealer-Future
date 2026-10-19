@@ -39,7 +39,11 @@ Policy and legal sources for each row are in `docs/research/source-register.md` 
 | SEO crawl | Client dealership websites | Written authorization recorded per site | Audits | Tested against an in-memory site | robots.txt, ≥0.5 s delay, page cap, stop on 429, GET/HEAD only, never modifies the site | free |
 | Organic search | Google Search Console | — | Clicks/impressions in client reports | **API not implemented**; CSV export import tested | Authorized property owner exports the performance report | free |
 | Client email | Same provider as outreach (`DF_CLIENT_EMAIL_SENDING_ENABLED`) | as above | Monthly reports, lead summaries | Mock-tested; real sending gated per client | Transactional email to the client's own contact | mailbox plan |
-| Customer messaging (Phase 3) | — | — | Car-buyer inquiries | **Not connected.** Simulated inquiries only | — | — |
+| Customer messaging: website chat (Phase 3) | First-party chat widget (`/static/chat-widget.js`, `POST/GET /api/chat/{key}/messages`) | Per-dealership public key; CORS limited to the dealership website | Car-buyer inquiries and replies | HTTP-tested. Replies SIMULATED unless `DF_CUSTOMER_MESSAGING_LIVE_ENABLED` + `connected` connection; pilot allowlist on by default. **Never shown to a real visitor so far** | Rate limits 30/min/IP, 8/min/visitor | free |
+| Customer messaging: ADF/XML leads (Phase 3) | `POST /api/leads/adf/{connection_id}` | Bearer token (SHA-256 stored in the connection config) | Leads from listing sites/CRMs | HTTP-tested with a synthetic lead; no real lead source connected | XML entity/DTD attacks rejected (defusedxml); replies are sent by staff outside the platform | — |
+| Customer messaging: Facebook Marketplace (Phase 3) | Staff-assisted (paste the buyer message) | none | Drafted replies staff copy back | Tested | No API for Marketplace messages; nothing is sent from the platform | free |
+| Customer messaging: Messenger / SMS (Phase 3) | Meta Messenger, Twilio SMS | — | — | **Live adapters and webhooks not ported**; conversations on these channels use a sandbox adapter (SIMULATED) | — | — |
+| Test-drive calendar (Phase 3) | Sandbox calendar (`calendar` connection) | — | Free/busy check and event on confirmation | SIMULATED only; Google Calendar adapter from Phase 1 not wired to test drives | Staff confirm every appointment | — |
 | Listing publication (Phase 2) | — | — | Marketplace publishing | **Not connected.** Every publish attempt is `manual_required` | — | — |
 
 ## Explicitly not built

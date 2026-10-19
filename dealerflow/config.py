@@ -142,6 +142,13 @@ class Settings(BaseSettings):
     ai_enabled: bool = False  # optional Claude API use; deterministic templates/rules otherwise
     retention_days_conversations: int = 365
 
+    # --- Phase 3: customer conversations ------------------------------------------------------------
+    # Replies to car buyers are SIMULATED unless this is true AND the dealership's customer_messaging connection
+    # for that channel is "connected" (Phase 4 requires a written authorization note for that).
+    customer_messaging_live_enabled: bool = False
+    # While true, a live customer reply may go only to recipients on the internal test allowlist (Pilot page).
+    customer_messaging_pilot_mode: bool = True
+
     @property
     def listing_ai_available(self) -> bool:
         return self.listing_ai_enabled and bool(self.anthropic_api_key.get_secret_value())

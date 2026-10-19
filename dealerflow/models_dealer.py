@@ -157,6 +157,10 @@ class Vehicle(TenantMixin, Base):
     title_status: Mapped[str | None] = mapped_column(String(30))
     owner_count: Mapped[int | None] = mapped_column(Integer)
     inventory_status: Mapped[str] = mapped_column(String(20), default="available", nullable=False)
+    # Phase 3: last time a person (or an authorised feed sync) verified price/availability, and a note when
+    # sources disagree. The customer-response engine quotes price/availability only while fresh and unconflicted.
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime)
+    data_conflict_note: Mapped[str | None] = mapped_column(Text)
     validation_status: Mapped[str] = mapped_column(String(20), default="valid", nullable=False)
     validation_issues: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
     content_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)

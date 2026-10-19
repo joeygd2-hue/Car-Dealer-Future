@@ -124,6 +124,8 @@ caller ID you own), `DF_AGENT_PHONE` (the phone Twilio rings first).
 | `DF_CRAWLER_TIMEOUT_SECONDS` | `15` | SEO crawler request timeout. The crawler uses `DF_HTTP_USER_AGENT`, honours robots.txt, waits ≥0.5 s (site setting, default 1 s) and stops on HTTP 429. |
 | `DF_PAGESPEED_API_KEY` | — | Optional Google PageSpeed Insights API key for mobile performance in SEO audits. |
 | `DF_STRIPE_WEBHOOK_SECRET` | — | `whsec_…` signing secret for `POST /webhooks/stripe`. Empty = endpoint rejects everything. Use a test-mode endpoint first. |
+| `DF_CUSTOMER_MESSAGING_LIVE_ENABLED` | `false` | Phase 3: allow live replies to car buyers. Also needs the dealership's `customer_messaging` connection for that channel in status `connected` (written authorization note). Only first-party website chat can be live in this release (the reply is shown in the dealership's own chat widget); Messenger and SMS stay SIMULATED. |
+| `DF_CUSTOMER_MESSAGING_PILOT_MODE` | `true` | Phase 3: while true, a live reply is sent only to recipients on the internal test allowlist (`/conversations/pilot`); everything else is BLOCKED and recorded in the send ledger. |
 | `DF_AI_ENABLED` | `false` | Optional Claude API use (`pip install -e ".[ai]"`). Nothing in Phase 4 requires it. |
 | `DF_ANTHROPIC_API_KEY` | — | Claude API key (server-side only). |
 | `DF_AI_MODEL` | `claude-opus-5-5` | Model id; per-token estimate rates are in Settings → cost estimates. |

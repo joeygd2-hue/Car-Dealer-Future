@@ -1,0 +1,6 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav %}{% block title %}Notifications · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'inbox', user) }}<h1>My notifications</h1>
+<div class="card">{% for n in items %}<div style="border-bottom:1px dashed var(--line);padding:6px 0"><strong>{{ n.subject }}</strong> <span class="small muted">{{ n.created_at|local }} · {{ n.kind|label }}</span>
+<div class="small" style="white-space:pre-wrap">{{ n.body }}</div>{% if n.link %}<a class="small" href="{{ n.link|safe_url if n.link.startswith('http') else n.link }}">Open</a>{% endif %}</div>
+{% else %}<p class="muted">No notifications. Notifications are kept for dealership users; agency staff use the inbox.</p>{% endfor %}</div>
+{% endblock %}

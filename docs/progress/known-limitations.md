@@ -117,14 +117,10 @@ PageSpeed, Search Console, Claude API or client email call has been made.**
 | Claude API | Stubbed-client test only | API key; `DF_AI_ENABLED=true`. Nothing in Phase 4 depends on it |
 | Client email (reports, lead summaries) | Mock only | Real provider (Phase 1), `DF_CLIENT_EMAIL_SENDING_ENABLED=true`, and per-client authorized `report_email` connection |
 | Listing publication channels (Phase 2) | None; all attempts `manual_required` | Phase 2 |
-| Customer messaging channels (Phase 3) | None; inquiries are simulated | Phase 3 |
+| Customer messaging channels (Phase 3) | Website chat, ADF leads and staff-assisted Marketplace work in the app; every reply is SIMULATED by default | See "Phase 3 integration" below |
 
 ### Functional gaps
 
-* **Interim Phase 3 tables** (`models_interim.py`: conversations, messages, appointments) are minimal stand-ins
-  until Phase 3 is ported. The interim inventory/listing tables were replaced by Phase 2 at integration.
-* Phase 3 lives in a separate `app` package (`claude/magical-darwin-nncp64`) with its own auth and models; it is
-  not integrated, so the client portal shows only Phase 4 data plus interim conversations.
 * Finance is single-currency for reporting (USD); other currencies are excluded and counted, not converted.
   No sales tax handling. Expense categories are management categories, not tax advice.
 * Invoices are not emailed or sent to clients; there is no PDF invoice. Reports are HTML (print to PDF).
@@ -134,8 +130,9 @@ PageSpeed, Search Console, Claude API or client email call has been made.**
 * SEO checks are rule-based; no AI recommendations are generated yet (`detection='ai'` is reserved). JavaScript-
   rendered sites are seen as raw HTML only. External links are not checked (internal only).
 * Gross margin covers only directly allocated costs; overhead allocation is not modelled.
-* Automations listed on the client page are gates only: the Phase 2/3 automation workers they protect do not
-  exist yet (`inventory_sync`, `listing_publish`, `inquiry_auto_response`); `seo_monitoring` does not schedule
+* Automations listed on the client page are gates: `inquiry_auto_response` is now checked by the Phase 3 reply
+  policy (Modes B/C also need it); the `inventory_sync` and `listing_publish` gates are not checked by Phase 2's
+  workers yet; `seo_monitoring` does not schedule
   audits yet — audits are started by staff; `monthly_report_email` is implemented.
 * Client data deletion and export are service functions (no UI) — deliberate, see the runbook.
 
@@ -144,14 +141,12 @@ PageSpeed, Search Console, Claude API or client email call has been made.**
 See `docs/security/threat-model.md`. Open items: in-process rate limiting (single process only), no MFA,
 attachments unencrypted at rest on local disk, no external penetration test, `style-src 'unsafe-inline'` kept
 for Phase 1 templates. **The platform is not production-ready** until live integrations are verified, MFA or
-an identity-aware proxy is in place, backups are tested, and the Phase 2/3 code is integrated.
+an identity-aware proxy is in place and backups are tested.
 
 ## Integration (2026-10-19)
 
-* **Phase 3 is still a separate app** (`claude/magical-darwin-nncp64`, own auth and models). Buyer conversations in
-  this app are the interim, SIMULATED stand-ins only.
-* After login, a dealership user lands on `/portal` (Phase 4 behaviour); the workspace is one click away and `/`
-  redirects there. Pick one landing page when the Phase 3 portal work lands.
+* After login, a dealership user lands on `/portal` (Phase 4 behaviour); the workspace (inbox, test drives,
+  customer replies) is one click away and `/` redirects there. One landing page still needs choosing.
 * Downgrading migration `0003` maps every `cancelled` client back to Phase 2's `offboarded` and drops the Phase 4
   client columns and tables (their data is lost). Back up first (`python -m dealerflow backup`).
 * Deleting a client (service function only, no UI) anonymizes and deactivates its users instead of deleting them.
@@ -162,3 +157,35 @@ an identity-aware proxy is in place, backups are tested, and the Phase 2/3 code 
 * VIN check digits and model years are validated locally, but VINs are **not decoded** (no NHTSA vPIC call is
   implemented, although it was researched in `docs/research/meta-and-inventory-integrations-2026-10.md`).
 
+
+## Phase 3 integration (2026-10-19)
+
+Customer conversations run inside dealerflow (`claude/gifted-phase3-integration`). Nothing has been sent to a real
+customer; every test used synthetic data and SIMULATED channels.
+
+* **Messenger and SMS live sending are not available.** Phase 3's Meta Messenger and Twilio adapters, their
+  webhooks (`/webhooks/meta`, `/webhooks/twilio/sms`) and per-dealership encrypted credentials were not ported. A
+  conversation on those channels uses the sandbox adapter (SIMULATED) even with every live flag on.
+* **Website chat has never been live.** Live means the reply appears in the dealership's own chat widget; it needs
+  `DF_CUSTOMER_MESSAGING_LIVE_ENABLED=true`, a `connected` website-chat connection and, in pilot mode (default), an
+  allowlisted visitor id. Tested only with the test client.
+* **Staff notification email is always SIMULATED** (recorded in `sandbox_records`). It does not use the Phase 1 email
+  provider yet. In-app notifications work. Lead summaries to the dealership use Phase 4's client email gate
+  (SIMULATED unless `DF_CLIENT_EMAIL_SENDING_ENABLED` and the client's `report_email` authorization).
+* **Test-drive calendar is a sandbox.** A `calendar` connection enables the free/busy check and a SIMULATED event;
+  Phase 1's Google Calendar provider is not wired to test drives. Staff confirm every appointment; the customer is
+  never told a time is booked until staff confirm.
+* **Not ported from Phase 3's security work:** TOTP MFA, server-side sessions with revocation and the HMAC-chained
+  audit log. dealerflow keeps its own signed-cookie sessions and plain audit log. Phase 3's "return to sandbox"
+  button and live-authorization records were replaced by Phase 4 integration connections (status + written note).
+* No operator screen to reconcile an UNCERTAIN staff email (customer messages can be reconciled from the
+  conversation page).
+* The evaluation set (46 cases) is synthetic, and Modes B/C have only been exercised with it and with tests.
+* Downgrading migration `0004` restores the interim tables but loses data that only exists in Phase 3 form
+  (identities, drafts, escalations, FAQs, templates, settings). Back up first.
+* The public chat endpoint's per-IP limit uses the connecting address. Behind a reverse proxy, unless uvicorn runs with
+  `--proxy-headers` and trusted `--forwarded-allow-ips`,
+  every visitor shares the proxy's address.
+* Two other Phase 3 integration attempts exist on the remote (`claude/phase3-integration`,
+  `claude/mybot-phase3-integration`), built on a different base (`claude/mybot-unification`). They were not compared
+  file by file; pick one line before merging.

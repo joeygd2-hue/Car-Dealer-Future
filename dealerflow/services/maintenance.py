@@ -15,7 +15,21 @@ from .. import audit
 from ..config import get_settings
 from ..db import Base, utcnow
 from ..jobs import enqueue, handler
-from ..models import Attachment, Client, ClientReport, Conversation, ConversationMessage, User
+from ..models import (
+    Appointment,
+    Attachment,
+    Client,
+    ClientReport,
+    Conversation,
+    CustomerContact,
+    Escalation,
+    InboundEvent,
+    Message,
+    Notification,
+    ResponseDraft,
+    SandboxRecord,
+    User,
+)
 
 ALLOWED_UPLOAD_TYPES = {
     "application/pdf": ".pdf", "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "text/csv": ".csv", "text/plain": ".txt",
@@ -57,13 +71,37 @@ def attachment_path(att: Attachment) -> str:
 
 
 def purge_conversation_pii(db: Session, older_than_days: int) -> int:
-    """Remove car-buyer contact details and message bodies from old conversations; keep counts for reporting."""
+    """Remove car-buyer details and message bodies from old conversations; keep counts for reporting.
+
+    Message bodies, summaries, unresolved questions and appointment contact fields are cleared. A customer contact's
+    name, email and phone are cleared once none of its conversations is newer than the cutoff. Channel identities and
+    opt-out records are kept so an opted-out customer stays opted out.
+
+    Copies of customer text outside those rows are cleared by age: escalation summaries of purged conversations,
+    staff notification bodies, raw inbound webhook/ADF payloads and SIMULATED send records."""
     cutoff = utcnow() - timedelta(days=older_than_days)
-    ids = list(db.scalars(select(Conversation.id).where(Conversation.created_at < cutoff, Conversation.pii_purged_at.is_(None))))
+    db.execute(update(Notification).where(Notification.created_at < cutoff, Notification.body != "[purged]")
+               .values(body="[purged]", payload={}))
+    db.execute(update(InboundEvent).where(InboundEvent.received_at < cutoff).values(payload={"purged": True}))
+    db.execute(update(SandboxRecord).where(SandboxRecord.created_at < cutoff, SandboxRecord.kind.in_(("CHANNEL_OUT", "EMAIL_OUT")))
+               .values(payload={"purged": True}))
+    convs = list(db.scalars(select(Conversation).where(Conversation.created_at < cutoff, Conversation.pii_purged_at.is_(None))))
+    ids = [c.id for c in convs]
     if ids:
-        db.execute(update(Conversation).where(Conversation.id.in_(ids)).values(customer_name=None, customer_contact=None,
-                                                                              summary="[purged]", pii_purged_at=utcnow()))
-        db.execute(update(ConversationMessage).where(ConversationMessage.conversation_id.in_(ids)).values(body="[purged]"))
+        now = utcnow()
+        db.execute(update(Conversation).where(Conversation.id.in_(ids)).values(
+            summary={"purged": True}, unresolved_questions=[], next_action=None, pii_purged_at=now))
+        db.execute(update(Message).where(Message.conversation_id.in_(ids)).values(body="[purged]", analysis={"purged": True}))
+        db.execute(update(ResponseDraft).where(ResponseDraft.conversation_id.in_(ids)).values(body="[purged]", fact_snapshot={}))
+        db.execute(update(Escalation).where(Escalation.conversation_id.in_(ids)).values(summary="[purged]"))
+        db.execute(update(Appointment).where(Appointment.conversation_id.in_(ids)).values(
+            customer_name=None, customer_phone=None, customer_email=None, notes=None))
+        for contact_id in {c.contact_id for c in convs if c.contact_id}:
+            newer = db.scalar(select(Conversation.id).where(Conversation.contact_id == contact_id,
+                                                            Conversation.pii_purged_at.is_(None), Conversation.id.not_in(ids)))
+            if newer is None:
+                db.execute(update(CustomerContact).where(CustomerContact.id == contact_id).values(
+                    display_name=None, email=None, phone=None, sms_consent_source=None))
         audit.record(db, "retention.purged_conversations", details={"count": len(ids), "older_than_days": older_than_days})
     return len(ids)
 

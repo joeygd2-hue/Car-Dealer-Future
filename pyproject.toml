@@ -17,6 +17,7 @@ dependencies = [
   "tzdata>=2024.1",
   "xlrd>=2.0",
   "beautifulsoup4>=4.12",  # SEO audits and website research parsing
+  "defusedxml>=0.7",  # ADF/XML lead intake (Phase 3): blocks XXE and entity expansion
   "email-validator>=2.1",  # pydantic EmailStr in the Phase 4 API
 ]
 

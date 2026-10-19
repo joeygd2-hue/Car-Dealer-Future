@@ -9,7 +9,7 @@
 <a href="/reports/weekly">Weekly report</a><a href="/clients">Clients</a><a href="/dealers">Dealerships</a><a href="/tickets">Tickets</a><a href="/seo">SEO</a><a href="/client-reports">Client reports</a>
 {% if role_at_least(user.role, 'manager') %}<a href="/finance">Finance</a><a href="/costs">Costs</a><a href="/packages">Packages</a>{% endif %}
 <a href="/integrations">Integrations</a><a href="/settings">Settings</a>
-{% if role_at_least(user.role, 'manager') %}<a href="/audit">Audit log</a>{% endif %}</nav>
+{% if role_at_least(user.role, 'manager') %}<a href="/audit">Audit log</a>{% endif %}{% if role_at_least(user.role, 'admin') %}<a href="/conversations/pilot">Messaging safety</a>{% endif %}</nav>
 <span class="right small">{{ user.email }} ({{ user.role }})<form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Log out</button></form></span></header>{% endif %}
 <main>
 {% if user and not user.is_client and (providers.email == 'mock' or providers.calendar == 'mock' or providers.zoom == 'mock') %}

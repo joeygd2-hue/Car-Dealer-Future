@@ -68,6 +68,11 @@ def build_report_data(db: Session, client: Client, start: date, end: date) -> di
         (c.first_response_at - c.first_inbound_at).total_seconds() / 60
         for c in convs if c.first_inbound_at and c.first_response_at and c.first_response_at >= c.first_inbound_at
     ]
+    simulated_conv_ids = {c.id for c in all_convs if c.simulated}
+    appts = [a for a in db.scalars(select(Appointment).where(Appointment.client_id == cid, Appointment.kind == "TEST_DRIVE",
+                                                              Appointment.created_at >= s, Appointment.created_at < e))
+             if a.conversation_id not in simulated_conv_ids
+             and not (a.conversation_id and db.get(Conversation, a.conversation_id).simulated)]
     by_channel: dict[str, int] = {}
     for c in convs:
         by_channel[c.channel] = by_channel.get(c.channel, 0) + 1
@@ -119,8 +124,9 @@ def build_report_data(db: Session, client: Client, start: date, end: date) -> di
             "escalations": metric(sum(1 for c in convs if c.escalated_at), "conversations"),
         },
         "appointments": {
-            "test_drive_requests": metric(count(Appointment, Appointment.kind == "test_drive", Appointment.requested_at >= s, Appointment.requested_at < e), "appointments"),
-            "confirmed": metric(count(Appointment, Appointment.status.in_(("confirmed", "completed")), Appointment.requested_at >= s, Appointment.requested_at < e), "appointments"),
+            "test_drive_requests": metric(len(appts), "customer_appointments", "Excludes appointments from SIMULATED test conversations"),
+            "confirmed": metric(sum(1 for a in appts if a.status in ("CONFIRMED", "COMPLETED")), "customer_appointments",
+                                "Confirmed by dealership staff; never confirmed automatically"),
         },
         "seo": {
             "issues_resolved": metric(count(SeoIssue, SeoIssue.resolved_at >= s, SeoIssue.resolved_at < e), "seo_issues", "Resolved = no longer detected by a re-audit, or marked resolved"),

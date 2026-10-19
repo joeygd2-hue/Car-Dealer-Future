@@ -33,9 +33,10 @@ FAILURE_HOOKS: dict[str, Callable[[Session, dict[str, Any], str], None]] = {}
 class DeferJob(Exception):
     """Raised by a handler to postpone the job (e.g. daily cap reached) without using an attempt."""
 
-    def __init__(self, until: datetime, reason: str):
+    def __init__(self, until: datetime, reason: str, persist: Callable[[Session], None] | None = None):
         super().__init__(reason)
         self.until = until
+        self.persist = persist  # optional: record why the work is waiting (runs after the rollback)
 STALE_LOCK = timedelta(minutes=15)
 
 
@@ -110,6 +111,8 @@ def run_job(job_id: int) -> str:
             assert job is not None
             job.status, job.run_after, job.attempts = "pending", until, max(0, job.attempts - 1)
             job.last_error = f"deferred: {exc}"
+            if isinstance(exc, DeferJob) and exc.persist is not None:
+                exc.persist(db)
             db.commit()
         except Exception as exc:  # noqa: BLE001 - every failure is recorded on the job
             db.rollback()

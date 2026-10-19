@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% from "_conv_macros.html" import cst %}{% block title %}Messaging safety{% endblock %}{% block content %}
+<h1>Customer messaging safety</h1>
+<div class="card"><table class="kv">
+<tr><td>Emergency stop (Agent page)</td><td>{{ cst('BLOCKED' if emergency else 'CONFIRMED') }} {{ "active: every customer message and staff email is blocked" if emergency else "off" }}</td></tr>
+<tr><td>Live customer messaging (server setting)</td><td>{{ "enabled (DF_CUSTOMER_MESSAGING_LIVE_ENABLED)" if live_enabled else "disabled: every reply is SIMULATED" }}</td></tr>
+<tr><td>Pilot mode</td><td>{{ "on: live replies only to the internal test recipients below" if pilot_mode else "off" }}</td></tr>
+<tr><td>Global automation pause</td><td>{{ cst('BLOCKED' if global_pause else 'CONFIRMED') }} {{ "on" if global_pause else "off" }}</td></tr></table>
+<form method="post" action="/conversations/pilot/pause"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% if global_pause %}<input type="hidden" name="on" value="0"><button>Lift the global automation pause</button>{% else %}<input type="hidden" name="on" value="1"><div class="row"><input name="reason" placeholder="Reason"><button>Pause automated replies for every dealership</button></div>{% endif %}</form></div>
+<div class="card"><h2>Internal test recipients (pilot allowlist)</h2><div class="tablewrap"><table><tr><th>Kind</th><th>Value</th><th>Label</th><th></th></tr>
+{% for r in recipients %}<tr><td>{{ r.kind }}</td><td>{{ r.value }}</td><td>{{ r.label }}</td><td><form method="post" action="/conversations/pilot/recipients/{{ r.id }}/remove"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Remove</button></form></td></tr>
+{% else %}<tr><td colspan="4" class="muted">None.</td></tr>{% endfor %}</table></div>
+<form method="post" action="/conversations/pilot/recipients"><input type="hidden" name="csrf" value="{{ csrf }}"><div class="row"><select name="kind"><option>CHAT_VISITOR</option><option>EMAIL</option><option>PHONE</option><option>META_PSID</option></select>
+<input name="value" placeholder="value" required><input name="label" placeholder="whose (internal staff only)" required><button>Add</button></div></form></div>
+<div class="card"><h2>Deliveries needing a decision (UNCERTAIN)</h2>{% for m in uncertain %}<p><a href="/dealers/{{ m.client_id }}/conversations/{{ m.conversation_id }}">Message #{{ m.id }}</a> · {{ m.channel }} · {{ m.delivery_error }}</p>{% else %}<p class="muted">None.</p>{% endfor %}</div>
+<div class="card"><h2>Send ledger (latest 100)</h2><p class="small">Totals: {% for k, v in by_status.items() %}{{ k }} {{ v }}; {% endfor %}</p><div class="tablewrap"><table><tr><th>#</th><th>When</th><th>Kind</th><th>Client</th><th>Channel</th><th>Live</th><th>Status</th><th>Reasons / error</th></tr>
+{% for a in attempts %}<tr><td>{{ a.id }}</td><td class="small">{{ a.created_at|local }}</td><td>{{ a.kind|label }}</td><td>{{ a.client_id or '' }}</td><td>{{ a.channel }}</td><td>{{ "yes" if a.live else "no" }}</td><td>{{ cst(a.status) }}</td><td class="small">{{ a.reasons|join("; ") }} {{ a.error or "" }}</td></tr>
+{% else %}<tr><td colspan="8" class="muted">No sends yet.</td></tr>{% endfor %}</table></div></div>
+{% endblock %}

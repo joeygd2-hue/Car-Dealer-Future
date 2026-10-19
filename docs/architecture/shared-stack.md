@@ -4,10 +4,10 @@
 before Phase 1, so no earlier stack existed to keep. Every later phase (2–4) extends this one
 application. **Do not create a second app, database, login system or navigation.**
 
-> **Branch status (2026-10-18 audit):** Phase 2 (`claude/dealership-inventory-publishing-iq0aqw`) merged onto
-> `dealerflow`. Phase 3 (`claude/magical-darwin-nncp64`) and Phase 4 (`claude/blissful-davinci-82py6w`) built separate
-> `app/` packages with their own models, auth and agents, and must be ported onto `dealerflow` before merging.
-> See `docs/audit/launch-readiness-audit.md` §7.
+> **Branch status (2026-10-19):** Phases 1, 1.5, 2 and 4 were integrated into `dealerflow` on
+> `claude/gifted-brahmagupta-8s3mnu`; Phase 3 (customer conversations, originally a separate `app/` package on
+> `claude/magical-darwin-nncp64`) was ported on top of it on `claude/gifted-phase3-integration`. Neither is merged
+> into `main` yet.
 
 ## Stack
 
@@ -109,7 +109,7 @@ create it from `/dealers`). Dealership-owned tables inherit `models_dealer.Tenan
 reference parents through composite `(client_id, parent_id)` foreign keys, so the database refuses cross-dealership
 links. `tenancy.tenant_session(client_id)` filters every query on tenant models and refuses writes for another client.
 Web routes get a `ClientContext` only through `routes_dealers.dealer_ctx(permission)` → `tenancy.authorize_client`.
-Another client's ids return 404. **Phase 3 (client portal) must reuse `clients`, `dealer_ctx` and these rules.**
+Another client's ids return 404. Phase 3 (customer conversations) reuses `clients`, `dealer_ctx` and these rules.
 
 **Dealership users.** `users.client_id` + `users.client_role` (`dealer_admin | dealer_reviewer | dealer_viewer`).
 Such users can only open `/dealers/{their id}/...` and `/api/v1/dealers/{their id}/...`; `web/deps.current_user`
@@ -172,10 +172,19 @@ Added on branch `claude/blissful-davinci-82py6w` (migrations `0002`, `0003`). De
 | Gate an automation on onboarding | add an entry to `services.onboarding.AUTOMATION_PREREQS`; check `automation_enabled(db, client_id, feature)` before acting |
 | Audit with an entity | `audit.record(db, action, actor=, entity=, details=)` (secret-named keys redacted) |
 
-### Phase 4 interim tables (Phase 3 stand-ins only)
+### Phase 3: customer conversations (integrated 2026-10-19)
 
-At integration (2026-10-19) the interim inventory/listing/publishing tables were replaced by the Phase 2 models.
-What remains in `models_interim.py` (created by migration `0003_phase4_operations`) are `conversations`,
-`conversation_messages` and `appointments`, used by `services/dealer_ops.py` and client reports. The Phase 3 port
-must replace them: add a migration after `0003` that moves or drops these tables, delete the classes and the
-`dealer_ops` conversation functions, and point `services/client_reports.py` at the Phase 3 models.
+The interim `conversations`, `conversation_messages` and `appointments` tables (and `models_interim.py`,
+`services/dealer_ops.py`) were replaced by the Phase 3 models in `models_conversations.py`, created by migration
+`0004_phase3_customer_conversations`, which also copies any interim rows across (see build status).
+
+| Concern | Where / rule |
+|---|---|
+| Models | `models_conversations.py`. Per-dealership tables use `TenantMixin` with composite `(client_id, parent_id)` foreign keys, so a row can never point at another dealership's conversation, contact, vehicle or user: `customer_contacts`, `customer_identities`, `customer_leads`, `contact_suppressions`, `customer_conversations`, `customer_messages`, `response_drafts`, `escalations`, `customer_appointments`, `appointment_events`, `response_automation_settings`, `mode_authorizations`, `approved_templates`, `faqs`, `notification_preferences`. Platform tables (nullable `client_id`): `inbound_events`, `evaluation_runs`, `notifications`, `send_attempts`, `pilot_recipients`, `rate_counters`, `sandbox_records`. |
+| Reused shared models | `clients` (business hours in `business_hours["weekly"]`, `public_chat_key`, `business_info_approved`), dealership users (`role="client"` + `client_role`), Phase 2 `vehicles` (status from `inventory_status`, conflict from `data_conflict_note`/`stale`/validation; **approved features** are the features in the vehicle's approved listing revision), `integration_connections` (`kind="customer_messaging"`, `provider` = channel). |
+| Services | `services/conversations/`: `processing` (ingest → analyse → draft → decide), `engine`/`facts`/`safety` (grounded replies; the LLM may only rephrase), `automation_policy` (Modes A/B/C), `outbound` + `send_gate` (send ledger), `escalation`, `appointments`, `notifications`, `summaries`, `evaluation`, `adf`, `channels`, `runtime` (the glue to shared services). |
+| Permissions | `respond` (answer customers, assign, pause): staff rep/manager/admin, dealer_admin, dealer_reviewer. Settings, FAQs, templates, limits, evaluation, resume: `manage`. Modes B/C: a **dealer_admin** only, after a passing evaluation, with a recorded authorization statement. |
+| Job queue | dealerflow `jobs` (`inbox.process_message`, `outbound.send`, `notification.send_email`, `appointments.send_reminder`; hourly `notification.daily_digests` and `appointments.dispatch_reminders` scheduled by the worker). `runtime.RetryLater` defers without using an attempt. |
+| Switches | One platform **emergency stop** (Agent page, `agent_state.status="emergency_stopped"`) blocks every customer message and staff email. The global automation pause (`/conversations/pilot`) stops auto-replies only. Per-dealership pause and per-channel pause on the dealership's "Customer replies" page. Auto-sending also needs Phase 4's `inquiry_auto_response` gate. |
+| Audit | `audit_logs` via `runtime.record`; Phase 3's `client_id`/`actor_type`/`outcome`/`external` are kept in `data`. |
+| Live sending | `runtime.live_authorized`: `DF_CUSTOMER_MESSAGING_LIVE_ENABLED` **and** the channel's `customer_messaging` connection `connected`. Pilot mode (default on) also requires the recipient on the internal allowlist. |

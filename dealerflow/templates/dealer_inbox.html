@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav %}{% from "_conv_macros.html" import cst %}{% block title %}Inbox · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'inbox', user) }}<h1>Customer inbox</h1>
+{% if emergency %}<div class="flash error">Emergency stop is active: no customer message or staff email can be sent.</div>{% endif %}
+<p class="small muted">Mode: <strong>{{ mode|label }}</strong>{% if settings.paused %} · <span class="pill bad">automation paused</span>{% endif %} ·
+Drafts awaiting review: {{ counts.pending_drafts }} · Open escalations: {{ counts.open_escalations }} · Test drives to confirm: {{ counts.pending_appointments }}.
+Replies to customers are SIMULATED (recorded, not delivered) unless live messaging is authorized for a channel.</p>
+<form class="card row" method="get"><label>Status <select name="status"><option value="">Any</option>{% for s in ["AWAITING_STAFF","ESCALATED","AWAITING_CUSTOMER","OPEN","CLOSED"] %}<option value="{{ s }}" {% if f_status==s %}selected{% endif %}>{{ s|label }}</option>{% endfor %}</select></label>
+<label>Channel <select name="channel"><option value="">Any</option>{% for c in channels %}<option value="{{ c }}" {% if f_channel==c %}selected{% endif %}>{{ channel_labels[c] }}</option>{% endfor %}</select></label>
+<label class="row"><input type="checkbox" name="mine" value="1" {% if mine %}checked{% endif %}> Assigned to me</label><button>Filter</button></form>
+<div class="card"><div class="tablewrap"><table><tr><th>#</th><th>Channel</th><th>Vehicle</th><th>Lang</th><th>Status</th><th>Escalation</th><th>Test drive</th><th>Last message</th></tr>
+{% for c in convs %}<tr><td><a href="/dealers/{{ client.id }}/conversations/{{ c.id }}">#{{ c.id }}</a>{% if c.simulated %} <span class="pill sim">SIM</span>{% endif %}</td><td>{{ channel_labels.get(c.channel, c.channel) }}</td>
+<td>{{ vtitle(vehicles[c.vehicle_id]) if c.vehicle_id in vehicles else "—" }}</td><td>{{ c.preferred_language|upper }}</td>
+<td>{{ cst(c.status) }}{% if c.human_takeover %} <span class="pill">staff took over</span>{% endif %}{% if c.opted_out %} {{ cst('OPT_OUT') }}{% endif %}</td>
+<td>{{ cst(c.escalation_status) if c.escalation_status != "NONE" else "" }}</td><td>{{ c.appointment_status|label if c.appointment_status != "NONE" else "" }}</td><td class="small">{{ c.last_inbound_at|local if c.last_inbound_at else "" }}</td></tr>
+{% else %}<tr><td colspan="8" class="muted">No conversations yet.</td></tr>{% endfor %}</table></div></div>
+{% if ctx.can('respond') %}<div class="card"><h2>Log a Facebook Marketplace message</h2>
+<p class="small muted">Meta provides no API for Marketplace chats. Read the buyer's message in Facebook yourself, paste it here, and you'll get a drafted reply to paste back. This app never logs in to Facebook.</p>
+<form method="post" action="/dealers/{{ client.id }}/marketplace/intake"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="grid"><div><label>Thread label (buyer name + listing)</label><input name="thread_label" required placeholder="Maria – 2019 Civic"></div>
+<div><label>Buyer first name (optional)</label><input name="buyer_name"></div></div>
+<label>Buyer's message</label><textarea name="text" required rows="3" style="width:100%"></textarea><p><button>Log message and draft a reply</button></p></form></div>{% endif %}
+{% endblock %}

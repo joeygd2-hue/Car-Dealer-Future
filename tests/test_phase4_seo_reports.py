@@ -199,6 +199,8 @@ def test_report_email_is_simulated_without_authorization(client, db, t):
 
     cid, h = t["alpha"].id, t["h"]["rep"]
     r = client.post("/api/v1/client-reports", headers=h, json={"client_id": cid, "period_start": "2026-09-01", "period_end": "2026-09-30"}).json()
+    assert client.post(f"/api/v1/client-reports/{r['id']}/approve", headers=h).status_code == 403  # rep cannot approve
+    assert client.post(f"/api/v1/client-reports/{r['id']}/approve", headers=t["h"]["manager"]).status_code == 200
     assert client.post(f"/api/v1/client-reports/{r['id']}/send", headers=h, json={"to": "owner@alpha.example"}).json()["delivery"] == "simulated"
     assert len(MockEmailProvider.outbox) == 1 and MockEmailProvider.outbox[0][1].simulated
     got = client.get(f"/api/v1/client-reports/{r['id']}", headers=h).json()
@@ -212,6 +214,7 @@ def test_report_email_not_sent_with_real_provider_unless_authorized(db, t, monke
     monkeypatch.setattr(get_settings(), "email_provider", "smtp")
     monkeypatch.setattr(get_settings(), "client_email_sending_enabled", True)
     r = client_reports.generate_report(db, t["alpha"], date(2026, 9, 1), date(2026, 9, 30), None)
+    client_reports.approve_report(db, r, db.query(User).filter_by(role="manager").first())
     sent = []
     monkeypatch.setattr(client_email, "get_email_provider", lambda: (_ for _ in ()).throw(AssertionError("must not send")))
     outcome = client_reports.send_report(db, r, "owner@alpha.example", None)

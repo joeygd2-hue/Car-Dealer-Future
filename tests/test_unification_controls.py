@@ -254,3 +254,86 @@ def test_api_rate_limiter_memory_is_bounded():
         lim.allow(f"ip{i}", 5, window=0.0)
     assert len(lim.hits) <= 10_001
 
+
+# --- Decision D4: client reports need configuration AND per-report manager approval ---------------
+
+@pytest.fixture
+def every_switch_on(db, monkeypatch):
+    """Sending switch on, a real provider, a connected report_email integration and the automation enabled."""
+    from dealerflow.config import get_settings
+    from dealerflow.models import AutomationSetting, IntegrationConnection
+    from dealerflow.services import client_email
+    from tests.phase4 import two_clients
+
+    t = two_clients(db)
+    a = t["alpha"]
+    a.status = "active"
+    db.add(IntegrationConnection(client_id=a.id, kind="report_email", provider="smtp", status="connected"))
+    db.add(AutomationSetting(client_id=a.id, feature="monthly_report_email", enabled=True))
+    db.commit()
+    monkeypatch.setattr(get_settings(), "email_provider", "smtp")
+    monkeypatch.setattr(get_settings(), "client_email_sending_enabled", True)
+    sent = []
+
+    class Recorder:
+        name = "smtp"
+
+        def send(self, msg):
+            sent.append(msg)
+
+    monkeypatch.setattr(client_email, "get_email_provider", lambda: Recorder())
+    return t, sent
+
+
+def test_monthly_report_job_never_emails_even_with_every_switch_on(db, every_switch_on):
+    from dealerflow.models import ClientReport
+    from dealerflow.services.maintenance import monthly_reports_job
+
+    t, sent = every_switch_on
+    assert monthly_reports_job(db, {})["reports"] >= 1
+    r = db.scalar(select(ClientReport).where(ClientReport.client_id == t["alpha"].id))
+    assert sent == [] and r.delivery is None and r.status == "draft"
+
+
+def test_unapproved_report_is_never_sent(db, every_switch_on):
+    from datetime import date
+
+    from dealerflow.services import client_reports
+
+    t, sent = every_switch_on
+    r = client_reports.generate_report(db, t["alpha"], date(2026, 9, 1), date(2026, 9, 30), None)
+    assert client_reports.send_report(db, r, "owner@alpha.example", t["u"]["admin"]).startswith("not_sent")
+    assert sent == []
+    with pytest.raises(PermissionError):
+        client_reports.approve_report(db, r, t["u"]["rep"])
+    client_reports.approve_report(db, r, t["u"]["manager"])
+    assert client_reports.send_report(db, r, "owner@alpha.example", t["u"]["manager"]) == "sent" and len(sent) == 1
+
+
+def test_report_approval_is_void_if_the_report_changes(db, every_switch_on):
+    from datetime import date
+
+    from dealerflow.services import client_reports
+
+    t, sent = every_switch_on
+    r = client_reports.generate_report(db, t["alpha"], date(2026, 9, 1), date(2026, 9, 30), None)
+    client_reports.approve_report(db, r, t["u"]["manager"])
+    r.data = dict(r.data, attribution_note="edited after approval")
+    assert client_reports.send_report(db, r, "owner@alpha.example", t["u"]["manager"]).startswith("not_sent")
+    assert sent == []
+
+
+def test_emergency_stop_blocks_an_approved_report(db, every_switch_on):
+    from datetime import date
+
+    from dealerflow.integrations.errors import ExternalActionsHalted
+    from dealerflow.services import client_reports
+
+    t, sent = every_switch_on
+    r = client_reports.generate_report(db, t["alpha"], date(2026, 9, 1), date(2026, 9, 30), None)
+    client_reports.approve_report(db, r, t["u"]["manager"])
+    db.commit()
+    _emergency_stop()
+    with pytest.raises(ExternalActionsHalted):
+        client_reports.send_report(db, r, "owner@alpha.example", t["u"]["manager"])
+    assert sent == []

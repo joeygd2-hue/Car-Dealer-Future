@@ -669,7 +669,8 @@ def report_create(body: ReportIn, user: User = Depends(require("rep")), db: Sess
 @router.get("/client-reports/{rid}")
 def report_get(rid: int, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
     r = _get(db, ClientReport, rid)
-    return {"id": r.id, "client_id": r.client_id, "status": r.status, "data": r.data, "delivery": r.delivery}
+    return {"id": r.id, "client_id": r.client_id, "status": r.status, "data": r.data, "delivery": r.delivery,
+            "approved": client_reports.is_approved(r)}
 
 
 @router.post("/client-reports/{rid}/publish")
@@ -678,6 +679,13 @@ def report_publish(rid: int, user: User = Depends(require("rep")), db: Session =
     if r.status == "draft":
         r.status = "final"
     return {"id": r.id, "status": r.status}
+
+
+@router.post("/client-reports/{rid}/approve")
+def report_approve(rid: int, user: User = Depends(require("manager")), db: Session = Depends(get_db)):
+    r = _get(db, ClientReport, rid)
+    client_reports.approve_report(db, r, user)
+    return {"id": r.id, "status": r.status, "approved_at": r.approved_at.isoformat()}
 
 
 class SendIn(BaseModel):

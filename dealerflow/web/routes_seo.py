@@ -173,6 +173,13 @@ def report_publish(rid: int, request: Request, user: User = Depends(require("rep
     return RedirectResponse(f"/client-reports/{rid}", status_code=303)
 
 
+@router.post("/client-reports/{rid}/approve")
+def report_approve(rid: int, request: Request, user: User = Depends(require("manager")), db: Session = Depends(get_db)):
+    client_reports.approve_report(db, _report(db, rid), user)
+    flash(request, "Approved. This version of the report can now be emailed.")
+    return RedirectResponse(f"/client-reports/{rid}", status_code=303)
+
+
 @router.post("/client-reports/{rid}/send")
 def report_send(rid: int, request: Request, to: str = Form(...), user: User = Depends(require("rep")), db: Session = Depends(get_db)):
     r = _report(db, rid)

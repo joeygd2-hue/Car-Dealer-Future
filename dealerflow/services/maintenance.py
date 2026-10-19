@@ -135,9 +135,8 @@ def retention_job(db: Session, payload: dict) -> dict:
 
 @handler("monthly_reports")
 def monthly_reports_job(db: Session, payload: dict) -> dict:
-    """Draft last month's report for each active client; email it only where that automation is enabled."""
-    from .client_reports import generate_report, previous_month, send_report
-    from .onboarding import automation_enabled
+    """Draft last month's report for each active client. Never emails: a manager approves and sends (decision D4)."""
+    from .client_reports import generate_report, previous_month
 
     start, end = previous_month(utcnow().date())
     made = 0
@@ -146,9 +145,6 @@ def monthly_reports_job(db: Session, payload: dict) -> dict:
             continue
         report = generate_report(db, client, start, end, None)
         made += 1
-        if automation_enabled(db, client.id, "monthly_report_email") and client.contact_email:
-            report.status = "final"
-            send_report(db, report, client.contact_email, None)
     return {"reports": made, "period": f"{start}..{end}"}
 
 

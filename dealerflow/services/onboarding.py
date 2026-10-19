@@ -50,7 +50,7 @@ AUTOMATION_PREREQS: dict[str, dict] = {
         "integrations": [],
     },
     "monthly_report_email": {
-        "label": "Automatic monthly report emails",
+        "label": "Monthly report emails (each report needs manager approval before it is sent)",
         "steps": ["business_details", "client_approval", "initial_report"],
         "integrations": ["report_email"],
     },

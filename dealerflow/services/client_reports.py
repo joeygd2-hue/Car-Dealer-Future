@@ -6,6 +6,8 @@ attributes sales or revenue to our service.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import date, datetime, timedelta
 from statistics import median
 
@@ -14,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from .. import audit
 from ..db import utcnow
+from ..security import role_at_least
 from ..integrations.listing_channels import CHANNELS as LISTING_CHANNELS
 from ..models import (
     Appointment,
@@ -208,8 +211,29 @@ def report_text(report: ClientReport) -> str:
     return "\n".join(lines)
 
 
+def report_digest(report: ClientReport) -> str:
+    return hashlib.sha256(json.dumps(report.data, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def is_approved(report: ClientReport) -> bool:
+    return bool(report.approved_at and report.approved_digest and report.approved_digest == report_digest(report))
+
+
+def approve_report(db: Session, report: ClientReport, actor: User) -> None:
+    """Manager approval of this exact report snapshot; required before any email delivery (decision D4)."""
+    if not role_at_least(actor.role, "manager") or actor.client_id is not None:
+        raise PermissionError("Only a staff manager can approve a client report")
+    report.approved_by_id, report.approved_at, report.approved_digest = actor.id, utcnow(), report_digest(report)
+    if report.status == "draft":
+        report.status = "final"
+    audit.record(db, "report.approved", actor=actor, entity=report, details={"digest": report.approved_digest[:12]})
+
+
 def send_report(db: Session, report: ClientReport, to: str, actor: User | None) -> str:
-    """Email the report through the authorized provider; otherwise it is recorded as SIMULATED / not sent."""
+    """Email an approved report through the authorized provider; otherwise it is recorded as SIMULATED / not sent."""
+    if not is_approved(report):
+        audit.record(db, "report.send_refused", actor=actor, entity=report, details={"reason": "not approved"})
+        return "not_sent: not approved by a manager"
     if report.delivery == "sent" and report.sent_to == to:
         return "sent"  # never send the same report twice to the same recipient
     client = db.get(Client, report.client_id)

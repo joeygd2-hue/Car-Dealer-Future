@@ -11,12 +11,17 @@
     <div class="no-print row">
       <a class="btn secondary" href="/client-reports/{{ report.id }}/download">Download HTML</a>
       {% if report.status == 'draft' %}<form method="post" action="/client-reports/{{ report.id }}/publish" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Publish to client portal</button></form>{% endif %}
+      {% if not report.approved_at %}
+      {% if user.role in ('manager', 'admin') %}<form method="post" action="/client-reports/{{ report.id }}/approve" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Approve for email</button></form>{% endif %}
+      <span class="muted">Email needs a manager's approval of this report.</span>
+      {% else %}
       <form method="post" action="/client-reports/{{ report.id }}/send" class="inline">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <label class="sr" for="to">Recipient</label>
         <input id="to" name="to" type="email" value="{{ client.contact_email or '' }}" required>
         <button type="submit">Email report</button>
       </form>
+      {% endif %}
     </div>
     {% endif %}
   </div>

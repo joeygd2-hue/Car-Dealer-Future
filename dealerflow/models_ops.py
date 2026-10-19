@@ -528,3 +528,7 @@ class ClientReport(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime)
     sent_to: Mapped[str | None] = mapped_column(String(255))
     delivery: Mapped[str | None] = mapped_column(String(40))
+    # Decision D4: a manager approves this exact snapshot (digest of ``data``) before it can be emailed.
+    approved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", name="fk_client_reports_approved_by_id"))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    approved_digest: Mapped[str | None] = mapped_column(String(64))

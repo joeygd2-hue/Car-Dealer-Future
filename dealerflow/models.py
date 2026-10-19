@@ -25,11 +25,16 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy import false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base, utcnow
 
-ROLES = ("viewer", "rep", "manager", "admin")
+# "client" is a dealership-client user bound to one ``clients`` row. It is deliberately the lowest
+# rank, so require("viewer") and above never admit it; web.deps.current_user additionally confines
+# client users to the client portal.
+ROLES = ("client", "viewer", "rep", "manager", "admin")
+STAFF_ROLES = ("viewer", "rep", "manager", "admin")
 
 DEALERSHIP_TYPES = ("independent_used", "buy_here_pay_here", "franchise", "wholesale", "other", "unknown")
 
@@ -73,10 +78,14 @@ class User(TimestampMixin, Base):
     api_key_hash: Mapped[str | None] = mapped_column(String(128), unique=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime)
-    # Phase 2: a dealership (client) user is bound to exactly one client and can only use the
-    # dealership workspace (/dealers/...). Staff users leave both columns NULL.
-    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", use_alter=True, name="fk_users_client_id"), index=True)
+    # Dealership users have role == "client" and are bound to exactly one client: they can use only that
+    # dealership's workspace (/dealers/...) and portal (/portal). Staff users leave both columns NULL.
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE", name="fk_users_client_id", use_alter=True), index=True)
     client_role: Mapped[str | None] = mapped_column(String(20))  # dealer_admin | dealer_reviewer | dealer_viewer
+
+    @property
+    def is_client(self) -> bool:
+        return self.role == "client"
 
 
 class PipelineStage(Base):
@@ -389,6 +398,21 @@ class CostEntry(Base):
     is_estimate: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     ref: Mapped[str | None] = mapped_column(String(120))  # e.g. job key or provider request id
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # Phase 4 usage tracking. ``quantity``/``metric`` are what the provider reported (measured);
+    # ``verified`` means ``amount`` was copied from provider billing data rather than estimated.
+    provider: Mapped[str | None] = mapped_column(String(80), index=True)
+    metric: Mapped[str | None] = mapped_column(String(60))
+    quantity: Mapped[float | None] = mapped_column(Numeric(18, 4))
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", ondelete="SET NULL", name="fk_cost_entries_client_id"), index=True)
+    verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+
+    @property
+    def basis(self) -> str:
+        if self.verified:
+            return "verified_billing"
+        if self.quantity is not None and not float(self.amount or 0) and not self.is_estimate:
+            return "unknown"  # usage measured, but no rate on file: cost is not claimed
+        return "estimated" if self.is_estimate else "recorded"
 
 
 class AppSetting(Base):
@@ -547,5 +571,7 @@ class KnowledgeItem(TimestampMixin, Base):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
-# Phase 2 (dealership inventory, listings, publishing) models live in their own module.
+# Phase 2-4 models live in their own modules; importing them here registers them with Alembic.
+from .models_ops import *  # noqa: E402,F401,F403
 from .models_dealer import *  # noqa: E402,F401,F403
+from .models_interim import *  # noqa: E402,F401,F403

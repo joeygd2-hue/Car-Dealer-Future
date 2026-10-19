@@ -52,9 +52,16 @@ def test_dealer_user_cannot_reach_another_dealership(client, two):
 def test_dealer_user_cannot_open_staff_pages(client, two):
     dealer_login(client, "owner@alpha.example")
     r = client.get("/", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == f"/dealers/{two['a']}"
-    for path in ("/prospects", "/agent", "/outreach", "/settings", "/dealers/" if False else "/audit", "/api/v1/prospects"):
+    assert r.status_code == 303 and r.headers["location"] == "/portal"
+    for path in ("/prospects", "/agent", "/outreach", "/settings", "/audit", "/api/v1/prospects", "/clients", "/finance",
+                 "/seo", "/tickets", f"/clients/{two['a']}", "/api/v1/clients", "/api/v1/invoices"):
         assert client.get(path).status_code == 403, path
+    # The unified client user reaches its portal and its own inventory workspace, never another client's.
+    portal = client.get("/portal")
+    assert portal.status_code == 200 and f'href="/dealers/{two["a"]}"' in portal.text
+    assert client.get(f"/dealers/{two['a']}").status_code == 200
+    assert client.get(f"/dealers/{two['b']}").status_code == 404
+    assert client.get(f"/api/v1/dealers/{two['b']}/vehicles").status_code == 404
     assert client.get("/dealers", follow_redirects=False).headers["location"] == f"/dealers/{two['a']}"
 
 

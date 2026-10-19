@@ -6,7 +6,8 @@ from sqlalchemy import select, update
 
 from dealerflow.db import session_scope, utcnow
 from dealerflow.models import Job, User
-from dealerflow.models_dealer import Client, InventorySource, Listing, Vehicle
+from dealerflow.models import Client
+from dealerflow.models_dealer import InventorySource, Listing, Vehicle
 from dealerflow.security import hash_password
 from dealerflow.services.inventory.importer import run_import
 from dealerflow.services.inventory.parsers import parse_csv
@@ -21,9 +22,9 @@ C300,,2018,Ford,F-150,XLT,Truck,82000,26500,White,Gray,Automatic,4x4,Gasoline,To
 """
 
 
-def make_client(name: str = "Alpha Auto", slug: str | None = None) -> int:
+def make_client(name: str = "Alpha Auto") -> int:
     with session_scope() as db:
-        c = Client(name=name, slug=slug or name.lower().replace(" ", "-"), city="Sugar Land", state="TX")
+        c = Client(name=name, city="Sugar Land", state="TX", status="active")
         db.add(c)
         db.flush()
         return c.id
@@ -31,7 +32,7 @@ def make_client(name: str = "Alpha Auto", slug: str | None = None) -> int:
 
 def make_dealer_user(client_id: int, email: str, role: str = "dealer_admin") -> int:
     with session_scope() as db:
-        u = User(email=email, name=email.split("@")[0], role="viewer", password_hash=hash_password(PASSWORD),
+        u = User(email=email, name=email.split("@")[0], role="client", password_hash=hash_password(PASSWORD),
                  client_id=client_id, client_role=role)
         db.add(u)
         db.flush()

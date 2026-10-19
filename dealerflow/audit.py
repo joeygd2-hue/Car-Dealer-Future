@@ -143,3 +143,32 @@ def track_integration(db: Session, provider: str, action: str, *, simulated: boo
         raise
     else:
         log_integration(db, provider, action, "ok", detail=ctx.get("detail", ""), simulated=simulated, duration_ms=ms())
+
+
+def record(db: Session, action: str, *, actor=None, entity=None, client_id: int | None = None,
+           details: dict[str, Any] | None = None, ip: str | None = None) -> AuditLog:
+    """Convenience wrapper over ``audit`` for Phase 2-4 code: derives entity type/id and client from ``entity``.
+
+    Values whose key looks secret are redacted before storage.
+    """
+    data = _scrub(dict(details or {}))
+    if client_id is None and entity is not None:
+        client_id = getattr(entity, "client_id", None)
+    if client_id is not None:
+        data["client_id"] = client_id
+    return audit(db, action, actor_id=getattr(actor, "id", None),
+                 entity_type=type(entity).__name__ if entity is not None else None,
+                 entity_id=getattr(entity, "id", None) if entity is not None else None, data=data or None, ip=ip)
+
+
+_SENSITIVE_KEYS = ("password", "token", "secret", "api_key", "authorization", "card", "cvv")
+
+
+def _scrub(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: "[redacted]" if any(s in str(k).lower() for s in _SENSITIVE_KEYS) else _scrub(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub(v) for v in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)

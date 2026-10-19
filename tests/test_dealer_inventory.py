@@ -190,3 +190,29 @@ def test_stale_scan_flags_unconfirmed_availability(cid):
     ctx = system_context(cid)
     assert all(v.stale for v in ctx.db.scalars(select(Vehicle)).all())
     ctx.close()
+
+
+def test_scheduled_feed_sync_requires_the_inventory_sync_automation(cid):
+    """Phase 4 onboarding gate: no scheduled feed sync until the client's inventory_sync automation is on."""
+    from dealerflow.db import session_scope
+    from dealerflow.models import AutomationSetting, Job
+    from dealerflow.services import dealer_jobs
+    from dealerflow.tenancy import system_context
+    ctx = system_context(cid)
+    src = InventorySource(client_id=cid, name="DMS feed", source_type="feed_api", config={"url": "https://dms.example.com/f.json"},
+                          schedule_minutes=60, authorization_note="Owner authorised the feed")
+    ctx.db.add(src)
+    ctx.db.commit()
+    sid = src.id
+    ctx.close()
+
+    def sync_jobs(db):
+        return [j for j in db.scalars(select(Job).where(Job.kind == "inventory_sync")) if j.payload.get("source_id") == sid]
+
+    with session_scope() as db:
+        dealer_jobs.schedule(db)
+        assert sync_jobs(db) == []
+        db.add(AutomationSetting(client_id=cid, feature="inventory_sync", enabled=True))
+        db.flush()
+        dealer_jobs.schedule(db)
+        assert len(sync_jobs(db)) == 1

@@ -187,6 +187,7 @@ def test_ai_output_still_passes_through_guardrails(setup, monkeypatch):
     from dealerflow.integrations import llm
     from dealerflow.services.listings import ai_generator
     monkeypatch.setenv("DF_LISTING_AI_ENABLED", "true")
+    monkeypatch.setenv("DF_AI_ENABLED", "true")
     monkeypatch.setenv("DF_ANTHROPIC_API_KEY", "test-key")
     app_settings.cache_clear()
 

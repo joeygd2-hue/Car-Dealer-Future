@@ -111,7 +111,7 @@ def generate_listing(ctx: ClientContext, listing_id: int, *, feedback: str | Non
     model, meta = None, None
     if want_ai:
         try:
-            content, uncertainty, meta = ai_generator.generate(facts, s, feedback)
+            content, uncertainty, meta = ai_generator.generate(facts, s, feedback, db=ctx.db, client_id=ctx.client_id)
             origin, model = "ai_generator", meta["model"]
         except Exception as exc:  # noqa: BLE001 - fall back, but say so
             content, uncertainty = template_generator.generate(facts, s)
@@ -126,8 +126,8 @@ def generate_listing(ctx: ClientContext, listing_id: int, *, feedback: str | Non
     rev = _store_revision(ctx, lst, v, facts, content, uncertainty, origin, s_version, s, model=model, feedback=feedback)
     _audit(ctx, "listing.generated", "listing", lst.id, revision=rev.revision_number, origin=origin,
            errors=len(rev.guardrails["errors"]), warnings=len(rev.guardrails["warnings"]), **({"ai": meta} if meta else {}))
-    # Measured AI cost (from API token usage) is kept in the audit entry above. It is deliberately not written to
-    # cost_entries, which Phase 1 uses for customer-acquisition cost.
+    # Measured AI token usage is also recorded per client in cost_entries (services/usage), which keeps it out of
+    # customer-acquisition cost (reports exclude client-attributed costs).
     ctx.db.flush()
     return rev
 

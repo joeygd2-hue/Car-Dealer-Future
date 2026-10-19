@@ -178,9 +178,11 @@ def weekly(db: Session, end: datetime | None = None, *, include_simulated: bool 
                         "cost_per_meeting": round(spend / mtg, 2) if mtg and spend else None})
 
     spend_actual = float(db.scalar(select(func.coalesce(func.sum(CostEntry.amount), 0)).where(
-        CostEntry.incurred_on >= start, CostEntry.incurred_on < end, CostEntry.is_estimate.is_(False))) or 0)
+        CostEntry.incurred_on >= start, CostEntry.incurred_on < end, CostEntry.is_estimate.is_(False),
+        CostEntry.client_id.is_(None))) or 0)  # client-attributed costs are delivery, not acquisition
     spend_est = float(db.scalar(select(func.coalesce(func.sum(CostEntry.amount), 0)).where(
-        CostEntry.incurred_on >= start, CostEntry.incurred_on < end, CostEntry.is_estimate.is_(True))) or 0)
+        CostEntry.incurred_on >= start, CostEntry.incurred_on < end, CostEntry.is_estimate.is_(True),
+        CostEntry.client_id.is_(None))) or 0)  # client-attributed costs are delivery, not acquisition
     cac = round((spend_actual + spend_est) / won, 2) if won and (spend_actual + spend_est) else None
 
     return {"start": start, "end": end, "include_simulated": include_simulated, "funnel": funnel, "sources": sources,

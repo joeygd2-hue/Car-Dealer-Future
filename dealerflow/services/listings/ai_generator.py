@@ -45,7 +45,8 @@ Rules (all mandatory):
 - Call to action: invite questions or a test drive using only the dealership contact details provided."""
 
 
-def generate(facts: dict[str, Any], s: ListingSettings, feedback: str | None = None) -> tuple[dict[str, Any], list[str], dict]:
+def generate(facts: dict[str, Any], s: ListingSettings, feedback: str | None = None, *, db=None,
+             client_id: int | None = None) -> tuple[dict[str, Any], list[str], dict]:
     base, uncertainty = template_generator.generate(facts, s)
     lim = s.character_limits.get("facebook_marketplace") or s.character_limits["default"]
     system = SYSTEM.format(title_limit=lim.title, desc_limit=min(lim.description, 3000), voice=s.brand_voice,
@@ -55,7 +56,7 @@ def generate(facts: dict[str, Any], s: ListingSettings, feedback: str | None = N
     user = "Vehicle facts (verified):\n" + json.dumps(prompt_facts, ensure_ascii=False, indent=1)
     if feedback:
         user += "\n\nReviewer feedback on the previous draft (apply it only if it does not conflict with the rules):\n" + feedback[:2000]
-    result = structured_call(system, user, ListingCopy, max_tokens=8000)
+    result = structured_call(system, user, ListingCopy, max_tokens=8000, db=db, feature="listing_generate", client_id=client_id)
     copy: ListingCopy = result.parsed
     content = dict(base)
     for lang in s.languages:

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Finance{% endblock %}
+{% block content %}
+<h1>Finance</h1>
+<nav class="subnav" aria-label="Finance"><a href="/finance/invoices">Invoices</a><a href="/finance/expenses">Expenses</a><a href="/finance/reconciliation">Reconciliation</a></nav>
+<form method="get" action="/finance" class="row">
+  <label>From <input type="date" name="start" value="{{ start }}"></label>
+  <label>To <input type="date" name="end" value="{{ end }}"></label>
+  <button type="submit">Apply</button>
+  <span class="muted">Exports:</span>
+  {% for k in ['summary','invoices','payments','expenses'] %}<a href="/finance/export/{{ k }}.csv?start={{ start }}&end={{ end }}">{{ k }}.csv</a>{% endfor %}
+</form>
+
+<h2>Actuals <span class="muted">({{ r.period.start }} – {{ r.period.end }}, {{ r.period.currency }})</span></h2>
+<div class="grid">
+  <div class="stat"><span class="l">Recorded revenue</span><span class="n">{{ r.recorded_revenue_cents|money }}</span><span class="muted">issued invoices − credits</span></div>
+  <div class="stat"><span class="l">Collected (net)</span><span class="n">{{ r.collected_net_cents|money }}</span><span class="muted">confirmed payments − refunds</span></div>
+  <div class="stat"><span class="l">Outstanding receivables</span><span class="n">{{ r.outstanding_receivables_cents|money }}</span><span class="muted">as of {{ r.period.end }}</span></div>
+  <div class="stat"><span class="l">Recorded expenses</span><span class="n">{{ r.expenses_cents|money }}</span></div>
+  <div class="stat"><span class="l">Operating result (cash)</span><span class="n">{{ r.operating_result_cash_cents|money }}</span></div>
+  <div class="stat"><span class="l">Operating result (accrual)</span><span class="n">{{ r.operating_result_accrual_cents|money }}</span></div>
+</div>
+{% if r.pending_payments_cents %}<p class="note">{{ r.pending_payments_cents|money }} in pending (unconfirmed) payments is excluded from collected cash.</p>{% endif %}
+{% if r.excluded_other_currency_invoices %}<p class="note">{{ r.excluded_other_currency_invoices }} invoice(s) in other currencies are excluded (no conversion is applied).</p>{% endif %}
+
+<h2>Recurring revenue <span class="muted">(contracted, from active agreements — not cash)</span></h2>
+<div class="grid">
+  <div class="stat"><span class="l">MRR</span><span class="n">{{ r.mrr_cents|money }}</span></div>
+  <div class="stat"><span class="l">ARR (MRR × 12)</span><span class="n">{{ r.arr_cents|money }}</span></div>
+  <div class="stat"><span class="l">Active clients</span><span class="n">{{ r.active_clients }}</span></div>
+  <div class="stat"><span class="l">Avg MRR / active client</span><span class="n">{{ r.avg_mrr_per_active_client_cents|money }}</span></div>
+  <div class="stat"><span class="l">Churn (period)</span><span class="n">{{ r.churn_rate_percent if r.churn_rate_percent is not none else '—' }}{% if r.churn_rate_percent is not none %}%{% endif %}</span><span class="muted">{{ r.clients_churned }} of {{ r.clients_active_at_start }} at start</span></div>
+  <div class="stat"><span class="l">Retention</span><span class="n">{{ r.retention_rate_percent if r.retention_rate_percent is not none else '—' }}{% if r.retention_rate_percent is not none %}%{% endif %}</span></div>
+</div>
+
+<h2>Acquisition efficiency</h2>
+<table><tbody>
+  <tr><td>Acquisition spend (categories flagged as acquisition)</td><td>{{ r.acquisition_spend_cents|money }}</td></tr>
+  <tr><td>New clients</td><td>{{ r.new_clients }}</td></tr>
+  <tr><td>Cost per acquired client</td><td>{{ r.cost_per_acquired_client_cents|money if r.cost_per_acquired_client_cents is not none else 'Not measurable (no new clients)' }}</td></tr>
+  <tr><td>Qualified leads</td><td>{{ r.qualified_leads }}</td></tr>
+  <tr><td>Cost per qualified lead</td><td>{{ r.cost_per_qualified_lead_cents|money if r.cost_per_qualified_lead_cents is not none else 'Not measurable' }}</td></tr>
+  <tr><td>Meetings booked</td><td>{{ r.meetings_booked }}</td></tr>
+  <tr><td>Cost per booked meeting</td><td>{{ r.cost_per_booked_meeting_cents|money if r.cost_per_booked_meeting_cents is not none else 'Not measurable' }}</td></tr>
+</tbody></table>
+
+<h2>Receivables aging</h2>
+<table><thead><tr>{% for k in r.receivables_aging_cents %}<th scope="col">{{ k|label }}</th>{% endfor %}</tr></thead><tbody><tr>{% for v in r.receivables_aging_cents.values() %}<td>{{ v|money }}</td>{% endfor %}</tr></tbody></table>
+{% if r.outstanding_invoices %}<table><thead><tr><th scope="col">Invoice</th><th scope="col">Client</th><th scope="col">Due</th><th scope="col">Days overdue</th><th scope="col">Balance</th></tr></thead><tbody>
+{% for i in r.outstanding_invoices %}<tr><td>{{ i.number }}</td><td>{{ i.client }}</td><td>{{ i.due_date }}</td><td>{{ i.days_overdue }}</td><td>{{ i.balance_cents|money }}</td></tr>{% endfor %}</tbody></table>{% endif %}
+
+<h2>By client</h2>
+{% if r.per_client %}<table><thead><tr><th scope="col">Client</th><th scope="col">Recorded revenue</th><th scope="col">Collected</th><th scope="col">Direct expenses</th><th scope="col">Usage cost</th><th scope="col">Gross margin</th></tr></thead><tbody>
+{% for c in r.per_client %}<tr><td>{{ c.client }}</td><td>{{ c.recorded_revenue_cents|money }}</td><td>{{ c.collected_cents|money }}</td><td>{{ c.direct_expense_cents|money }}</td>
+<td>{{ c.usage_cost_cents|money }}{% if c.usage_cost_includes_estimates %} <span class="pill estimated">estimate</span>{% endif %}</td><td>{{ c.gross_margin_percent ~ '%' if c.gross_margin_percent is not none else 'No allocated costs' }}</td></tr>{% endfor %}
+</tbody></table>
+<p class="muted">{{ r.cost_allocation.note }} Unallocated expenses: {{ r.cost_allocation.unallocated_expense_cents|money }}.</p>{% else %}<p class="empty">No client revenue or costs in this period.</p>{% endif %}
+
+<h2>Expenses by category</h2>
+{% if r.expenses_by_category_cents %}<table><tbody>{% for k, v in r.expenses_by_category_cents.items() %}<tr><td>{{ k }}</td><td>{{ v|money }}</td></tr>{% endfor %}</tbody></table>{% else %}<p class="empty">No expenses recorded.</p>{% endif %}
+<p class="note">{{ r.tax_disclaimer }}</p>
+
+<h2>Cash flow</h2>
+<table><thead><tr><th scope="col">Month</th><th scope="col">Basis</th><th scope="col">Cash in</th><th scope="col">Cash out</th><th scope="col">Net</th></tr></thead><tbody>
+{% for m in flow.actuals + flow.forecast %}<tr class="{{ m.basis }}"><td>{{ m.month }}</td><td><span class="pill {{ m.basis }}">{{ m.basis }}</span></td><td>{{ m.cash_in_cents|money }}</td><td>{{ m.cash_out_cents|money }}</td><td>{{ m.net_cents|money }}</td></tr>{% endfor %}
+</tbody></table>
+<ul class="muted">{% for a in flow.forecast_assumptions %}<li>{{ a }}</li>{% endfor %}</ul>
+
+<section class="card">
+  <h2>Break-even scenario <span class="pill hypothetical">hypothetical</span></h2>
+  <form method="post" action="/finance/break-even" class="fgrid">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Fixed monthly costs ($)<input name="fixed" value="{{ '%.2f'|format(suggested_fixed / 100) }}" inputmode="decimal" required></label>
+    <label>Price per client per month ($)<input name="price" inputmode="decimal" required></label>
+    <label>Variable cost per client per month ($)<input name="variable" value="0" inputmode="decimal"></label>
+    <button type="submit">Calculate</button>
+  </form>
+  <p class="muted">Suggested fixed cost = average unallocated monthly expenses over the last 3 months.</p>
+  {% if scenario %}<p><strong>{{ scenario.clients_needed_to_break_even if scenario.clients_needed_to_break_even is not none else 'No break-even' }}</strong> clients needed. Contribution margin {{ scenario.contribution_margin_per_client_cents|money }} per client. <em>{{ scenario.note }}</em></p>{% endif %}
+</section>
+{% endblock %}

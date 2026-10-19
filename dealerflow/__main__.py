@@ -36,7 +36,7 @@ def _migrate() -> None:
 
 def _create_user(email: str, role: str) -> None:
     from .db import session_scope
-    from .models import ROLES, User
+    from .models import STAFF_ROLES as ROLES, User
     from .security import hash_password
 
     if role not in ROLES:
@@ -61,16 +61,18 @@ def _demo_dealer() -> None:
     from sqlalchemy import select
 
     from .db import session_scope
-    from .models_dealer import Client, InventorySource
+    from .models import Client
+    from .models_dealer import InventorySource
     from .services.inventory.importer import run_import
     from .services.inventory.parsers import parse_csv
     from .services.listings.dealer_settings import update_settings
     from .tenancy import system_context
 
     with session_scope() as db:
-        c = db.scalar(select(Client).where(Client.slug == "demo-fixture-motors"))
+        c = db.scalar(select(Client).where(Client.name == "DEMO Fixture Motors (SIMULATED)", Client.simulated.is_(True)))
         if not c:
-            c = Client(name="DEMO Fixture Motors (SIMULATED)", slug="demo-fixture-motors", city="Sugar Land", state="TX", simulated=True)
+            c = Client(name="DEMO Fixture Motors (SIMULATED)", city="Sugar Land", state="TX", simulated=True,
+                       status="active")
             db.add(c)
             db.flush()
         cid = c.id

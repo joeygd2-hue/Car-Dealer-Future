@@ -108,11 +108,8 @@ class Settings(BaseSettings):
     max_feed_bytes: int = 25 * 1024 * 1024
     feed_timeout_seconds: float = 30.0
     publish_max_attempts: int = 5
-    # Listing prose is written by the deterministic template generator unless this is true AND a key is set.
+    # Listing prose is written by the deterministic template generator unless this, DF_AI_ENABLED and a key are all set.
     listing_ai_enabled: bool = False
-    anthropic_api_key: SecretStr = SecretStr("")
-    ai_model: str = "claude-opus-5-5"
-    ai_effort: str = "medium"
     # Nothing is sent to Meta unless this is true AND the dealership's connection is authorized for live publishing.
     meta_live_publishing_allowed: bool = False
     meta_graph_api_version: str = "v24.0"
@@ -131,9 +128,31 @@ class Settings(BaseSettings):
 
     session_max_age_seconds: int = Field(default=60 * 60 * 12)
 
+    # --- Phase 4 ---------------------------------------------------------------------------
+    # Client-facing email (monthly reports, lead summaries). Off by default: messages are recorded
+    # as SIMULATED. Real delivery also needs the client's "report_email" connection marked connected.
+    client_email_sending_enabled: bool = False
+    attachments_dir: str = "./state/attachments"
+    api_rate_limit_per_minute: int = 300
+    crawler_timeout_seconds: float = 15.0
+    pagespeed_api_key: SecretStr = SecretStr("")  # Google PageSpeed Insights API v5 (optional)
+    stripe_webhook_secret: SecretStr = SecretStr("")  # whsec_... ; empty disables the Stripe webhook
+    retention_days_conversations: int = 365
+
+    # --- AI (shared by all phases) ---------------------------------------------------------
+    # Master switch for any Claude API call. Off by default: deterministic templates/rules are used instead.
+    ai_enabled: bool = False
+    anthropic_api_key: SecretStr = SecretStr("")
+    ai_model: str = "claude-opus-5-5"
+    ai_effort: str = "medium"
+
+    @property
+    def ai_available(self) -> bool:
+        return self.ai_enabled and bool(self.anthropic_api_key.get_secret_value())
+
     @property
     def listing_ai_available(self) -> bool:
-        return self.listing_ai_enabled and bool(self.anthropic_api_key.get_secret_value())
+        return self.listing_ai_enabled and self.ai_available
 
     @property
     def target_city_list(self) -> list[str]:
@@ -142,6 +161,23 @@ class Settings(BaseSettings):
     @property
     def working_day_list(self) -> list[int]:
         return [int(d) for d in self.working_days.split(",") if d.strip()]
+
+    def production_problems(self) -> list[str]:
+        """Configuration that blocks startup with DF_ENV=production (see production_warnings for advisories)."""
+        problems = []
+        if len(self.secret_key.get_secret_value()) < 32:
+            problems.append("DF_SECRET_KEY must be a random value of at least 32 characters (python -c 'import secrets; print(secrets.token_urlsafe(48))')")
+        if (self.outreach_sending_enabled or self.client_email_sending_enabled) and not self.base_url.startswith("https://"):
+            problems.append("DF_BASE_URL must be https:// before real email is enabled (unsubscribe links must work for recipients)")
+        return problems
+
+    def production_warnings(self) -> list[str]:
+        warnings = []
+        if not self.base_url.startswith("https://"):
+            warnings.append("DF_BASE_URL is not https://; webhooks and unsubscribe links will not work publicly")
+        if self.database_url.startswith("sqlite"):
+            warnings.append("SQLite is fine for one host; use PostgreSQL for multiple web/worker hosts or managed backups")
+        return warnings
 
     def require_secret_key(self) -> str:
         key = self.secret_key.get_secret_value()

@@ -9,10 +9,9 @@ from __future__ import annotations
 import csv
 import io
 import json
-import re
 from typing import Iterator
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -21,13 +20,13 @@ from ..audit import audit
 from ..config import get_settings
 from ..db import get_db, utcnow
 from ..integrations.listing_channels import CHANNELS
-from ..models import Prospect, User
+from ..models import User
 from ..models_dealer import (
-    CLIENT_ROLES, SOURCE_TYPES, ChannelPublication, Client, ImportRawRecord, ImportRun, InventorySource, Listing,
+    CLIENT_ROLES, SOURCE_TYPES, ChannelPublication, ImportRawRecord, ImportRun, InventorySource, Listing,
     ListingReview, ListingRevision, Vehicle, VehicleChange, VehiclePhoto,
 )
-from ..security import hash_password, role_at_least
 from ..services import dealer_jobs
+from ..services import tenancy as tenancy_service
 from ..services.dealer_errors import BadRequest, NotFound
 from ..services.dealer_reports import dealership_metrics
 from ..services.inventory.feeds import FEED_TYPES, validate_feed_config
@@ -86,34 +85,7 @@ def dealers_index(request: Request, db: Session = Depends(get_db), user: User = 
                              .group_by(Vehicle.client_id)).all())
     pending = dict(db.execute(select(Listing.client_id, func.count()).where(Listing.status == "awaiting_approval")
                               .group_by(Listing.client_id)).all())
-    won = db.scalars(select(Prospect).where(Prospect.stage == "won").order_by(Prospect.name)).all()
-    return render(request, "dealers.html", user, clients=clients, counts=counts, pending=pending, won_prospects=won)
-
-
-@router.post("/dealers")
-def create_client(request: Request, name: str = Form(""), prospect_id: str = Form(""), db: Session = Depends(get_db),
-                  user: User = Depends(current_user)):
-    if user.client_id is not None or not role_at_least(user.role, "manager"):
-        raise HTTPException(403, "Requires manager role")
-    prospect = db.get(Prospect, int(prospect_id)) if prospect_id.strip().isdigit() else None
-    name = (name or (prospect.name if prospect else "")).strip()
-    if not name:
-        flash(request, "Name is required", "error")
-        return go("/dealers")
-    if prospect and db.scalar(select(Client).where(Client.prospect_id == prospect.id)):
-        flash(request, "That prospect is already a client", "error")
-        return go("/dealers")
-    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "client"
-    slug, n = base, 2
-    while db.scalar(select(Client).where(Client.slug == slug)):
-        slug, n = f"{base}-{n}", n + 1
-    c = Client(name=name, slug=slug, prospect_id=prospect.id if prospect else None, city=prospect.city if prospect else None,
-               state=prospect.state if prospect else None, simulated=bool(prospect and prospect.simulated))
-    db.add(c)
-    db.flush()
-    audit(db, "client.created", actor_id=user.id, entity_type="client", entity_id=c.id, data={"prospect_id": c.prospect_id})
-    flash(request, f"Created dealership workspace for {name}")
-    return go(f"/dealers/{c.id}")
+    return render(request, "dealers.html", user, clients=clients, counts=counts, pending=pending)
 
 
 # --- inventory -------------------------------------------------------------------------------------
@@ -549,20 +521,10 @@ async def settings_save(request: Request, ctx: ClientContext = Depends(dealer_ct
 @router.post("/dealers/{client_id}/users")
 def dealer_user_create(request: Request, email: str = Form(...), role: str = Form(...), password: str = Form(...),
                        ctx: ClientContext = Depends(dealer_ctx("manage"))):
-    if role not in CLIENT_ROLES:
-        raise BadRequest("Unknown dealership role")
-    email = email.strip().lower()
-    if ctx.db.scalar(select(User).where(User.email == email)):
-        raise BadRequest("A user with that email already exists")
     try:
-        pw = hash_password(password)
+        tenancy_service.create_client_user(ctx.db, client=ctx.client, email=email, password=password,
+                                           actor=ctx.user, client_role=role)
     except ValueError as exc:
         raise BadRequest(str(exc)) from exc
-    # Dealership users get the lowest staff role as a backstop; client_id is what scopes them.
-    u = User(email=email, name=email.split("@")[0], role="viewer", password_hash=pw, client_id=ctx.client_id, client_role=role)
-    ctx.db.add(u)
-    ctx.db.flush()
-    audit(ctx.db, "client_user.created", actor_id=ctx.actor_id, entity_type="user", entity_id=u.id,
-          data={"client_id": ctx.client_id, "client_role": role})
-    flash(request, f"Created {role.replace('_', ' ')} {email}")
+    flash(request, f"Created {role.replace('_', ' ')} {email.strip().lower()}")
     return go(f"/dealers/{ctx.client_id}/settings")

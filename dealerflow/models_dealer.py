@@ -1,4 +1,6 @@
-"""Phase 2 models: dealership clients, inventory, listings and publishing.
+"""Phase 2 models: dealership inventory, listings and publishing.
+
+The tenant itself is ``models_ops.Client`` (shared with Phase 4).
 
 Tenant isolation (a dealership's data must never reach another dealership):
 
@@ -34,7 +36,7 @@ from sqlalchemy.orm import Mapped, declared_attr, mapped_column
 from .db import Base, utcnow
 
 __all__ = [
-    "CLIENT_ROLES", "SOURCE_TYPES", "LISTING_STATUSES", "PUBLICATION_STATUSES", "TenantMixin", "Client",
+    "CLIENT_ROLES", "SOURCE_TYPES", "LISTING_STATUSES", "PUBLICATION_STATUSES", "TenantMixin",
     "InventorySource", "ImportRun", "ImportRawRecord", "Vehicle", "VehiclePhoto", "VehicleChange",
     "DealerListingSettings", "Listing", "ListingRevision", "ListingReview", "ChannelConnection",
     "ChannelPublication", "PublishOperation",
@@ -54,24 +56,6 @@ class TenantMixin:
     @declared_attr
     def client_id(cls) -> Mapped[int]:  # noqa: N805
         return mapped_column(Integer, ForeignKey("clients.id"), nullable=False, index=True)
-
-
-class Client(Base):
-    """A dealership we serve. ``prospect_id`` links back to the CRM prospect that was won."""
-
-    __tablename__ = "clients"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    prospect_id: Mapped[int | None] = mapped_column(ForeignKey("prospects.id"), unique=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    slug: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)  # active | paused | offboarded
-    timezone: Mapped[str] = mapped_column(String(64), default="America/Chicago", nullable=False)
-    city: Mapped[str | None] = mapped_column(String(120))
-    state: Mapped[str | None] = mapped_column(String(2))
-    simulated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
 class InventorySource(TenantMixin, Base):

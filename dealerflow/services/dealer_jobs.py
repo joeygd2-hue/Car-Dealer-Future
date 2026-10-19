@@ -81,7 +81,7 @@ def run_stale_scan(db: Session, payload: dict) -> dict:
     """Flag vehicles whose availability can no longer be confirmed, and overdue provider confirmations."""
     now = utcnow()
     flagged = overdue = 0
-    for client_id in db.scalars(select(Client.id).where(Client.status == "active")).all():
+    for client_id in db.scalars(select(Client.id).where(Client.status != "cancelled")).all():
         ctx = system_context(client_id)
         try:
             sources = {s.id: s for s in ctx.db.scalars(select(InventorySource))}
@@ -114,12 +114,20 @@ def run_stale_scan(db: Session, payload: dict) -> dict:
 
 
 def schedule(db: Session, now: datetime | None = None) -> int:
-    """Called by the worker every loop: enqueue due feed syncs and the hourly stale scan (idempotent per slot)."""
+    """Called by the worker every loop: enqueue due feed syncs and the hourly stale scan (idempotent per slot).
+
+    Scheduled syncs run only for clients whose "inventory_sync" automation is enabled (Phase 4 onboarding gate:
+    authorisations, validated inventory, connected feed, client approval). "Sync now" by a person is not gated.
+    """
+    from .onboarding import automation_enabled
+
     now = now or utcnow()
     created = 0
-    for src in db.scalars(select(InventorySource).where(InventorySource.enabled.is_(True),
-                                                        InventorySource.schedule_minutes.is_not(None),
-                                                        InventorySource.source_type.in_(FEED_TYPES))):
+    for src in db.scalars(select(InventorySource).join(Client, Client.id == InventorySource.client_id).where(
+            InventorySource.enabled.is_(True), InventorySource.schedule_minutes.is_not(None),
+            InventorySource.source_type.in_(FEED_TYPES), Client.status != "cancelled")):
+        if not automation_enabled(db, src.client_id, "inventory_sync"):
+            continue
         minutes = max(15, src.schedule_minutes or 0)
         slot = int(now.timestamp() // (minutes * 60))
         _, c = enqueue(db, "inventory_sync", f"inventory_sync:{src.id}:{slot}",

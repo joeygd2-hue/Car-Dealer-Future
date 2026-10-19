@@ -8,7 +8,8 @@ from sqlalchemy import select
 
 from dealerflow.db import session_scope
 from dealerflow.models import AuditLog, Prospect
-from dealerflow.models_dealer import Client, Listing
+from dealerflow.models import Client
+from dealerflow.models_dealer import Listing
 from dealerflow.security import new_api_key
 from tests.conftest import login, make_user
 from tests.dealer_helpers import SAMPLE_CSV, dealer_login, drain, page_csrf
@@ -25,9 +26,10 @@ def test_full_dealership_workflow(db, client):
         s.flush()
         pid = p.id
     csrf = login(client, "admin@agency.example")
-    r = client.post("/dealers", data={"csrf": csrf, "prospect_id": str(pid)}, follow_redirects=False)
-    assert r.status_code == 303
+    r = client.post("/clients", data={"csrf": csrf, "prospect_id": str(pid)}, follow_redirects=False)  # one creation path
+    assert r.status_code == 303 and r.headers["location"].startswith("/clients/")
     cid = int(r.headers["location"].rsplit("/", 1)[-1])
+    assert f'href="/dealers/{cid}"' in client.get("/dealers").text
     with session_scope() as s:
         c = s.get(Client, cid)
         assert c.prospect_id == pid and c.simulated  # linked to the CRM record it came from
@@ -110,4 +112,4 @@ def test_every_dealer_page_renders(db, client):
                  f"/dealers/{cid}/reports", f"/dealers/{cid}/settings", "/"):
         r = client.get(path)
         assert r.status_code == 200, (path, r.text[:300])
-    assert "Dealerships" in client.get("/").text  # staff nav links to the workspaces
+    assert 'href="/dealers"' in client.get("/").text  # staff nav links to the workspaces

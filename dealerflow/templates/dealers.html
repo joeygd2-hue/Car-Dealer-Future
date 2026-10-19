@@ -6,8 +6,5 @@
 <td class="small">{{ c.city or '' }} {{ c.state or '' }}</td><td>{{ counts.get(c.id, 0) }}</td><td>{{ pending.get(c.id, 0) }}</td>
 <td class="small">{% if c.prospect_id %}<a href="/prospects/{{ c.prospect_id }}">prospect #{{ c.prospect_id }}</a>{% endif %}</td></tr>
 {% else %}<tr><td colspan="5" class="muted">No dealership clients yet.</td></tr>{% endfor %}</table></div>
-{% if role_at_least(user.role, 'manager') %}<div class="card"><h2>Add a dealership client</h2>
-<form method="post" action="/dealers" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
-<select name="prospect_id"><option value="">— from a won prospect (optional) —</option>{% for p in won_prospects %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select>
-<input name="name" placeholder="or dealership name"><button>Create workspace</button></form></div>{% endif %}
+<p class="small">To add a dealership, create it on the <a href="/clients">Clients</a> page (from a won prospect or by name). It then appears here.</p>
 {% endblock %}

@@ -226,4 +226,18 @@ porting map, what was not ported and why, and the data model are in `docs/archit
 | `test_conv_data_lifecycle.py` | 2 | Retention purge keeps opt-outs; export and deletion with conversations |
 | `test_security_hardening.py` | 8 | MFA enrolment/login/replay/recovery, enforcement, shared lockout and API limits, encrypted receipts, SEO SSRF, deleted users' sessions, production key check |
 
-Results (2026-10-19, commit recorded in the final report): RESULTS_PLACEHOLDER
+Results (2026-10-19, on commit `a257abf`; all automated, SIMULATED providers, no network):
+
+* SQLite: **302 passed** (190 s). Postgres 16 (`DF_TEST_PG_URL`): **301 passed, 1 skipped** (the SQLite-only backup test).
+* Fresh clone of the branch → new venv → `pip install -e ".[dev,postgres]"` → `migrate` (head `0006`) →
+  `demo-dealer` → `pytest`: **302 passed**.
+* `ruff check --select F,E9,B006,B904 .`: 3 findings, all in files this phase did not touch (baseline had 5). No
+  type checker is configured. `pip-audit`: no known vulnerabilities.
+* Migration `0005` with seeded interim data on SQLite and Postgres 16: rows converted, re-run no-op, `alembic check`
+  clean, downgrade → upgrade (also covered by `test_conv_migration.py`).
+* Manual, separate `web` + `worker` processes on SQLite with a headless-Chromium script: **16/16 checks** across the
+  10-step workflow (buyer inquiry → one lead → right inbox → grounded draft marked not sent → edit + approve →
+  SIMULATED send, nothing shown to the visitor → audit trail → test drive pending, draft does not confirm it → other
+  dealership 404 on page and API → emergency stop blocks the send; opt-out removes the reply form), plus no
+  horizontal overflow at 375 px and no console/CSP errors. Killing the worker with `kill -9` left the job pending;
+  a new worker processed it.

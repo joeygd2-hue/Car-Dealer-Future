@@ -47,7 +47,20 @@ KNOWLEDGE = [
 ]
 
 
+class NotMigratedError(RuntimeError):
+    pass
+
+
+def require_migrated(db: Session) -> None:
+    """Refuse to work on a database that was never migrated (tables are created only by Alembic)."""
+    from sqlalchemy import inspect
+
+    if "alembic_version" not in inspect(db.get_bind()).get_table_names():
+        raise NotMigratedError("This database has not been migrated. Run: python -m dealerflow migrate")
+
+
 def seed(db: Session) -> None:
+    require_migrated(db)
     seed_stages(db)
     for name, lang, subject, body in TEMPLATES:
         if not db.scalar(select(Template).where(Template.name == name, Template.language == lang)):

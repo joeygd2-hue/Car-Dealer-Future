@@ -141,9 +141,22 @@ def _demo_customer_messaging(db, cid: int) -> None:
     print(f"website chat test page: /chat/{s.chat_widget_key}")
 
 
+def _require_migrated() -> None:
+    from .db import session_scope
+    from .seed import NotMigratedError, require_migrated
+
+    with session_scope() as db:
+        try:
+            require_migrated(db)
+        except NotMigratedError as exc:
+            sys.exit(str(exc))
+
+
 def main(argv: list[str]) -> None:
     configure_logging(get_settings().log_level)
     cmd = argv[0] if argv else "web"
+    if cmd in ("create-user", "demo", "demo-dealer", "run-jobs", "worker"):
+        _require_migrated()
     if cmd == "migrate":
         _migrate()
     elif cmd == "create-user":

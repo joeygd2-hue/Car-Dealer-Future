@@ -16,7 +16,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     # Secrets can come from files instead of environment variables: one file per setting, named like the
     # variable in lower case (e.g. /run/secrets/df_smtp_password). Docker/Compose secrets mount there.
-    model_config = SettingsConfigDict(env_prefix="DF_", env_file=".env", extra="ignore",
+    model_config = SettingsConfigDict(env_prefix="DF_", env_file=".env", extra="ignore", env_ignore_empty=True,
                                       secrets_dir=os.environ.get("DF_SECRETS_DIR", "/run/secrets")
                                       if os.path.isdir(os.environ.get("DF_SECRETS_DIR", "/run/secrets")) else None)
 

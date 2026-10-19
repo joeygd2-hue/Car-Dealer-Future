@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, badge %}{% block title %}Notifications · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'notifications', user) }}
+<h1>My notifications</h1>
+{% for n in mine %}<div class="card"><strong>{{ n.subject }}</strong> <span class="small muted">{{ n.created_at|local }} · {{ n.kind }}</span><p class="small" style="white-space:pre-wrap">{{ n.body }}</p>{% if n.link %}<a href="{{ n.link }}">Open</a>{% endif %}</div>
+{% else %}<p class="muted">No notifications.</p>{% endfor %}
+<form class="card" method="post" action="/dealers/{{ client.id }}/notifications"><fieldset {% if not can_manage %}disabled{% endif %} style="border:0;padding:0;margin:0"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label><input type="checkbox" name="immediate_alerts" {% if prefs.immediate_alerts %}checked{% endif %}> Immediate alerts for new inquiries (escalations always alert)</label>
+<label><input type="checkbox" name="daily_digest" {% if prefs.daily_digest %}checked{% endif %}> Daily digest at</label><input type="number" name="digest_hour" min="0" max="23" value="{{ prefs.digest_hour_local }}" style="max-width:100px"> <span class="small muted">(local hour)</span>
+<label><input type="checkbox" name="notify_assigned" {% if prefs.notify_assigned_user %}checked{% endif %}> Notify the assigned team member first</label>
+<label><input type="checkbox" name="email_enabled" {% if prefs.email_enabled %}checked{% endif %}> Send email copies (in-app notifications are always kept)</label>
+<p class="small muted">Recipients: the assigned person (dealership user or agency staff), plus this dealership's admins for new inquiries and serious escalations, plus the extra escalation emails on the Automation page.</p>
+<p class="small muted">Dealership admins are also alerted for: {{ prefs.escalate_to_admins_reasons|join(", ") }}.</p>
+<h2>Notification rules</h2>{% if can_manage %}<p><button>Save</button></p>{% endif %}</fieldset></form>
+<div class="card"><h2 style="margin-top:0">Delivery log</h2><p class="small muted">SIMULATED = the email provider is the mock (nothing was emailed). NOT_SENT = a real provider is configured but this dealership's email delivery is not authorized.</p><div class="tablewrap"><table><tr><th>When</th><th>Kind</th><th>Channel</th><th>To</th><th>Subject</th><th>Status</th></tr>
+{% for n in sent %}<tr><td class="small">{{ n.created_at|local }}</td><td>{{ n.kind }}</td><td>{{ n.channel }}</td><td class="small">{{ n.recipient_address or ("user #" ~ n.user_id) }}</td><td class="small">{{ n.subject }}</td><td>{{ badge(n.status) }} <span class="small muted">{{ n.status_detail or "" }}</span></td></tr>{% endfor %}</table></div></div>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, badge %}{% block title %}Responses · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'responses', user) }}
+<h1>Approved responses</h1>
+<div class="card"><h2 style="margin-top:0">Business info &amp; hours</h2>
+<p class="muted small">The assistant shares phone, address and hours only after a dealership admin or agency manager approves them. Currently: <strong>{{ "APPROVED" if client.business_info_approved else "NOT APPROVED" }}</strong>. (Listing text uses the separate contact block in <a href="/dealers/{{ client.id }}/settings">listing settings</a>.)</p>
+<form method="post" action="/dealers/{{ client.id }}/responses/business"><input type="hidden" name="csrf" value="{{ csrf }}"><fieldset {% if not can_manage %}disabled{% endif %} style="border:0;padding:0;margin:0">
+<div class="grid"><div><label>Phone</label><input name="phone" value="{{ client.phone or '' }}"></div><div><label>Street address</label><input name="address_line" value="{{ client.address_line or '' }}"></div>
+<div><label>City</label><input name="city" value="{{ client.city or '' }}"></div><div><label>State</label><input name="state" value="{{ client.state or '' }}"></div><div><label>ZIP</label><input name="postal_code" value="{{ client.postal_code or '' }}"></div></div>
+<h3>Hours ({{ client.timezone }})</h3><div class="tablewrap"><table><tr><th>Day</th><th>Open</th><th>Close</th><th>Closed</th></tr>
+{% for i in range(7) %}{% set h = hours.get(i) %}<tr><td>{{ days[i] }}</td><td><input type="time" name="open_{{ i }}" value="{{ h[0] if h else '' }}"></td>
+<td><input type="time" name="close_{{ i }}" value="{{ h[1] if h else '' }}"></td><td><input type="checkbox" name="closed_{{ i }}" {% if i in hours and not h %}checked{% endif %}></td></tr>{% endfor %}</table></div>
+<label class="row"><input type="checkbox" name="approve" {% if client.business_info_approved %}checked{% endif %}> I approve this information for use in customer replies</label><p><button>Save</button></p></fieldset></form>
+{% if not can_manage %}<p class="muted small">Only dealership admins or agency managers can change this.</p>{% endif %}</div>
+
+<p class="muted small">Mode B automation only auto-sends answers that come from an approved template or FAQ marked "auto-send allowed". Template placeholders: {vehicle} {price} {mileage} {features} {hours} {address} {phone} {dealer_name} {name}. A template is skipped when any placeholder has no verified value.</p>
+<div class="grid">
+<div class="card"><h2 style="margin-top:0">FAQs</h2>{% for f in faqs %}<div style="border-bottom:1px solid var(--line);padding:8px 0"><strong>{{ f.question }}</strong> <span class="pill">{{ f.language|upper }}</span> {% if f.auto_send_allowed %}<span class="pill">auto-send</span>{% endif %} {% if not f.active %}<span class="pill">inactive</span>{% endif %}
+<div class="small">{{ f.answer }}</div><div class="small muted">keywords: {{ f.keywords|join(", ") }}</div>
+{% if f.active and can_manage %}<form method="post" action="/dealers/{{ client.id }}/responses/faqs/{{ f.id }}/deactivate"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Deactivate</button></form>{% endif %}</div>{% else %}<p class="muted">No FAQs yet.</p>{% endfor %}
+{% if can_manage %}<h3>Add FAQ</h3><form method="post" action="/dealers/{{ client.id }}/responses/faqs"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Question</label><input type="text" name="question" required><label>Approved answer</label><textarea name="answer" required></textarea>
+<div class="row"><div><label>Keywords (comma-separated)</label><input type="text" name="keywords" placeholder="spanish, español"></div><div><label>Language</label><select name="language"><option value="en">English</option><option value="es">Spanish</option></select></div></div>
+<label><input type="checkbox" name="auto_send_allowed"> Allow auto-send in Mode B/C</label><p><button>Approve FAQ</button></p></form>{% endif %}</div>
+<div class="card"><h2 style="margin-top:0">Templates</h2>{% for t in templates_ if t.active %}<div style="border-bottom:1px solid var(--line);padding:8px 0"><strong>{{ t.intent }}</strong> <span class="pill">{{ t.language|upper }}</span> {% if t.auto_send_allowed %}<span class="pill">auto-send</span>{% endif %}<div class="small">{{ t.body }}</div></div>{% else %}<p class="muted">No templates yet; the built-in reviewed phrasing is used (draft-only).</p>{% endfor %}
+{% if can_manage %}<h3>Add / replace template</h3><form method="post" action="/dealers/{{ client.id }}/responses/templates"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="row"><div><label>Intent</label><select name="intent">{% for i in intents %}<option>{{ i }}</option>{% endfor %}</select></div><div><label>Language</label><select name="language"><option value="en">English</option><option value="es">Spanish</option></select></div></div>
+<label>Template</label><textarea name="body" required placeholder="The listed price for the {vehicle} is {price}."></textarea>
+<label><input type="checkbox" name="auto_send_allowed"> Allow auto-send in Mode B/C</label><p><button>Approve template</button></p></form>{% endif %}</div></div>
+{% endblock %}

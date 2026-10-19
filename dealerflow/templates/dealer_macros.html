@@ -1,5 +1,5 @@
 {% macro subnav(client, active, user) %}<div class="subnav"><strong>{{ client.name }}</strong>{% if client.simulated %} <span class="pill sim">SIMULATED</span>{% endif %}
-{% for key, label, path in [("inventory","Inventory",""),("listings","Listings","/listings"),("publishing","Publishing","/publishing"),("imports","Imports","/imports"),("reports","Reports","/reports"),("settings","Settings","/settings")] %}
+{% for key, label, path in [("inventory","Inventory",""),("listings","Listings","/listings"),("publishing","Publishing","/publishing"),("imports","Imports","/imports"),("inbox","Inbox","/inbox"),("appointments","Appointments","/appointments"),("responses","Responses","/responses"),("automation","Automation","/automation"),("notifications","Notifications","/notifications"),("reports","Reports","/reports"),("settings","Settings","/settings")] %}
 <a href="/dealers/{{ client.id }}{{ path }}" class="{% if active == key %}active{% endif %}">{{ label }}</a>{% endfor %}
 {% if not user.client_id %}<span class="right small muted"><a href="/dealers">All dealerships</a></span>{% endif %}</div>{% endmacro %}
 {% macro st(s, labels) %}<span class="pill {% if s in ('approved','published_confirmed','available','valid','succeeded','healthy','withdrawn') %}ok{% elif s in ('needs_validation','failed','invalid','withdrawal_required','rejected') %}bad{% elif s in ('awaiting_approval','draft_generated','manual_required','submitted','warnings','pending','partial','ready_to_publish') %}warn{% endif %}">{{ labels.get(s, s) }}</span>{% endmacro %}
@@ -7,3 +7,9 @@
 {% macro photos(urls) %}{% if urls %}<div class="photos">{% for u in urls %}<a href="{{ u|safe_url }}" target="_blank" rel="noopener noreferrer"><img src="{{ u|safe_url }}" alt="Photo {{ loop.index }}" loading="lazy" referrerpolicy="no-referrer"></a>{% endfor %}</div>{% else %}<p class="small" style="color:var(--warn)">No photos supplied</p>{% endif %}{% endmacro %}
 {% macro money(v) %}{% if v is none %}—{% else %}${{ "{:,.0f}".format(v) }}{% endif %}{% endmacro %}
 {% macro num(v) %}{% if v is none %}—{% else %}{{ "{:,}".format(v) }}{% endif %}{% endmacro %}
+{% macro badge(s) -%}
+{%- set ok = ["SENT","DELIVERED","CONFIRMED","APPROVED","AUTO_SENT","RESOLVED","AVAILABLE","ACTIVE","FREE","CONNECTED","SUCCEEDED","OK","COMPLETED"] -%}
+{%- set warn = ["PENDING_REVIEW","PENDING_CONFIRMATION","QUEUED","SENDING","PENDING","SIMULATED","AWAITING_STAFF","PAUSED","RESCHEDULE_REQUESTED","REQUESTED","SANDBOX","BUSY","NO_CALENDAR","MANUAL_EXTERNAL","SKIPPED","NOT_SENT","NOT_CHECKED"] -%}
+{%- set bad = ["FAILED","BLOCKED","UNCERTAIN","ESCALATED","OPEN","SOLD","REJECTED","CANCELLED","DECLINED","OPT_OUT","SEND_FAILED","CHECK_FAILED","NO_SHOW"] -%}
+<span class="pill {% if s in ok %}ok{% elif s in warn %}warn{% elif s in bad %}bad{% endif %}">{{ s }}</span>
+{%- endmacro %}

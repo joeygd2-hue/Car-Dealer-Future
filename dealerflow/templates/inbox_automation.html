@@ -1,0 +1,41 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, badge %}{% block title %}Automation · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'automation', user) }}
+<h1>Automation</h1>
+<div class="card"><div class="row"><div><div class="muted small">Configured mode</div><strong>{{ s.mode }}</strong></div><div><div class="muted small">Effective mode</div><strong>{{ mode }}</strong></div>
+<div><div class="muted small">Dealership pause</div>{{ badge("PAUSED" if s.paused else "ACTIVE") }}</div></div>
+<form method="post" action="/dealers/{{ client.id }}/automation/pause" style="margin-top:12px"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% if s.paused %}<input type="hidden" name="on" value="0"><button {% if not can_manage %}disabled{% endif %}>Resume automation</button> <span class="small muted">Paused {{ s.paused_at|local }}: {{ s.paused_reason or "" }}</span>
+{% else %}<input type="hidden" name="on" value="1"><div class="row"><input type="text" name="reason" placeholder="Reason (optional)"><button class="danger">Pause all automation now</button></div>{% endif %}</form></div>
+<div class="card"><h2 style="margin-top:0">Mode</h2>
+<ul class="small"><li><strong>A — Draft only</strong> (default): every reply is a draft a team member reviews and sends.</li>
+<li><strong>B — Approved FAQ automation</strong>: low-risk questions (availability, price, mileage, features, hours, location) are auto-answered only from verified data and templates/FAQs you marked auto-send. Everything else is drafted and escalated.</li>
+<li><strong>C — Controlled automation</strong>: B plus the extra conversation types you approve below. Every external action is logged; pause at any time.</li></ul>
+<p class="small">B and C require (1) a passing evaluation in the last 30 days, (2) a written authorization by <strong>this dealership's own admin</strong>, and (3) the agency's onboarding switch <code>{{ onboarding_feature }}</code>
+(currently {{ badge("ACTIVE" if onboarding_ok else "BLOCKED") }}{% if not onboarding_ok %}: enabled from the client account page once the onboarding prerequisites are complete{% endif %}). If any is missing the effective mode is draft-only.
+Latest evaluation: {% if latest_eval %}{{ badge("SUCCEEDED" if latest_eval.passed else "FAILED") }} {{ latest_eval.created_at|local }} — {% for k, v in latest_eval.metrics.items() if k != "thresholds" %}{{ k }} {{ v }}; {% endfor %}{% else %}none{% endif %}</p>
+{% if can_manage %}<form class="inline" method="post" action="/dealers/{{ client.id }}/automation/evaluate"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Run evaluation (synthetic conversations)</button></form>{% endif %}
+{% if can_authorize %}<form method="post" action="/dealers/{{ client.id }}/automation/mode" style="margin-top:12px"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="row"><select name="mode">{% for m in modes %}<option {% if s.mode == m %}selected{% endif %}>{{ m }}</option>{% endfor %}</select>
+<label style="flex:3"><input type="checkbox" name="statement_ack"> I authorize the selected mode for {{ client.name }}. Automated replies may only use verified inventory, approved business info and approved templates, must escalate everything else, and can be paused at any time.</label><button>Set mode</button></div></form>
+{% elif s.mode != modes[0] and can_respond %}<form method="post" action="/dealers/{{ client.id }}/automation/mode" style="margin-top:12px"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="mode" value="{{ modes[0] }}"><button class="danger">Return to draft-only</button></form>
+{% else %}<p class="small muted">Only this dealership's own admin can authorize Mode B or C.</p>{% endif %}
+{% if auths %}<h3>Authorization history</h3>{% for a in auths %}<div class="small">{{ a.authorized_at|local }} · {{ a.mode }} · eval #{{ a.evaluation_run_id }} · {{ "revoked " ~ (a.revoked_at|local) if a.revoked_at else "active" }}</div>{% endfor %}{% endif %}</div>
+<div class="card"><h2 style="margin-top:0">Channels</h2><table><tr><th>Channel</th><th>Account</th><th>Status</th><th>Automation</th></tr>
+{% for c in conns %}<tr><td>{{ c.provider }}</td><td class="mono">{{ c.external_account_id }}</td><td>{{ badge(c.status) }}</td>
+<td><form method="post" action="/dealers/{{ client.id }}/automation/channels/{{ c.id }}/pause"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% if c.paused %}<input type="hidden" name="on" value="0"><button {% if not can_manage %}disabled{% endif %}>Resume channel</button>{% else %}<input type="hidden" name="on" value="1"><button>Pause channel</button>{% endif %}</form></td></tr>
+{% else %}<tr><td colspan="4" class="muted small">No customer-messaging connections. Replies are SIMULATED (sandbox) until the agency records an authorized connection and live delivery is switched on.</td></tr>{% endfor %}</table></div>
+<div class="card"><h2 style="margin-top:0">Website chat</h2>{% if s.chat_widget_key %}<p class="small">Chat page: <code>{{ settings.base_url }}/chat/{{ s.chat_widget_key }}</code> · API: <code>/api/chat/{{ s.chat_widget_key }}/messages</code></p>{% else %}<p class="small muted">No website-chat key yet.</p>{% endif %}
+{% if can_manage %}<form method="post" action="/dealers/{{ client.id }}/automation/chat-key"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ "Rotate key" if s.chat_widget_key else "Create key" }}</button></form>{% endif %}</div>
+<div class="card"><h2 style="margin-top:0">Rules</h2><form method="post" action="/dealers/{{ client.id }}/automation/limits"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="row"><div><label>Max auto-replies / conversation / hour</label><input type="number" name="max_conv" value="{{ s.max_auto_replies_per_conversation_per_hour }}"></div>
+<div><label>Max auto-replies / dealership / hour</label><input type="number" name="max_dealer" value="{{ s.max_auto_replies_per_dealership_per_hour }}"></div>
+<div><label>Min seconds between auto-replies</label><input type="number" name="min_interval" value="{{ s.min_seconds_between_auto_replies }}"></div></div>
+<div class="row"><div><label>Inventory considered stale after (hours)</label><input type="number" name="stale_hours" value="{{ s.stale_inventory_hours }}"></div>
+<div><label>Confidence threshold (0.5–1.0)</label><input type="number" step="0.05" name="threshold" value="{{ s.confidence_threshold }}"></div>
+<div><label><input type="checkbox" name="after_hours" {% if s.auto_reply_outside_business_hours %}checked{% endif %}> Allow auto-replies outside business hours</label></div></div>
+<label>Extra escalation emails (comma-separated)</label><input type="text" name="escalation_emails" value="{{ s.escalation_emails|join(', ') }}">
+<label>Mode C: additional conversation types you approve for automation</label>{% for i in controllable %}<label style="display:inline-block;margin-right:14px"><input type="checkbox" name="controlled_intents" value="{{ i }}" {% if i in s.controlled_intents %}checked{% endif %}> {{ i }}</label>{% endfor %}
+<p class="small muted">Financing, credit, warranty, trade-in, negotiation, condition/history, complaints, human requests and sensitive data are always escalated and can't be automated.</p>
+{% if can_manage %}<p><button>Save rules</button></p>{% endif %}</form></div>
+{% endblock %}

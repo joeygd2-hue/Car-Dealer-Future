@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block title %}Website chat · {{ client.name }}{% endblock %}{% block content %}<h1>{{ client.name }} — website chat test page</h1>
+<p class="muted small">This page loads the same embeddable widget a dealership puts on its own site. Replies appear here only once they were
+really delivered; while live customer messaging is not authorized every reply is SIMULATED and never shown to the visitor.</p>
+<script src="/static/chat-widget.js" data-key="{{ chat_key }}" data-base="" data-name="{{ client.name }}" defer></script>{% endblock %}

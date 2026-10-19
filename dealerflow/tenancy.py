@@ -15,6 +15,9 @@ Who can do what:
   Staff approve listings only if that dealership's settings allow agency approval.
 - Dealership users (``users.client_id`` set) see only their own client and nothing else in the app.
   dealer_viewer = read only; dealer_reviewer = edit, approve, publish, import; dealer_admin = also settings.
+- Customer messaging (Phase 3): "respond" (reply, assign, take over, pause) = staff rep+ and dealer
+  admin/reviewer; response content, business info and automation limits = "manage"; switching automation
+  above draft-only (Mode B/C) = "authorize_automation", held only by the dealership's own admins.
 """
 
 from __future__ import annotations
@@ -38,6 +41,10 @@ PERMISSIONS: dict[str, dict[str, tuple[str, ...]]] = {
     "approve": {"staff": ("rep", "manager", "admin"), "dealer": ("dealer_admin", "dealer_reviewer")},
     "publish": {"staff": ("rep", "manager", "admin"), "dealer": ("dealer_admin", "dealer_reviewer")},
     "manage": {"staff": ("manager", "admin"), "dealer": ("dealer_admin",)},
+    # Phase 3 customer messaging: read the inbox = "view"; reply, triage, pause = "respond".
+    "respond": {"staff": ("rep", "manager", "admin"), "dealer": ("dealer_admin", "dealer_reviewer")},
+    # Raising automation above draft-only is the dealership's own decision: agency staff cannot authorize it.
+    "authorize_automation": {"staff": (), "dealer": ("dealer_admin",)},
 }
 
 

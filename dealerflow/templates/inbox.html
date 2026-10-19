@@ -1,11 +1,21 @@
-{% extends "base.html" %}{% from "macros.html" import sim, status_pill %}{% block title %}Inbox{% endblock %}{% block content %}
-<h1>Inbox</h1><p class="row"><a class="pill {% if show=='open' %}ok{% endif %}" href="?show=open">needs attention</a><a class="pill {% if show=='unmatched' %}ok{% endif %}" href="?show=unmatched">unmatched</a><a class="pill {% if show=='all' %}ok{% endif %}" href="?show=all">all</a>
-<form class="inline" method="post" action="/inbox/poll"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Fetch now</button></form></p>
-<div class="tablewrap"><table><tr><th>Received</th><th>From</th><th>Subject</th><th>Prospect</th><th>Classified</th><th></th></tr>
-{% for r in rows %}<tr><td class="small">{{ r.received_at|local }}</td><td class="small">{{ r.from_email }}</td><td><a href="/inbox/{{ r.id }}">{{ r.subject or '(no subject)' }}</a> {{ sim(r.simulated) }}</td>
-<td>{% if r.prospect %}<a href="/prospects/{{ r.prospect_id }}">{{ r.prospect.name }}</a> <span class="small muted">({{ r.matched_by }})</span>{% else %}<span class="pill warn">unmatched</span>{% endif %}</td>
-<td>{{ status_pill(r.classification) }} <span class="small muted">{{ '%.0f'|format((r.classification_confidence or 0)*100) }}%</span>{% if r.escalated %} <span class="pill bad">needs person</span>{% endif %}</td>
-<td>{% if not r.handled or r.escalated %}<form method="post" action="/inbox/{{ r.id }}/handled"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary small">done</button></form>{% endif %}</td></tr>
-{% else %}<tr><td colspan="6" class="muted">Nothing here.</td></tr>{% endfor %}</table></div>
-{% if mock %}<div class="card" style="margin-top:12px"><h3>Simulate a reply (SIMULATED, mock provider only)</h3><form method="post" action="/inbox/simulate"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="prospect_id" placeholder="prospect #" required><textarea name="body" required placeholder="e.g. Sounds interesting — can we set up a Zoom call next week?"></textarea><button class="secondary">Inject simulated reply</button></form></div>{% endif %}
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, badge %}{% block title %}Inbox · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'inbox', user) }}
+<h1>Unified inbox</h1>
+<form class="card row" method="get">
+<div><label>Status</label><select name="status"><option value="">Any</option>{% for s in ["AWAITING_STAFF","ESCALATED","AWAITING_CUSTOMER","OPEN","CLOSED"] %}<option {% if f_status==s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
+<div><label>Channel</label><select name="channel"><option value="">Any</option>{% for c in channels %}<option {% if f_channel==c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></div>
+<div><label><input type="checkbox" name="mine" value="1" {% if mine %}checked{% endif %}> Assigned to me</label></div><div><button>Filter</button></div></form>
+<div class="card"><div class="tablewrap"><table>
+<tr><th>#</th><th>Channel</th><th>Vehicle</th><th>Lang</th><th>Status</th><th>Escalation</th><th>Appointment</th><th>Last inbound</th></tr>
+{% for c in convs %}<tr><td><a href="/dealers/{{ client.id }}/inbox/{{ c.id }}">#{{ c.id }}</a></td><td>{{ c.channel }}</td>
+<td>{{ vtitle(vehicles[c.vehicle_id]) if c.vehicle_id in vehicles else "—" }}</td><td>{{ c.preferred_language|upper }}</td>
+<td>{{ badge(c.status) }}{% if c.human_takeover %} <span class="pill">HUMAN</span>{% endif %}{% if c.opted_out %} {{ badge("OPT_OUT") }}{% endif %}</td>
+<td>{{ badge(c.escalation_status) if c.escalation_status != "NONE" else "" }}</td><td>{{ c.appointment_status if c.appointment_status != "NONE" else "" }}</td><td class="small">{{ c.last_inbound_at|local }}</td></tr>
+{% else %}<tr><td colspan="8" class="muted">Nothing here.</td></tr>{% endfor %}</table></div></div>
+<div class="card"><h2 style="margin-top:0">Log a Facebook Marketplace message</h2>
+<p class="small muted">Meta provides no API for Marketplace chats. Read the buyer's message in Facebook yourself, paste it here, and you'll get a drafted reply to paste back. The platform never logs into Facebook.</p>
+<form method="post" action="/dealers/{{ client.id }}/inbox/marketplace"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="row"><div><label>Thread label (buyer name + listing)</label><input type="text" name="thread_label" required placeholder="Maria – 2019 Civic"></div>
+<div><label>Buyer first name (optional)</label><input type="text" name="buyer_name"></div></div>
+<label>Buyer's message</label><textarea name="text" required></textarea><p><button>Log message &amp; draft reply</button></p></form></div>
 {% endblock %}

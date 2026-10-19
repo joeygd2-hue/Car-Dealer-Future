@@ -18,6 +18,7 @@ from dealerflow.models import Client, InboundMessage, Meeting, OutreachMessage, 
 from dealerflow.services import crm, meetings, outreach, seo_audit
 from dealerflow.services.discovery import run_source
 from dealerflow.services.inbox import poll_inbox_job
+from tests.dealer_helpers import drain
 from tests.phase4 import phase2_import_and_approve, user_with_key
 from tests.test_phase4_seo_reports import FakeSite
 
@@ -76,13 +77,35 @@ def test_complete_business_journey(client, db, admin):
     assert {(x["channel"], x["status"]) for x in pubs} == {("facebook_marketplace", "manual_required")}
     assert client.get(f"/api/v1/dealers/{other['id']}/vehicles", headers=h_dealer).status_code == 404
 
-    # 9-10. Spanish inquiry -> approved Spanish response -> summary to this dealership only.
-    conv = client.post(f"/api/v1/clients/{cid}/inquiries/simulated", headers=h_rep,
-                       json={"body": "Hola, ¿puedo hacer una prueba de manejo del Civic?", "language": "es", "provider_message_id": "e2e-1"}).json()
-    d = client.post(f"/api/v1/clients/{cid}/conversations/{conv['conversation_id']}/draft", headers=h_rep, json={"template": "test_drive"}).json()
-    assert d["language"] == "es"
-    res = client.post(f"/api/v1/clients/{cid}/conversations/{conv['conversation_id']}/messages/{d['message_id']}/approve", headers=h_rep).json()
-    assert res["summary_delivered"] and MockEmailProvider.outbox[-1][0].to == "owner@brazos.example"
+    # 9-10. Lead to conversation (Phase 3): a Spanish-speaking customer writes through the dealership's website chat
+    #       (public widget API), the worker drafts a grounded Spanish reply and records a test-drive request, the
+    #       dealership's admin is notified (mock email), replies (SIMULATED delivery) and confirms the appointment.
+    key = db.get(Client, cid).public_chat_key
+    r = client.post(f"/api/chat/{key}/messages", json={"visitor_id": "visitor-e2e-0001",
+                                                       "text": "Hola, ¿puedo hacer una prueba de manejo del Civic el sábado a las 11?"})
+    assert r.status_code == 200 and r.json()["ok"]
+    drain()  # process the message (draft + appointment request), then deliver the staff notification email
+    convs = client.get(f"/api/v1/dealers/{cid}/conversations", headers=h_dealer).json()["items"]
+    # The prospect came from the SIMULATED fixture source, so its dealership and conversations are SIMULATED.
+    assert len(convs) == 1 and convs[0]["channel"] == "WEBSITE_CHAT" and convs[0]["simulated"]
+    conv = client.get(f"/api/v1/dealers/{cid}/conversations/{convs[0]['id']}", headers=h_dealer).json()
+    draft = conv["pending_draft"]
+    assert conv["language"] == "es" and draft["language"] == "es" and "prueba de manejo" in draft["body"]
+    assert conv["summary"]["vehicle_of_interest"].startswith("2019 Honda Civic")
+    appts = client.get(f"/api/v1/dealers/{cid}/appointments", headers=h_dealer).json()["items"]
+    assert [a["status"] for a in appts] == ["PENDING_CONFIRMATION"]  # never presented to the customer as confirmed
+    assert any(m[0].to == "owner@brazos-dealer.example" for m in MockEmailProvider.outbox)  # the right dealership's admin
+    assert client.get(f"/api/v1/dealers/{other['id']}/conversations", headers=h_dealer).status_code == 404
+    r = client.post(f"/api/v1/dealers/{cid}/conversations/{conv['id']}/reply", headers=h_dealer,
+                    json={"body": draft["body"], "draft_id": draft["id"]})
+    assert r.status_code == 202, r.text
+    assert client.post(f"/api/v1/dealers/{cid}/appointments/{appts[0]['id']}/confirm", headers=h_dealer).json()["status"] == "CONFIRMED"
+    drain()
+    msgs = client.get(f"/api/v1/dealers/{cid}/conversations/{conv['id']}", headers=h_dealer).json()["messages"]
+    outbound = [m for m in msgs if m["direction"] == "OUTBOUND"]
+    assert outbound[0]["sender_type"] == "STAFF" and "confirmada" in outbound[1]["body"]  # reply, then the confirmation
+    assert {m["delivery_status"] for m in outbound} == {"SIMULATED"}  # (the helper also runs the future reminder jobs)
+    assert client.get(f"/api/chat/{key}/messages?visitor_id=visitor-e2e-0001").json()["messages"] == []  # nothing reached the visitor
 
     # 11. Revenue and expenses.
     today = date.today()
@@ -111,6 +134,9 @@ def test_complete_business_journey(client, db, admin):
     assert data["inventory"]["vehicles_processed"]["value"] == 1 and data["listings"]["generated"]["value"] == 1  # one bilingual listing
     assert data["listings"]["approved"]["value"] == 1 and data["listings"]["manual_publication_required"]["value"] == 1
     assert data["seo"]["issues_open_at_end"]["value"] == len(issues)
+    # SIMULATED conversations are never reported as real inquiries or appointments.
+    assert data["inquiries"]["received"]["value"] == 0 and data["inquiries"]["simulated_excluded"] == 1
+    assert data["appointments"]["test_drive_requests"]["value"] == 0
     client.post(f"/api/v1/client-reports/{rep['id']}/publish", headers=h_rep)
 
     # 14. Cross-client access is blocked, including direct API requests.

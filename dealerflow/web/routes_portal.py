@@ -109,7 +109,9 @@ def api_issues(user: User = Depends(require_client), db: Session = Depends(get_d
 @router.get("/api/v1/portal/conversations")
 def api_conversations(user: User = Depends(require_client), db: Session = Depends(get_db)):
     q = scope(select(Conversation), Conversation, user).where(Conversation.simulated.is_(False)).order_by(Conversation.id.desc()).limit(200)
-    return [{"id": c.id, "channel": c.channel, "status": c.status, "language": c.language, "summary": c.summary} for c in db.scalars(q)]
+    return [{"id": c.id, "channel": c.channel, "status": c.status, "language": c.preferred_language,
+             "vehicle": (c.summary or {}).get("vehicle_of_interest"), "next_step": c.next_action,
+             "created_at": c.created_at.isoformat()} for c in db.scalars(q)]
 
 
 @router.get("/api/v1/portal/tickets")

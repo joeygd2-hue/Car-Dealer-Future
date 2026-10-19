@@ -138,6 +138,14 @@ class Settings(BaseSettings):
     stripe_webhook_secret: SecretStr = SecretStr("")  # whsec_... ; empty disables the Stripe webhook
     retention_days_conversations: int = 365
 
+    # --- Phase 3: customer conversations ---------------------------------------------------
+    # Optional Claude rephrasing of grounded draft replies (also needs DF_AI_ENABLED and a key). Off by default.
+    conversation_ai_enabled: bool = False
+    # Meta Page webhook (Messenger): app secret for X-Hub-Signature-256 and the subscription verify token.
+    # Empty = the webhook rejects everything. Inbound only: replies are never sent to Meta in this build.
+    meta_app_secret: SecretStr = SecretStr("")
+    meta_verify_token: SecretStr = SecretStr("")
+
     # --- AI (shared by all phases) ---------------------------------------------------------
     # Master switch for any Claude API call. Off by default: deterministic templates/rules are used instead.
     ai_enabled: bool = False

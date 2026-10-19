@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -86,10 +83,10 @@ def _twilio_valid(request: Request, params: dict) -> bool:
     token = get_settings().twilio_auth_token.get_secret_value()
     if not token:
         return False
+    from ..services.conversations.channels import verify_twilio_signature
+
     url = f"{get_settings().base_url}{request.url.path}" + (f"?{request.url.query}" if request.url.query else "")
-    data = url + "".join(k + params[k] for k in sorted(params))
-    expected = base64.b64encode(hmac.new(token.encode(), data.encode(), hashlib.sha1).digest()).decode()
-    return hmac.compare_digest(expected, request.headers.get("x-twilio-signature", ""))
+    return verify_twilio_signature(token, url, params, request.headers.get("x-twilio-signature", ""))
 
 
 @router.post("/webhooks/twilio/status")

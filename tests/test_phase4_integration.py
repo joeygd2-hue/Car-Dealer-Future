@@ -24,11 +24,11 @@ def test_a_conversation_cannot_point_at_another_dealerships_vehicle(db):
     vb = vehicle_by_stock(cb, "B200").id
     cb.close()
     s = session_factory()()
-    s.add(Conversation(client_id=a, channel="web_form", vehicle_id=vb, simulated=True))
+    s.add(Conversation(client_id=a, channel="WEBSITE_CHAT", external_conversation_id="x-1", vehicle_id=vb, simulated=True))
     with pytest.raises(IntegrityError):
         s.flush()
     s.rollback()
-    s.add(Conversation(client_id=b, channel="web_form", vehicle_id=vb, simulated=True))
+    s.add(Conversation(client_id=b, channel="WEBSITE_CHAT", external_conversation_id="x-2", vehicle_id=vb, simulated=True))
     s.flush()  # the same vehicle is fine for its own dealership
     s.rollback()
     s.close()

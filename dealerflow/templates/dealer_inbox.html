@@ -1,0 +1,38 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, cst %}{% block title %}Inbox · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'inbox', user) }}
+<h1>Customer inbox</h1>
+<div class="grid">
+<div class="card"><div class="small muted">Open conversations</div><strong>{{ stats.open }}</strong></div>
+<div class="card"><div class="small muted">Drafts awaiting review</div><strong>{{ stats.drafts }}</strong></div>
+<div class="card"><div class="small muted">Open escalations</div><strong>{{ stats.escalations }}</strong></div>
+<div class="card"><div class="small muted">Appointments to confirm</div><strong><a href="/dealers/{{ client.id }}/appointments">{{ stats.appointments }}</a></strong></div>
+<div class="card"><div class="small muted">Reply mode</div><strong>{{ 'Draft only (staff review)' if mode == 'A_DRAFT_ONLY' else mode|replace('_', ' ') }}</strong>{% if settings.paused %} <span class="pill bad">paused</span>{% endif %}</div>
+</div>
+<p class="small muted">Every reply is drafted only from verified inventory and dealer-approved information. Customer channels are SIMULATED in this build: nothing is delivered to a real customer.</p>
+<form method="get" class="row card"><label class="small" for="f-status">Status</label>
+<select id="f-status" name="status"><option value="">All</option>{% for s in ['AWAITING_STAFF','ESCALATED','OPEN','AWAITING_CUSTOMER','CLOSED'] %}<option value="{{ s }}" {% if f_status == s %}selected{% endif %}>{{ s|replace('_',' ')|lower }}</option>{% endfor %}</select>
+<label class="small" for="f-channel">Channel</label><select id="f-channel" name="channel"><option value="">All</option>{% for c in channels %}<option value="{{ c }}" {% if f_channel == c %}selected{% endif %}>{{ channel_labels[c] }}</option>{% endfor %}</select>
+<label class="small row"><input type="checkbox" name="mine" value="1" {% if mine %}checked{% endif %}> Assigned to me</label><button class="secondary">Filter</button></form>
+<div class="tablewrap"><table><tr><th>#</th><th>Channel</th><th>Customer / vehicle</th><th>Status</th><th>Next step</th><th>Last message</th></tr>
+{% for c in convs %}{% set s = c.summary or {} %}<tr>
+<td><a href="/dealers/{{ client.id }}/conversations/{{ c.id }}">#{{ c.id }}</a>{% if c.simulated %} <span class="pill sim">SIMULATED</span>{% endif %}</td>
+<td class="small">{{ channel_labels.get(c.channel, c.channel) }} · {{ c.preferred_language|upper }}</td>
+<td class="small">{{ (s.contact_details or {}).get('display_name') or 'Customer' }}<br><span class="muted">{{ s.vehicle_of_interest or (vehicle_title(vehicles[c.vehicle_id]) if c.vehicle_id in vehicles else 'vehicle not identified') }}</span></td>
+<td>{{ cst(c.status) }}{% if c.escalation_status == 'OPEN' %} <span class="pill bad">escalated</span>{% endif %}{% if c.opted_out %} <span class="pill bad">opted out</span>{% endif %}{% if c.human_takeover %} <span class="pill">staff took over</span>{% endif %}</td>
+<td class="small">{{ c.next_action or '—' }}</td><td class="small muted">{{ (c.last_inbound_at or c.created_at)|local }}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No conversations yet. Website chat, ADF leads and logged Marketplace messages appear here.</td></tr>{% endfor %}</table></div>
+{% if ctx.can('respond') %}<div class="two" style="margin-top:12px"><div class="card"><h2>Log a Marketplace message</h2>
+<p class="small muted">Facebook offers no API for Marketplace chats. Paste the buyer's message here to get a grounded draft, then copy the reply into Facebook yourself.</p>
+<form method="post" action="/dealers/{{ client.id }}/marketplace/intake"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="mp-thread">Thread label (buyer name or listing; reuse it for the same buyer)</label><input id="mp-thread" name="thread_label" required style="width:100%">
+<label for="mp-name">Buyer name (optional)</label><input id="mp-name" name="buyer_name" style="width:100%">
+<label for="mp-text">Buyer's message</label><textarea id="mp-text" name="text" rows="3" required class="reply"></textarea>
+<label for="mp-vehicle">Vehicle (optional)</label><select id="mp-vehicle" name="vehicle_id"><option value="">Not sure</option>{% for v in vehicles.values() %}<option value="{{ v.id }}">{{ vehicle_title(v) }} {{ v.stock_number or '' }}</option>{% endfor %}</select>
+<p><button>Log message</button></p></form></div>
+{% if not user.client_id %}<div class="card"><h2>Simulate a customer message</h2><p class="small muted">Agency staff only. Creates a SIMULATED website-chat conversation to test drafts; never reported as a real inquiry.</p>
+<form method="post" action="/dealers/{{ client.id }}/simulate"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="sim-name">Customer name</label><input id="sim-name" name="customer_name" style="width:100%">
+<label for="sim-text">Message (English or Spanish)</label><textarea id="sim-text" name="text" rows="3" required class="reply"></textarea>
+<label for="sim-vehicle">Vehicle (optional)</label><select id="sim-vehicle" name="vehicle_id"><option value="">None</option>{% for v in vehicles.values() %}<option value="{{ v.id }}">{{ vehicle_title(v) }} {{ v.stock_number or '' }}</option>{% endfor %}</select>
+<p><button class="secondary">Record SIMULATED message</button></p></form></div>{% endif %}</div>{% endif %}
+{% endblock %}

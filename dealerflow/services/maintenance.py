@@ -15,7 +15,17 @@ from .. import audit
 from ..config import get_settings
 from ..db import Base, utcnow
 from ..jobs import enqueue, handler
-from ..models import Attachment, Client, ClientReport, Conversation, ConversationMessage, User
+from ..models import (
+    Appointment,
+    Attachment,
+    Client,
+    ClientReport,
+    Conversation,
+    ConversationMessage,
+    CustomerContact,
+    ResponseDraft,
+    User,
+)
 
 ALLOWED_UPLOAD_TYPES = {
     "application/pdf": ".pdf", "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "text/csv": ".csv", "text/plain": ".txt",
@@ -57,14 +67,29 @@ def attachment_path(att: Attachment) -> str:
 
 
 def purge_conversation_pii(db: Session, older_than_days: int) -> int:
-    """Remove car-buyer contact details and message bodies from old conversations; keep counts for reporting."""
+    """Remove car-buyer personal data from conversations older than the retention period; keep the rows (statuses,
+    timestamps, channel) so reports still count them. Contacts are cleared once none of their conversations is
+    within the retention period."""
     cutoff = utcnow() - timedelta(days=older_than_days)
-    ids = list(db.scalars(select(Conversation.id).where(Conversation.created_at < cutoff, Conversation.pii_purged_at.is_(None))))
-    if ids:
-        db.execute(update(Conversation).where(Conversation.id.in_(ids)).values(customer_name=None, customer_contact=None,
-                                                                              summary="[purged]", pii_purged_at=utcnow()))
-        db.execute(update(ConversationMessage).where(ConversationMessage.conversation_id.in_(ids)).values(body="[purged]"))
-        audit.record(db, "retention.purged_conversations", details={"count": len(ids), "older_than_days": older_than_days})
+    convs = list(db.scalars(select(Conversation).where(Conversation.created_at < cutoff, Conversation.pii_purged_at.is_(None))))
+    if not convs:
+        return 0
+    ids = [c.id for c in convs]
+    db.execute(update(ConversationMessage).where(ConversationMessage.conversation_id.in_(ids))
+               .values(body="[purged]", analysis={}))
+    db.execute(update(ResponseDraft).where(ResponseDraft.conversation_id.in_(ids)).values(body="[purged]", fact_snapshot={}))
+    db.execute(update(Appointment).where(Appointment.conversation_id.in_(ids))
+               .values(customer_name=None, customer_phone=None, customer_email=None, notes=None))
+    for c in convs:
+        c.summary, c.unresolved_questions, c.next_action, c.pii_purged_at = {}, [], None, utcnow()
+    contact_ids = {c.contact_id for c in convs if c.contact_id}
+    recent = set(db.scalars(select(Conversation.contact_id).where(Conversation.contact_id.in_(contact_ids),
+                                                                  Conversation.created_at >= cutoff)))
+    for contact in db.scalars(select(CustomerContact).where(CustomerContact.id.in_(contact_ids - recent))):
+        contact.display_name = contact.email = contact.phone = contact.sms_consent_source = None
+        for ident in list(contact.identities):
+            db.delete(ident)
+    audit.record(db, "retention.purged_conversations", details={"count": len(ids), "older_than_days": older_than_days})
     return len(ids)
 
 
@@ -100,6 +125,15 @@ def delete_client(db: Session, client_id: int, confirm_name: str, actor: User, e
     with open(path, "w") as fh:
         json.dump(export_client(db, client_id), fh, default=str)
     audit.record(db, "client.deleted", actor=actor, details={"deleted_client_id": client_id, "name": client.name, "export": path})
+    # Phase 2/3 tenant tables reference each other through composite (client_id, id) keys without ON DELETE
+    # CASCADE: delete their rows explicitly, children first. Phase 4 tables and client users still cascade.
+    from ..models_dealer import TenantMixin
+
+    tenant_tables = {m.__table__ for m in Base.registry._class_registry.values()
+                     if isinstance(m, type) and issubclass(m, TenantMixin) and hasattr(m, "__table__")}
+    for table in reversed(Base.metadata.sorted_tables):
+        if table in tenant_tables:
+            db.execute(delete(table).where(table.c.client_id == client_id))
     db.execute(delete(Client).where(Client.id == client_id))
     return path
 

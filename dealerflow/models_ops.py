@@ -11,6 +11,8 @@ Conventions (in addition to those in models.py):
 
 from __future__ import annotations
 
+import secrets
+
 from datetime import date, datetime
 from typing import Any
 
@@ -49,7 +51,8 @@ class _Ts:
 
 class Client(_Ts, Base):
     __tablename__ = "clients"
-    __table_args__ = (CheckConstraint("status in ('onboarding','active','paused','cancelled')", name="ck_clients_status"),)
+    __table_args__ = (CheckConstraint("status in ('onboarding','active','paused','cancelled')", name="ck_clients_status"),
+                      UniqueConstraint("public_chat_key", name="uq_clients_public_chat_key"))
 
     id: Mapped[int] = mapped_column(primary_key=True)
     prospect_id: Mapped[int | None] = mapped_column(ForeignKey("prospects.id", ondelete="SET NULL"), unique=True)
@@ -72,6 +75,13 @@ class Client(_Ts, Base):
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime)
     # SIMULATED demo/fixture dealership: its activity is never reported as real.
     simulated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Phase 3: key for the public website chat widget (/chat/{key}); not a secret, but unguessable.
+    public_chat_key: Mapped[str] = mapped_column(String(64), default=lambda: secrets.token_urlsafe(24), nullable=False)
+    # Phase 3: contact details and weekly hours may be used in customer replies only after a dealership
+    # administrator approves them. ``business_hours`` holds {"0".."6": ["09:00", "19:00"] | null} (0 = Monday).
+    business_info_approved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    business_info_approved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", use_alter=True,
+                                                                                name="fk_clients_business_info_approved_by"))
 
 
 class IntegrationConnection(_Ts, Base):
@@ -92,6 +102,11 @@ class IntegrationConnection(_Ts, Base):
     authorization_note: Mapped[str] = mapped_column(Text, default="")
     authorized_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     last_error: Mapped[str | None] = mapped_column(Text)
+    # Phase 3 customer channels: provider account (Page id, phone number), pause switch and non-secret config
+    # (e.g. the SHA-256 of an ADF intake token, the name of the env var holding a Twilio auth token).
+    external_account_id: Mapped[str | None] = mapped_column(String(200), index=True)
+    paused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
 
 class SupportTicket(_Ts, Base):

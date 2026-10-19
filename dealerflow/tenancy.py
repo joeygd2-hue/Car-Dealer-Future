@@ -37,6 +37,8 @@ PERMISSIONS: dict[str, dict[str, tuple[str, ...]]] = {
     "edit": {"staff": ("rep", "manager", "admin"), "dealer": ("dealer_admin", "dealer_reviewer")},
     "approve": {"staff": ("rep", "manager", "admin"), "dealer": ("dealer_admin", "dealer_reviewer")},
     "publish": {"staff": ("rep", "manager", "admin"), "dealer": ("dealer_admin", "dealer_reviewer")},
+    # Phase 3: reply to customers, assign, take over, resolve escalations, handle appointment requests.
+    "respond": {"staff": ("rep", "manager", "admin"), "dealer": ("dealer_admin", "dealer_reviewer")},
     "manage": {"staff": ("manager", "admin"), "dealer": ("dealer_admin",)},
 }
 

@@ -162,6 +162,10 @@ class Vehicle(TenantMixin, Base):
     photo_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     stale: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Phase 3: last time a person confirmed price/availability by hand (imports count via ``last_seen_at``), and a
+    # note set when sources disagree. Customer replies never state a price or availability that is stale or in conflict.
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime)
+    data_conflict_note: Mapped[str | None] = mapped_column(Text)
     simulated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

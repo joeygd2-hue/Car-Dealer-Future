@@ -13,7 +13,8 @@
 {% for i in issues %}<tr><td>{{ i.finding }}<br><span class="muted">{{ i.url or '' }}</span></td><td>{{ i.severity }}</td><td>{{ i.status|label }}</td><td>{{ i.detection }}</td><td>{{ i.recommended_fix }}</td></tr>{% endfor %}
 </tbody></table>{% else %}<p class="empty">No SEO findings yet.</p>{% endif %}</section>
 <section class="card"><h2>Recent customer conversations</h2>
-{% if conversations %}<ul>{% for c in conversations %}<li>{{ c.created_at }} · {{ c.channel }} · {{ c.language }} · {{ c.status }}{% if c.summary %} — {{ c.summary }}{% endif %}</li>{% endfor %}</ul>{% else %}<p class="empty">No conversations on connected channels.</p>{% endif %}</section>
+{% if conversations %}<ul>{% for c in conversations %}<li>{% if user.client_id == c.client_id %}<a href="/dealers/{{ c.client_id }}/conversations/{{ c.id }}">#{{ c.id }}</a>{% else %}#{{ c.id }}{% endif %} · {{ c.created_at|local }} · {{ c.channel|replace('_', ' ')|lower }} · {{ c.preferred_language|upper }} · {{ c.status|replace('_', ' ')|lower }}{% if (c.summary or {}).get('vehicle_of_interest') %} · {{ c.summary.vehicle_of_interest }}{% endif %}</li>{% endfor %}</ul>
+<p class="small"><a href="/dealers/{{ client.id }}/inbox">Open the full inbox</a></p>{% else %}<p class="empty">No customer conversations yet.</p>{% endif %}</section>
 <section class="card" id="support"><h2>Support & change requests</h2>
 {% if tickets %}<ul>{% for t in tickets %}<li>#{{ t.id }} {{ t.title }} — {{ t.status|label }}</li>{% endfor %}</ul>{% endif %}
 <form method="post" action="/portal/tickets" class="fgrid"><input type="hidden" name="csrf" value="{{ csrf }}">

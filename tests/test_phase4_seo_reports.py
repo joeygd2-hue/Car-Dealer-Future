@@ -229,15 +229,20 @@ def test_monthly_reports_job(db, t):
 
 
 def test_lead_summary_reaches_the_correct_dealership(client, db, t):
+    """A SIMULATED Spanish inquiry runs through the Phase 3 pipeline: Alpha's dealer admin is notified and sees the
+    grounded Spanish draft; Bravo's users never see or hear about it."""
     from dealerflow.integrations.email import MockEmailProvider
+    from tests.dealer_helpers import drain
 
     cid, h = t["alpha"].id, t["h"]["rep"]
     conv = client.post(f"/api/v1/clients/{cid}/inquiries/simulated", headers=h, json={"body": "¿Está disponible para una prueba de manejo?",
                                                                                     "language": "es", "provider_message_id": "es-1"}).json()
-    draft = client.post(f"/api/v1/clients/{cid}/conversations/{conv['conversation_id']}/draft", headers=h, json={"template": "test_drive"}).json()
-    assert draft["language"] == "es" and "prueba de manejo" in draft["body"] and draft["status"] == "pending_approval"
-    # Bravo's staff path cannot touch Alpha's conversation.
-    assert client.post(f"/api/v1/clients/{t['bravo'].id}/conversations/{conv['conversation_id']}/messages/{draft['message_id']}/approve", headers=h).status_code == 404
-    res = client.post(f"/api/v1/clients/{cid}/conversations/{conv['conversation_id']}/messages/{draft['message_id']}/approve", headers=h).json()
-    assert res["summary_delivered"] is True and "Test-drive requested" in res["summary"]
-    assert [m.to for m, _ in MockEmailProvider.outbox] == ["owner@alpha.example"]
+    assert conv["simulated"] is True and conv["duplicate"] is False
+    drain()
+    got = client.get(f"/api/v1/dealers/{cid}/conversations/{conv['conversation_id']}", headers=t["h"]["alpha_admin"]).json()
+    assert got["language"] == "es" and got["pending_draft"]["language"] == "es"
+    assert client.get(f"/api/v1/dealers/{cid}/conversations/{conv['conversation_id']}", headers=t["h"]["bravo"]).status_code == 404
+    assert client.get(f"/api/v1/dealers/{t['bravo'].id}/conversations/{conv['conversation_id']}", headers=t["h"]["bravo"]).status_code == 404
+    recipients = {m.to for m, _ in MockEmailProvider.outbox}
+    assert "alpha-admin@p4.example" in recipients
+    assert not any("bravo" in r for r in recipients)

@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% block title %}Customer conversations{% endblock %}{% block content %}
+<h1>Customer conversations</h1>
+{% if estop %}<div class="flash error">Emergency stop is active (Agent page): no customer message or notification email is sent.</div>{% endif %}
+<p class="small muted">Inbound customer messages for every dealership. All customer channels are SIMULATED in this build: replies never reach a real customer.</p>
+<div class="card row"><strong>Automated replies for every dealership:</strong> {% if global_pause %}<span class="pill bad">paused</span>{% else %}<span class="pill ok">allowed (per-dealership rules still apply)</span>{% endif %}
+{% if role_at_least(user.role, 'rep') %}<form class="inline" method="post" action="/conversations/global-pause"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% if global_pause %}<input type="hidden" name="on" value="0"><button class="secondary" {% if not role_at_least(user.role, 'manager') %}disabled title="Requires manager"{% endif %}>Lift global pause</button>{% else %}<input type="hidden" name="on" value="1"><input name="reason" placeholder="Reason" aria-label="Reason"><button class="danger">Pause all automated replies</button>{% endif %}</form>{% endif %}</div>
+<div class="tablewrap"><table><tr><th>Dealership</th><th>Open</th><th>Drafts to review</th><th>Escalations</th><th>Appointments to confirm</th><th>Uncertain sends</th></tr>
+{% for c in clients %}<tr><td><a href="/dealers/{{ c.id }}/inbox">{{ c.name }}</a>{% if c.simulated %} <span class="pill sim">SIMULATED</span>{% endif %}</td>
+<td>{{ stats.open.get(c.id, 0) }}</td><td>{{ stats.drafts.get(c.id, 0) }}</td><td>{% if stats.escalations.get(c.id) %}<span class="pill bad">{{ stats.escalations[c.id] }}</span>{% else %}0{% endif %}</td>
+<td>{{ stats.appointments.get(c.id, 0) }}</td><td>{% if stats.uncertain.get(c.id) %}<span class="pill bad">{{ stats.uncertain[c.id] }}</span>{% else %}0{% endif %}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No dealership clients yet.</td></tr>{% endfor %}</table></div>
+{% if uncertain %}<h2>Sends needing reconciliation</h2><p class="small muted">The provider may or may not have received these. They are never re-sent automatically: check the channel, then reconcile on the conversation page.</p>
+<ul>{% for m in uncertain %}<li><a href="/dealers/{{ m.client_id }}/conversations/{{ m.conversation_id }}">conversation #{{ m.conversation_id }}</a> · {{ m.channel }} · {{ m.delivery_error or '' }}</li>{% endfor %}</ul>{% endif %}
+<h2>Response-engine evaluation</h2><p class="small muted">46 synthetic EN/ES conversations run through the real pipeline in an isolated database. A passing run is required before a dealership may enable Mode B or C.</p>
+<table><tr><th>Run</th><th>When</th><th>Engine</th><th>Result</th><th>Dealership</th></tr>{% for r in evals %}<tr><td>#{{ r.id }}</td><td class="small">{{ r.created_at|local }}</td><td>{{ r.engine_version }}</td><td><span class="pill {{ 'ok' if r.passed else 'bad' }}">{{ 'passed' if r.passed else 'failed' }}</span></td><td class="small">{{ r.client_id or 'agency' }}</td></tr>
+{% else %}<tr><td colspan="5" class="muted small">No runs yet.</td></tr>{% endfor %}</table>
+{% if role_at_least(user.role, 'manager') %}<form method="post" action="/conversations/evaluate" style="margin-top:8px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Run evaluation</button></form>{% endif %}
+{% endblock %}

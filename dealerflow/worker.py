@@ -40,6 +40,9 @@ def schedule_tick(now=None) -> bool:
         from .services import dealer_jobs
 
         dealer_jobs.schedule(db, now)  # Phase 2: inventory feed syncs + hourly stale scan
+        from .services import conversations
+
+        conversations.schedule(db, now)  # Phase 3: hourly digest check + appointment reminder sweep
         return created
 
 

@@ -1,0 +1,62 @@
+{% extends "base.html" %}{% from "dealer_macros.html" import subnav, cst %}{% block title %}Conversation #{{ conv.id }} · {{ client.name }}{% endblock %}{% block content %}
+{{ subnav(client, 'inbox', user) }}
+<h1>Conversation #{{ conv.id }} <span class="pill">{{ channel_labels.get(conv.channel, conv.channel) }}</span> {{ cst(conv.status) }}{% if conv.simulated %} <span class="pill sim">SIMULATED</span>{% endif %}</h1>
+{% if conv.opted_out %}<div class="flash error">The customer opted out {{ conv.opted_out_at|local }}. No messages will be sent from the platform.</div>{% endif %}
+{% if conv.human_requested %}<div class="flash warn">The customer asked for a person. Automation is off for this conversation.</div>{% endif %}
+{% if conv.channel == 'MARKETPLACE_ASSISTED' %}<div class="flash warn">Marketplace conversation: you send replies yourself inside Facebook, then use "Record as sent".</div>{% endif %}
+<div class="conv-grid"><div>
+<div class="card"><h2>Messages</h2><div class="msgs">
+{% for m in conv.messages %}<div class="msg {% if m.direction == 'OUTBOUND' %}out{% endif %}">{{ m.body }}
+<div class="meta">{{ {'CUSTOMER':'Customer','STAFF':(users[m.sender_user_id].name if m.sender_user_id in users else 'Staff'),'AI_AUTO':'Automated reply','SYSTEM':'System'}.get(m.sender_type, m.sender_type) }} · {{ m.created_at|local }}{% if m.direction == 'OUTBOUND' %} · {{ cst(m.delivery_status) }}{% if m.delivery_error %} <span>{{ m.delivery_error }}</span>{% endif %}
+{% if m.delivery_status == 'UNCERTAIN' and ctx.can('manage') %}<span class="row" style="margin-top:4px">Check the channel first, then:
+<form class="inline" method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/messages/{{ m.id }}/reconcile"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="delivered" value="1"><button class="secondary">It was delivered</button></form>
+<form class="inline" method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/messages/{{ m.id }}/reconcile"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="delivered" value="0"><button class="secondary">Not delivered: re-queue</button></form></span>{% endif %}{% endif %}</div></div>
+{% endfor %}</div></div>
+{% if not conv.opted_out and ctx.can('respond') %}<div class="card"><h2>Reply</h2>
+{% if pending %}<p class="small">Draft ({{ pending.generated_by }}, confidence {{ "%.2f"|format(pending.confidence) }}){% if pending.escalation_reasons %} · <span class="pill bad">escalation: {{ pending.escalation_reasons|join(', ') }}</span>{% endif %}</p>
+<p class="small muted">Not sent automatically because: {{ pending.decision_reasons|join('; ') or '—' }}</p>
+{% if pending.unresolved %}<p class="small" style="color:var(--warn)">Needs confirmation by your team: {{ pending.unresolved|join(', ') }}</p>{% endif %}{% endif %}
+{% if send_warnings %}<div class="flash error">Not sent. This message contains content that isn't backed by verified data:<ul>{% for w in send_warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+Edit it, or confirm below that you verified it yourself (your confirmation is recorded in the audit log).</div>{% endif %}
+<form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/send"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% set did = unsent_draft_id if unsent_draft_id else (pending.id if pending else '') %}{% if did %}<input type="hidden" name="draft_id" value="{{ did }}">{% endif %}
+<label for="reply-body" class="sr">Reply</label><textarea id="reply-body" name="body" class="reply" rows="5">{{ unsent_body if unsent_body else (pending.body if pending else '') }}</textarea>
+{% if send_warnings %}<label class="row"><input type="checkbox" name="acknowledge_warnings"> I verified these details myself and want to send anyway</label>{% endif %}
+<p class="row">{% if sendable %}<button type="submit">Send (SIMULATED)</button><label class="row small"><input type="checkbox" name="manual_external" value="1"> I sent this outside the platform</label>
+{% else %}<button type="submit" name="manual_external" value="1">Record as sent (I pasted it myself)</button>{% endif %}</p></form>
+{% if pending %}<form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/drafts/{{ pending.id }}/reject"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Reject draft</button></form>{% endif %}</div>
+{% if conv.channel == 'MARKETPLACE_ASSISTED' %}<div class="card"><h3>Log the buyer's next message</h3>
+<p class="small muted">Use the same thread label as before so the messages stay together.</p>
+<form method="post" action="/dealers/{{ client.id }}/marketplace/intake"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="next-thread">Thread label</label><input id="next-thread" name="thread_label" required style="width:100%">
+<label for="next-text">Message</label><textarea id="next-text" name="text" required class="reply" rows="3"></textarea><p><button class="secondary">Log message</button></p></form></div>{% endif %}
+{% endif %}
+</div><div>
+<div class="card"><h2>Summary</h2>{% set s = conv.summary or {} %}<table class="kv">
+<tr><td>Vehicle</td><td>{{ s.vehicle_of_interest or 'not identified' }}</td></tr>
+<tr><td>Language</td><td>{{ 'Spanish' if conv.preferred_language == 'es' else 'English' }}</td></tr>
+<tr><td>Main questions</td><td>{{ (s.main_questions or [])|join(', ') or '—' }}</td></tr>
+<tr><td>Verified info given</td><td>{{ (s.verified_information_provided or [])|join('; ') or '—' }}</td></tr>
+<tr><td>Preferences</td><td>{{ ((s.customer_preferences or {}).get('requested_features', []) + (s.customer_preferences or {}).get('requested_times', []))|join(', ') or '—' }}</td></tr>
+<tr><td>Contact</td><td>{% for k, v in (s.contact_details or {}).items() %}{{ v }}<br>{% else %}—{% endfor %}</td></tr>
+<tr><td>Test drive</td><td>{{ 'Interested' if s.test_drive_interest else 'No' }} · {{ (s.appointment_status or 'NONE')|replace('_', ' ')|lower }}</td></tr>
+<tr><td>Unresolved</td><td>{{ (s.unresolved_questions or [])|join('; ') or '—' }}</td></tr>
+<tr><td>Next step</td><td><strong>{{ s.recommended_next_step or '—' }}</strong></td></tr></table></div>
+{% for e in escalations if e.status != 'RESOLVED' %}<div class="card"><h3>Escalation #{{ e.id }} {{ cst(e.status) }}</h3><p>{{ e.reasons|join(', ') }}</p><p class="small"><strong>Recommended:</strong> {{ e.recommended_action }}</p>
+{% if ctx.can('respond') %}<form method="post" action="/dealers/{{ client.id }}/escalations/{{ e.id }}/resolve"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Mark resolved</button></form>{% endif %}</div>{% endfor %}
+{% if vehicle %}<div class="card"><h3>Vehicle data used for replies</h3><p class="small"><a href="/dealers/{{ client.id }}/vehicles/{{ vehicle.id }}">{{ vehicle_title(vehicle) }}</a> · {{ vehicle.inventory_status }} · last seen in inventory {{ vehicle.last_seen_at|local }}{% if vehicle.verified_at %} · verified by staff {{ vehicle.verified_at|local }}{% endif %}</p>
+{% if vehicle.data_conflict_note %}<p class="small" style="color:var(--bad)">Conflict: {{ vehicle.data_conflict_note }}</p>{% endif %}
+{% if ctx.can('edit') %}<form method="post" action="/dealers/{{ client.id }}/vehicles/{{ vehicle.id }}/verify"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="/dealers/{{ client.id }}/conversations/{{ conv.id }}">
+<label for="conflict">Sources disagree? Describe it (leave empty to confirm price and availability now)</label><input id="conflict" name="conflict_note" value="{{ vehicle.data_conflict_note or '' }}" style="width:100%"><p><button class="secondary">Save</button></p></form>{% endif %}</div>{% endif %}
+{% if ctx.can('respond') %}<div class="card"><h3>Controls</h3>
+<form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/assign"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="assignee">Assigned to</label><div class="row"><select id="assignee" name="user_id"><option value="">Unassigned</option>{% for u in members %}<option value="{{ u.id }}" {% if conv.assigned_user_id == u.id %}selected{% endif %}>{{ u.name }}{% if not u.client_id %} (agency){% endif %}</option>{% endfor %}</select><button class="secondary">Assign</button></div></form>
+<form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/vehicle"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="link-vehicle">Vehicle of interest</label><div class="row"><select id="link-vehicle" name="vehicle_id"><option value="">None</option>{% for v in vehicles %}<option value="{{ v.id }}" {% if conv.vehicle_id == v.id %}selected{% endif %}>{{ vehicle_title(v) }} {{ v.stock_number or '' }}</option>{% endfor %}</select><button class="secondary">Link</button></div></form>
+<form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/takeover" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% if conv.human_takeover %}<input type="hidden" name="on" value="0"><button class="secondary">Hand back to automation</button>{% else %}<input type="hidden" name="on" value="1"><button class="danger">Take over (stop automation)</button>{% endif %}</form>
+<form method="post" action="/dealers/{{ client.id }}/conversations/{{ conv.id }}/close" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Close conversation</button></form></div>{% endif %}
+{% if appointments %}<div class="card"><h3>Appointments</h3>{% for a in appointments %}<p class="small">#{{ a.id }} {{ cst(a.status) }} {{ local(a.confirmed_start or a.requested_start).strftime('%a %b %d %I:%M %p') }} · calendar {{ a.availability_checked|replace('_',' ')|lower }}</p>{% endfor %}<a href="/dealers/{{ client.id }}/appointments">Manage appointments</a></div>{% endif %}
+{% if drafts %}<div class="card"><h3>Draft history</h3><table>{% for d in drafts %}<tr><td class="small">#{{ d.id }}</td><td>{{ cst(d.status) }}</td><td class="small muted">{{ d.decision }} · {{ d.engine_version }}</td></tr>{% endfor %}</table></div>{% endif %}
+</div></div>
+{% endblock %}

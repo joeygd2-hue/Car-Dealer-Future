@@ -158,3 +158,123 @@ def api_report(days: int = 30, ctx: ClientContext = Depends(dealer_ctx())):
 @router.get("/export.csv")
 def api_export(lang: str = "en", ctx: ClientContext = Depends(dealer_ctx())):
     return Response(export_listings_csv(ctx, lang), media_type="text/csv")
+
+
+# --- Phase 3: customer conversations and appointments --------------------------------------------------------
+
+
+def conversation_json(ctx: ClientContext, conv, *, full: bool = False) -> dict[str, Any]:
+    from ..models import ConversationMessage, ResponseDraft
+
+    out: dict[str, Any] = {
+        "id": conv.id, "channel": conv.channel, "status": conv.status, "language": conv.preferred_language,
+        "simulated": conv.simulated, "vehicle_id": conv.vehicle_id, "assigned_user_id": conv.assigned_user_id,
+        "opted_out": conv.opted_out, "human_takeover": conv.human_takeover, "escalation_status": conv.escalation_status,
+        "appointment_status": conv.appointment_status, "next_action": conv.next_action,
+        "last_inbound_at": conv.last_inbound_at.isoformat() if conv.last_inbound_at else None,
+    }
+    if full:
+        msgs = ctx.db.scalars(select(ConversationMessage).where(ConversationMessage.conversation_id == conv.id)
+                              .order_by(ConversationMessage.id)).all()
+        out["messages"] = [{"id": m.id, "direction": m.direction, "sender_type": m.sender_type, "body": m.body,
+                            "delivery_status": m.delivery_status, "created_at": m.created_at.isoformat()} for m in msgs]
+        draft = ctx.db.scalar(select(ResponseDraft).where(ResponseDraft.conversation_id == conv.id,
+                                                          ResponseDraft.status == "PENDING_REVIEW").order_by(ResponseDraft.id.desc()))
+        out["pending_draft"] = None if draft is None else {
+            "id": draft.id, "body": draft.body, "language": draft.language, "confidence": draft.confidence,
+            "escalation_reasons": draft.escalation_reasons, "unresolved": draft.unresolved,
+            "decision_reasons": draft.decision_reasons}
+        out["summary"] = conv.summary
+    return out
+
+
+@router.get("/conversations")
+def api_conversations(status: str | None = None, ctx: ClientContext = Depends(dealer_ctx())):
+    from ..models import Conversation
+
+    stmt = select(Conversation)
+    if status:
+        stmt = stmt.where(Conversation.status == status)
+    return {"items": [conversation_json(ctx, c) for c in ctx.db.scalars(stmt.order_by(Conversation.id.desc()).limit(500))]}
+
+
+@router.get("/conversations/{conv_id}")
+def api_conversation(conv_id: int, ctx: ClientContext = Depends(dealer_ctx())):
+    from ..models import Conversation
+
+    conv = ctx.db.get(Conversation, conv_id)
+    if conv is None or conv.client_id != ctx.client_id:
+        raise NotFound("Conversation not found")
+    return conversation_json(ctx, conv, full=True)
+
+
+class ReplyIn(BaseModel):
+    body: str
+    draft_id: int | None = None
+    acknowledge_warnings: bool = False
+
+
+@router.post("/conversations/{conv_id}/reply", status_code=202)
+def api_reply(conv_id: int, body: ReplyIn, ctx: ClientContext = Depends(dealer_ctx("respond"))):
+    """Queue a staff reply (SIMULATED delivery in this build). Same safety check as the page: unverified content is
+    refused unless ``acknowledge_warnings`` is true (recorded in the audit log)."""
+    from ..models import Conversation, ResponseDraft
+    from ..services.conversations.channels import SENDABLE_CHANNELS
+    from ..services.conversations.common import record
+    from ..services.conversations.outbound import queue_outbound, record_manual_external
+    from ..services.conversations.summaries import build_summary
+    from .routes_conversations import staff_message_warnings
+
+    conv = ctx.db.get(Conversation, conv_id)
+    if conv is None or conv.client_id != ctx.client_id:
+        raise NotFound("Conversation not found")
+    text = body.body.strip()
+    if not text:
+        raise BadRequest("Message is empty")
+    if conv.opted_out:
+        raise BadRequest("The customer opted out; messages cannot be sent from the platform")
+    draft = ctx.db.get(ResponseDraft, body.draft_id) if body.draft_id else None
+    if body.draft_id and (draft is None or draft.client_id != ctx.client_id or draft.conversation_id != conv.id):
+        raise NotFound("Draft not found")
+    warnings = staff_message_warnings(ctx.db, conv, text, draft)
+    if warnings and not body.acknowledge_warnings:
+        raise BadRequest("Message contains content not backed by verified data", {"warnings": warnings})
+    if warnings:
+        record(ctx.db, "message.staff_override", client_id=ctx.client_id, actor_id=ctx.actor_id, entity_type="conversation",
+               entity_id=conv.id, warnings=warnings)
+    if draft:
+        draft.reviewed_by_id = ctx.actor_id
+    if conv.channel not in SENDABLE_CHANNELS:
+        msg = record_manual_external(ctx.db, conv, text, user_id=ctx.actor_id, draft=draft)
+    else:
+        msg = queue_outbound(ctx.db, conv, text, sender_type="STAFF", user_id=ctx.actor_id, draft=draft)
+        if draft:
+            draft.status = "SENT"
+    build_summary(ctx.db, conv)
+    return {"message_id": msg.id, "delivery_status": msg.delivery_status}
+
+
+@router.get("/appointments")
+def api_appointments(ctx: ClientContext = Depends(dealer_ctx())):
+    from ..models import Appointment
+
+    rows = ctx.db.scalars(select(Appointment).order_by(Appointment.requested_start.desc()).limit(500)).all()
+    return {"items": [{"id": a.id, "conversation_id": a.conversation_id, "vehicle_id": a.vehicle_id, "status": a.status,
+                       "requested_start_utc": a.requested_start.isoformat(),
+                       "confirmed_start_utc": a.confirmed_start.isoformat() if a.confirmed_start else None,
+                       "availability_checked": a.availability_checked} for a in rows]}
+
+
+@router.post("/appointments/{appt_id}/confirm")
+def api_confirm_appointment(appt_id: int, ctx: ClientContext = Depends(dealer_ctx("respond"))):
+    from ..models import Appointment
+    from ..services.conversations import appointments as appt_svc
+
+    appt = ctx.db.get(Appointment, appt_id)
+    if appt is None or appt.client_id != ctx.client_id:
+        raise NotFound("Appointment not found")
+    try:
+        appt_svc.confirm(ctx.db, appt, user_id=ctx.actor_id)
+    except ValueError as exc:
+        raise BadRequest(str(exc)) from exc
+    return {"id": appt.id, "status": appt.status}

@@ -21,8 +21,6 @@ from ..models import (
     Client,
     ClientAgreement,
     ClientReport,
-    Conversation,
-    ConversationMessage,
     Expense,
     ExpenseCategory,
     Invoice,
@@ -35,7 +33,7 @@ from ..models import (
     User,
     Vehicle,
 )
-from ..services import client_reports, dealer_ops, finance, onboarding, packages, seo_audit, tenancy, tickets, usage
+from ..services import client_reports, finance, onboarding, packages, seo_audit, tenancy, tickets, usage
 from .deps import check_csrf, require
 from .routes_clients import record_integration
 from .routes_seo import import_search_csv
@@ -177,8 +175,9 @@ def ticket_create(body: TicketIn, user: User = Depends(require("rep")), db: Sess
         raise bad(exc) from exc
 
 
-# --- Interim Phase 3 scaffolding (SIMULATED inquiries) -----------------------------------------
-# Inventory, listings and publishing use the Phase 2 API under /api/v1/dealers/{client_id}/...
+# --- Phase 3: SIMULATED inquiries for testing ------------------------------------------------------
+# Inventory, listings and publishing use the Phase 2 API under /api/v1/dealers/{client_id}/...; conversations and
+# replies use /api/v1/dealers/{client_id}/conversations.
 
 
 class CsvIn(BaseModel):
@@ -186,49 +185,27 @@ class CsvIn(BaseModel):
 
 
 class InquiryIn(BaseModel):
-    channel: str = "web_form"
     customer_name: str | None = None
-    customer_contact: str | None = None
-    body: str = Field(min_length=1, max_length=10000)
-    language: str = "en"
+    body: str = Field(min_length=1, max_length=2000)
     vehicle_id: int | None = None
-    provider_message_id: str = Field(min_length=1, max_length=300)
+    provider_message_id: str = Field(min_length=1, max_length=120)
 
 
 @router.post("/clients/{cid}/inquiries/simulated", status_code=201)
 def inquiry_simulated(cid: int, body: InquiryIn, user: User = Depends(require("rep")), db: Session = Depends(get_db)):
-    """Record a SIMULATED car-buyer inquiry (no real customer channel is connected in Phase 4)."""
+    """Record a SIMULATED website-chat inquiry. It runs through the real Phase 3 pipeline (the worker drafts a
+    grounded reply) but is never reported as a real inquiry and no reply leaves the platform."""
+    from ..services.conversations.channels import WEBSITE_CHAT
+    from ..services.conversations.inbox import ingest_inbound
+
     c = _get(db, Client, cid)
     v = _get(db, Vehicle, body.vehicle_id, cid) if body.vehicle_id else None
-    conv = dealer_ops.receive_inquiry(db, c, vehicle=v, simulated=True, **body.model_dump(exclude={"vehicle_id"}))
-    return {"conversation_id": conv.id, "status": conv.status, "language": conv.language, "simulated": conv.simulated}
-
-
-class DraftIn(BaseModel):
-    template: str
-
-
-@router.post("/clients/{cid}/conversations/{conv_id}/draft")
-def conversation_draft(cid: int, conv_id: int, body: DraftIn, user: User = Depends(require("rep")), db: Session = Depends(get_db)):
-    conv = _get(db, Conversation, conv_id, cid)
-    if body.template not in dealer_ops.APPROVED_RESPONSES:
-        raise HTTPException(400, "Unknown approved response")
-    m = dealer_ops.draft_response(db, conv, body.template)
-    return {"message_id": m.id, "body": m.body, "language": m.language, "status": m.status}
-
-
-@router.post("/clients/{cid}/conversations/{conv_id}/messages/{mid}/approve")
-def conversation_approve(cid: int, conv_id: int, mid: int, user: User = Depends(require("rep")), db: Session = Depends(get_db)):
-    m = _get(db, ConversationMessage, mid, cid)
-    if m.conversation_id != conv_id:
-        raise HTTPException(404, "Not found")
-    try:
-        dealer_ops.approve_and_send_response(db, m, user)
-    except ValueError as exc:
-        raise bad(exc) from exc
-    conv = db.get(Conversation, conv_id)
-    summary = dealer_ops.summarize_and_deliver(db, conv)
-    return {"status": m.status, "summary": summary, "summary_delivered": conv.summary_delivered_at is not None}
+    res = ingest_inbound(db, client=c, channel=WEBSITE_CHAT, external_conversation_id=f"sim:{body.provider_message_id}",
+                         text=body.body, provider_message_id=f"sim:{body.provider_message_id}",
+                         contact_hints={"name": body.customer_name}, vehicle_id=v.id if v else None, simulated=True)
+    conv = res.conversation
+    return {"conversation_id": conv.id, "message_id": res.message.id, "status": conv.status,
+            "language": conv.preferred_language, "simulated": conv.simulated, "duplicate": not res.created}
 
 
 # --- finance --------------------------------------------------------------------------------------

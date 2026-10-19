@@ -1,0 +1,241 @@
+"""Build the verified fact sheet the response engine is allowed to use.
+
+Rules: only dealer-approved business info, only inventory fields that are fresh, verified and not in conflict.
+Anything else is reported as "needs confirmation".
+
+Sources in the unified app:
+- Business info: the client profile (``clients``: phone, address, weekly hours in ``business_hours``), usable only
+  after a dealership administrator approved it (``clients.business_info_approved_at``).
+- Inventory: Phase 2 ``vehicles``. "Verified" is the later of the last import/feed that contained the vehicle
+  (``last_seen_at``) and a person's explicit confirmation (``verified_at``). A vehicle is in conflict when staff
+  recorded a ``data_conflict_note``, its validation found contradictory data, or Phase 2 flagged it stale.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ....db import utcnow
+from ....models import Client, DealerFAQ, ResponseAutomationSettings, ResponseTemplate, Vehicle
+from .analysis import Analysis
+from .language import strip_accents
+
+DAY_NAMES = {
+    "en": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    "es": ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"],
+}
+STATUS = {"available": "AVAILABLE", "pending": "PENDING", "sold": "SOLD"}
+CONFLICT_CODES = ("implausible_price", "implausible_mileage")
+
+
+@dataclass
+class Fact:
+    key: str
+    value: str
+    source: str
+
+
+@dataclass
+class FactSheet:
+    dealership_name: str
+    language: str
+    business_approved: bool
+    phone: str | None = None
+    address: str | None = None
+    hours_text: str | None = None
+    hours: dict[int, tuple[str, str] | None] = field(default_factory=dict)
+    vehicle: Vehicle | None = None
+    vehicle_title: str | None = None
+    vehicle_ambiguous: bool = False
+    price_text: str | None = None
+    availability: str | None = None  # AVAILABLE|PENDING|SOLD when verified, else None
+    mileage_text: str | None = None
+    features: list[str] = field(default_factory=list)
+    inventory_problems: list[str] = field(default_factory=list)  # stale|conflict|unverified|price_missing
+    facts: list[Fact] = field(default_factory=list)
+    templates: dict[str, ResponseTemplate] = field(default_factory=dict)
+    faqs: list[DealerFAQ] = field(default_factory=list)
+    timezone: str = "America/Chicago"
+
+    def allowed_strings(self) -> list[str]:
+        out = [f.value for f in self.facts]
+        out += [t.body for t in self.templates.values()]
+        out += [f.answer for f in self.faqs]
+        return out
+
+
+def vehicle_title(v: Vehicle) -> str:
+    return " ".join(str(p) for p in (v.year, v.make, v.model, v.trim) if p) or "vehicle"
+
+
+def vehicle_verified_at(v: Vehicle) -> datetime | None:
+    stamps = [t for t in (v.verified_at, v.last_seen_at) if t is not None]
+    return max(stamps) if stamps else None
+
+
+def vehicle_conflict(v: Vehicle) -> str | None:
+    if v.data_conflict_note:
+        return v.data_conflict_note
+    for issue in v.validation_issues or []:
+        code = str(issue.get("code", ""))
+        if code.endswith("_conflict") or code in CONFLICT_CODES:
+            return f"inventory data check: {code}"
+    return None
+
+
+def fmt_money(cents: int) -> str:
+    dollars = cents / 100
+    return f"${dollars:,.0f}" if cents % 100 == 0 else f"${dollars:,.2f}"
+
+
+def fmt_time(hhmm: str, lang: str) -> str:
+    h, m = (int(x) for x in hhmm.split(":"))
+    if lang == "es":
+        return f"{h}:{m:02d}"
+    suffix = "AM" if h < 12 else "PM"
+    h12 = h % 12 or 12
+    return f"{h12}:{m:02d} {suffix}"
+
+
+def hours_text(hours: dict[int, tuple[str, str] | None], lang: str) -> str:
+    names = DAY_NAMES[lang]
+    closed_word = "closed" if lang == "en" else "cerrado"
+    parts = []
+    for wd in range(7):
+        h = hours.get(wd)
+        parts.append(f"{names[wd]} {fmt_time(h[0], lang)}–{fmt_time(h[1], lang)}" if h else f"{names[wd]} {closed_word}")
+    return ", ".join(parts)
+
+
+def parse_hours(raw: dict[str, Any] | None) -> dict[int, tuple[str, str] | None]:
+    """``clients.business_hours`` → {weekday: (open, close) | None}. Malformed days count as closed."""
+    out: dict[int, tuple[str, str] | None] = {}
+    for wd in range(7):
+        v = (raw or {}).get(str(wd))
+        ok = isinstance(v, (list, tuple)) and len(v) == 2 and all(re.fullmatch(r"\d{2}:\d{2}", str(x)) for x in v)
+        out[wd] = (str(v[0]), str(v[1])) if ok and v[0] < v[1] else None
+    return out
+
+
+def full_address(client: Client) -> str | None:
+    parts = [client.address_line, client.city, " ".join(p for p in (client.state, client.postal_code) if p)]
+    text = ", ".join(p for p in parts if p)
+    return text or None
+
+
+def resolve_vehicle(db: Session, client_id: int, analysis: Analysis, text: str,
+                    current_vehicle_id: int | None) -> tuple[Vehicle | None, bool]:
+    """Find the vehicle the customer means. Returns (vehicle, ambiguous)."""
+    vehicles = list(db.scalars(select(Vehicle).where(Vehicle.client_id == client_id,
+                                                     Vehicle.inventory_status != "removed")))
+    for vin in analysis.vins:
+        for v in vehicles:
+            if v.vin and v.vin.upper() == vin:
+                return v, False
+    for stock in analysis.stock_numbers:
+        for v in vehicles:
+            if v.stock_number and v.stock_number.upper() == stock:
+                return v, False
+    norm = strip_accents(text.lower())
+    matches = []
+    for v in vehicles:
+        model = (v.model or "").lower()
+        if model and re.search(rf"\b{re.escape(model)}\b", norm):
+            make = (v.make or "").lower()
+            score = 2 + (1 if make and make in norm else 0) + (1 if v.year and v.year in analysis.years else 0)
+            matches.append((score, v))
+    if matches:
+        matches.sort(key=lambda x: -x[0])
+        top = [v for s, v in matches if s == matches[0][0]]
+        if len(top) == 1:
+            return top[0], False
+        if current_vehicle_id and any(v.id == current_vehicle_id for v in top):
+            return next(v for v in top if v.id == current_vehicle_id), False
+        return None, True
+    if current_vehicle_id:
+        v = db.get(Vehicle, current_vehicle_id)
+        if v and v.client_id == client_id:
+            return v, False
+    return None, False
+
+
+def build_fact_sheet(db: Session, client: Client, settings: ResponseAutomationSettings, language: str,
+                     vehicle: Vehicle | None, vehicle_ambiguous: bool = False, now: datetime | None = None) -> FactSheet:
+    now = now or utcnow()
+    approved = client.business_info_approved_at is not None
+    fs = FactSheet(dealership_name=client.name, language=language, business_approved=approved,
+                   timezone=client.timezone, vehicle_ambiguous=vehicle_ambiguous)
+    fs.facts.append(Fact("dealership_name", client.name, "dealership profile"))
+    if approved:
+        if client.phone:
+            fs.phone = client.phone
+            fs.facts.append(Fact("phone", client.phone, "approved business info"))
+        address = full_address(client)
+        if address:
+            fs.address = address
+            fs.facts.append(Fact("address", address, "approved business info"))
+        hours = parse_hours(client.business_hours)
+        if any(hours.values()):
+            fs.hours = hours
+            fs.hours_text = hours_text(hours, language)
+            fs.facts.append(Fact("hours", fs.hours_text, "approved business hours"))
+    if vehicle is not None:
+        fs.vehicle = vehicle
+        fs.vehicle_title = vehicle_title(vehicle)
+        fs.facts.append(Fact("vehicle", fs.vehicle_title, f"inventory vehicle #{vehicle.id}"))
+        if vehicle.year:
+            fs.facts.append(Fact("year", str(vehicle.year), f"inventory vehicle #{vehicle.id}"))
+        verified_at = vehicle_verified_at(vehicle)
+        conflict = vehicle_conflict(vehicle)
+        fresh = (verified_at is not None and not vehicle.stale
+                 and now - verified_at <= timedelta(hours=settings.stale_inventory_hours))
+        if conflict:
+            fs.inventory_problems.append("conflict")
+        if verified_at is None:
+            fs.inventory_problems.append("unverified")
+        elif not fresh:
+            fs.inventory_problems.append("stale")
+        trusted = fresh and not conflict
+        status = STATUS.get(vehicle.inventory_status)
+        if trusted and status:
+            fs.availability = status
+            fs.facts.append(Fact("availability", status, f"inventory verified {verified_at:%Y-%m-%d %H:%M} UTC"))
+        if trusted and vehicle.price_cents:
+            fs.price_text = fmt_money(vehicle.price_cents)
+            fs.facts.append(Fact("price", fs.price_text, f"inventory verified {verified_at:%Y-%m-%d %H:%M} UTC"))
+        elif not vehicle.price_cents:
+            fs.inventory_problems.append("price_missing")
+        if vehicle.mileage is not None and trusted:
+            fs.mileage_text = f"{vehicle.mileage:,}"
+            fs.facts.append(Fact("mileage", fs.mileage_text, f"inventory vehicle #{vehicle.id}"))
+        # Features come only from the dealership's own inventory data (never inferred).
+        fs.features = [str(f) for f in (vehicle.features or [])]
+        if fs.features:
+            fs.facts.append(Fact("features", ", ".join(fs.features), "dealer-supplied features"))
+        if vehicle.stock_number:
+            fs.facts.append(Fact("stock", vehicle.stock_number, f"inventory vehicle #{vehicle.id}"))
+    for t in db.scalars(select(ResponseTemplate).where(
+            ResponseTemplate.client_id == client.id, ResponseTemplate.language == language,
+            ResponseTemplate.active.is_(True), ResponseTemplate.approved_at.is_not(None))):
+        fs.templates[t.intent] = t
+    fs.faqs = list(db.scalars(select(DealerFAQ).where(
+        DealerFAQ.client_id == client.id, DealerFAQ.language == language, DealerFAQ.active.is_(True),
+        DealerFAQ.approved_at.is_not(None))))
+    return fs
+
+
+def match_faq(fs: FactSheet, text: str) -> DealerFAQ | None:
+    norm = strip_accents(text.lower())
+    best, best_hits = None, 0
+    for faq in fs.faqs:
+        kws = [strip_accents(k.lower()) for k in (faq.keywords or []) if k.strip()]
+        hits = sum(1 for k in kws if re.search(rf"\b{re.escape(k)}\b", norm))
+        if kws and hits >= max(1, min(2, len(kws))) and hits > best_hits:
+            best, best_hits = faq, hits
+    return best

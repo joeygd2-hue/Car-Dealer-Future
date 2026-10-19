@@ -19,6 +19,8 @@ from ..models import (
     Client,
     ClientReport,
     Conversation,
+    ConversationMessage,
+    Escalation,
     IntegrationConnection,
     SearchMetric,
     SeoIssue,
@@ -75,13 +77,24 @@ def build_report_data(db: Session, client: Client, start: date, end: date) -> di
                            ChannelPublication.confirmed_at < e)
     all_convs = db.scalars(select(Conversation).where(Conversation.client_id == cid, Conversation.created_at >= s, Conversation.created_at < e)).all()
     convs = [c for c in all_convs if not c.simulated]  # SIMULATED test conversations are reported separately, never as real
-    response_minutes = [
-        (c.first_response_at - c.first_inbound_at).total_seconds() / 60
-        for c in convs if c.first_inbound_at and c.first_response_at and c.first_response_at >= c.first_inbound_at
-    ]
+    real_ids = [c.id for c in convs]
+    response_minutes = []
+    if real_ids:
+        first_in = dict(db.execute(select(ConversationMessage.conversation_id, func.min(ConversationMessage.created_at)).where(
+            ConversationMessage.conversation_id.in_(real_ids), ConversationMessage.direction == "INBOUND")
+            .group_by(ConversationMessage.conversation_id)).all())
+        # A reply counts once it reached the customer: delivered by a live channel or sent by staff outside the platform.
+        first_out = dict(db.execute(select(ConversationMessage.conversation_id, func.min(ConversationMessage.created_at)).where(
+            ConversationMessage.conversation_id.in_(real_ids), ConversationMessage.direction == "OUTBOUND",
+            ConversationMessage.delivery_status.in_(("SENT", "MANUAL_EXTERNAL"))).group_by(ConversationMessage.conversation_id)).all())
+        response_minutes = [(first_out[i] - first_in[i]).total_seconds() / 60 for i in real_ids
+                            if i in first_in and i in first_out and first_out[i] >= first_in[i]]
     by_channel: dict[str, int] = {}
     for c in convs:
         by_channel[c.channel] = by_channel.get(c.channel, 0) + 1
+    appts = db.scalars(select(Appointment).where(Appointment.client_id == cid, Appointment.created_at >= s, Appointment.created_at < e,
+                                                 Appointment.conversation_id.in_(real_ids or [-1]))).all()
+    escalations = count(Escalation, Escalation.created_at >= s, Escalation.created_at < e, Escalation.conversation_id.in_(real_ids or [-1]))
 
     search = None
     sm = db.execute(
@@ -120,17 +133,18 @@ def build_report_data(db: Session, client: Client, start: date, end: date) -> di
                                                   "Channel has no supported publishing API; the dealership must post these"),
         },
         "inquiries": {
-            "received": metric(len(convs), "conversations", "Connected channels only; excludes SIMULATED test conversations"),
+            "received": metric(len(convs), "conversations", "Excludes SIMULATED test conversations"),
             "simulated_excluded": len(all_convs) - len(convs),
             "by_channel": by_channel,
             "median_first_response_minutes": metric(round(median(response_minutes), 1) if response_minutes else None, "conversations",
                                                     f"Based on {len(response_minutes)} conversations with both timestamps" if response_minutes else "No conversations with both timestamps"),
-            "qualified_leads": metric(sum(1 for c in convs if c.lead_qualified), "conversations"),
-            "escalations": metric(sum(1 for c in convs if c.escalated_at), "conversations"),
+            "qualified_leads": metric(len({a.conversation_id for a in appts}), "appointments", "Conversations with a test-drive request"),
+            "escalations": metric(escalations, "escalations", "Handed to a person (financing, complaints, unverified data, ...)"),
         },
         "appointments": {
-            "test_drive_requests": metric(count(Appointment, Appointment.kind == "test_drive", Appointment.requested_at >= s, Appointment.requested_at < e), "appointments"),
-            "confirmed": metric(count(Appointment, Appointment.status.in_(("confirmed", "completed")), Appointment.requested_at >= s, Appointment.requested_at < e), "appointments"),
+            "test_drive_requests": metric(sum(1 for a in appts if a.kind == "TEST_DRIVE"), "appointments"),
+            "confirmed": metric(sum(1 for a in appts if a.status in ("CONFIRMED", "COMPLETED")), "appointments",
+                                "Confirmed by dealership staff"),
         },
         "seo": {
             "issues_resolved": metric(count(SeoIssue, SeoIssue.resolved_at >= s, SeoIssue.resolved_at < e), "seo_issues", "Resolved = no longer detected by a re-audit, or marked resolved"),
